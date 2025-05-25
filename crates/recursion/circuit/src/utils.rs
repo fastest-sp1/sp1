@@ -1,6 +1,6 @@
 use p3_baby_bear::BabyBear;
 use p3_bn254_fr::Bn254Fr;
-use p3_field::{AbstractField, PrimeField32};
+use p3_field::{PrimeCharacteristicRing, PrimeField32};
 
 use sp1_recursion_compiler::ir::{Builder, Config, Felt, Var};
 use sp1_recursion_core::DIGEST_SIZE;
@@ -11,12 +11,12 @@ use sp1_stark::Word;
 /// word becomes the least significant bits.
 #[allow(dead_code)]
 pub fn babybears_to_bn254(digest: &[BabyBear; 8]) -> Bn254Fr {
-    let mut result = Bn254Fr::zero();
+    let mut result = Bn254Fr::ZERO;
     for word in digest.iter() {
         // Since BabyBear prime is less than 2^31, we can shift by 31 bits each time and still be
         // within the Bn254Fr field, so we don't have to truncate the top 3 bits.
-        result *= Bn254Fr::from_canonical_u64(1 << 31);
-        result += Bn254Fr::from_canonical_u32(word.as_canonical_u32());
+        result *= Bn254Fr::from_u64(1 << 31);
+        result += Bn254Fr::from_u32(word.as_canonical_u32());
     }
     result
 }
@@ -25,15 +25,15 @@ pub fn babybears_to_bn254(digest: &[BabyBear; 8]) -> Bn254Fr {
 /// (which would become the 3 most significant bits) are truncated.
 #[allow(dead_code)]
 pub fn babybear_bytes_to_bn254(bytes: &[BabyBear; 32]) -> Bn254Fr {
-    let mut result = Bn254Fr::zero();
+    let mut result = Bn254Fr::ZERO;
     for (i, byte) in bytes.iter().enumerate() {
-        debug_assert!(byte < &BabyBear::from_canonical_u32(256));
+        debug_assert!(byte < &BabyBear::from_u32(256));
         if i == 0 {
             // 32 bytes is more than Bn254 prime, so we need to truncate the top 3 bits.
-            result = Bn254Fr::from_canonical_u32(byte.as_canonical_u32() & 0x1f);
+            result = Bn254Fr::from_u32(byte.as_canonical_u32() & 0x1f);
         } else {
-            result *= Bn254Fr::from_canonical_u32(256);
-            result += Bn254Fr::from_canonical_u32(byte.as_canonical_u32());
+            result *= Bn254Fr::from_u32(256);
+            result += Bn254Fr::from_u32(byte.as_canonical_u32());
         }
     }
     result
@@ -44,8 +44,8 @@ pub fn felts_to_bn254_var<C: Config>(
     builder: &mut Builder<C>,
     digest: &[Felt<C::F>; DIGEST_SIZE],
 ) -> Var<C::N> {
-    let var_2_31: Var<_> = builder.constant(C::N::from_canonical_u32(1 << 31));
-    let result = builder.constant(C::N::zero());
+    let var_2_31: Var<_> = builder.constant(C::N::from_u32(1 << 31));
+    let result = builder.constant(C::N::ZERO);
     for (i, word) in digest.iter().enumerate() {
         let word_var = builder.felt2var_circuit(*word);
         if i == 0 {
@@ -62,9 +62,9 @@ pub fn felt_bytes_to_bn254_var<C: Config>(
     builder: &mut Builder<C>,
     bytes: &[Felt<C::F>; 32],
 ) -> Var<C::N> {
-    let var_256: Var<_> = builder.constant(C::N::from_canonical_u32(256));
-    let zero_var: Var<_> = builder.constant(C::N::zero());
-    let result = builder.constant(C::N::zero());
+    let var_256: Var<_> = builder.constant(C::N::from_u32(256));
+    let zero_var: Var<_> = builder.constant(C::N::ZERO);
+    let result = builder.constant(C::N::ZERO);
     for (i, byte) in bytes.iter().enumerate() {
         let byte_bits = builder.num2bits_f_circuit(*byte);
         if i == 0 {
@@ -124,7 +124,7 @@ pub(crate) mod tests {
         let config = SC::default();
 
         let run_span = tracing::debug_span!("run the recursive program").entered();
-        let mut runtime = Runtime::<F, EF, _>::new(program.clone(), config.perm.clone());
+        let mut runtime = Runtime::<F, EF>::new(program.clone(), config.perm.clone());
         runtime.witness_stream.extend(witness_stream);
         tracing::debug_span!("run").in_scope(|| runtime.run().unwrap());
         assert!(runtime.witness_stream.is_empty());

@@ -5,16 +5,17 @@ use p3_commit::{Pcs, PolynomialSpace};
 use p3_field::{ExtensionField, Field, PrimeField};
 use serde::{de::DeserializeOwned, Serialize};
 
+pub type PcsError<SC> = <<SC as StarkGenericConfig>::Pcs as Pcs<
+    <SC as StarkGenericConfig>::Challenge,
+    <SC as StarkGenericConfig>::Challenger,
+>>::Error;
+
 pub type Domain<SC> = <<SC as StarkGenericConfig>::Pcs as Pcs<
     <SC as StarkGenericConfig>::Challenge,
     <SC as StarkGenericConfig>::Challenger,
 >>::Domain;
 
-pub type Val<SC> = <<<SC as StarkGenericConfig>::Pcs as Pcs<
-    <SC as StarkGenericConfig>::Challenge,
-    <SC as StarkGenericConfig>::Challenger,
->>::Domain as PolynomialSpace>::Val;
-
+pub type Val<SC> = <Domain<SC> as PolynomialSpace>::Val;
 pub type Dom<SC> = <<SC as StarkGenericConfig>::Pcs as Pcs<
     <SC as StarkGenericConfig>::Challenge,
     <SC as StarkGenericConfig>::Challenger,
@@ -72,7 +73,15 @@ pub trait StarkGenericConfig: 'static + Send + Sync + Serialize + DeserializeOwn
     fn pcs(&self) -> &Self::Pcs;
 
     /// Initialize a new challenger.
-    fn challenger(&self) -> Self::Challenger;
+    //fn challenger(&self) -> Self::Challenger;
+
+    /// Get an initialisation of the challenger used by this proof configuration.
+    fn initialise_challenger(&self) -> Self::Challenger;
+
+    /// Returns 1 if the PCS is zero-knowledge, 0 otherwise.
+    fn is_zk(&self) -> usize {
+        Self::Pcs::ZK as usize
+    }
 }
 
 pub trait ZeroCommitment<SC: StarkGenericConfig> {
@@ -90,5 +99,9 @@ impl<SC: StarkGenericConfig> p3_uni_stark::StarkGenericConfig for UniConfig<SC> 
 
     fn pcs(&self) -> &Self::Pcs {
         self.0.pcs()
+    }
+
+     fn initialise_challenger(&self) -> Self::Challenger {
+        self.0.initialise_challenger()
     }
 }

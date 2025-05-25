@@ -265,10 +265,9 @@ pub mod tests {
     use std::{iter::once, sync::Arc};
 
     use machine::RecursionAir;
-    use p3_baby_bear::DiffusionMatrixBabyBear;
     use p3_field::{
         extension::{BinomialExtensionField, HasFrobenius},
-        AbstractExtensionField, AbstractField, Field,
+        BasedVectorSpace, PrimeCharacteristicRing, Field,
     };
     use rand::prelude::*;
     use sp1_core_machine::utils::run_test_machine;
@@ -287,7 +286,7 @@ pub mod tests {
     pub fn run_recursion_test_machines(program: RecursionProgram<F>) {
         let program = Arc::new(program);
         let mut runtime =
-            Runtime::<F, EF, DiffusionMatrixBabyBear>::new(program.clone(), SC::new().perm);
+            Runtime::<F, EF>::new(program.clone(), SC::new().perm);
         runtime.run().unwrap();
 
         // Run with the poseidon2 wide chip.
@@ -361,10 +360,10 @@ pub mod tests {
             })
             .find(|xs| !xs.iter().all(F::is_zero))
             .unwrap();
-            let x = BinomialExtensionField::<F, D>::from_base_slice(&inner);
-            let gal = x.galois_group();
+            let x = BinomialExtensionField::<F, D>::from_basis_coefficients_slice(&inner).unwrap();
+            let gal = x.galois_orbit();
 
-            let mut acc = BinomialExtensionField::one();
+            let mut acc = BinomialExtensionField::ONE;
 
             instructions.push(instr::mem_ext(MemAccessKind::Write, 1, addr, acc));
             for conj in gal {
@@ -374,7 +373,7 @@ pub mod tests {
                 addr += 2;
                 acc *= conj;
             }
-            let base_cmp: F = acc.as_base_slice()[0];
+            let base_cmp: F = acc.as_basis_coefficients_slice()[0];
             instructions.push(instr::mem_single(MemAccessKind::Read, 1, addr, base_cmp));
             addr += 1;
         }

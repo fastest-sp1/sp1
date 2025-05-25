@@ -8,7 +8,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use p3_air::Air;
 use p3_baby_bear::BabyBear;
 use p3_commit::Mmcs;
-use p3_field::AbstractField;
+use p3_field::PrimeCharacteristicRing;
 use p3_matrix::dense::RowMajorMatrix;
 use sp1_primitives::consts::WORD_SIZE;
 use sp1_recursion_compiler::ir::{Builder, Felt};
@@ -157,7 +157,7 @@ where
             challenger.observe_slice(builder, vk.initial_global_cumulative_sum.0.x.0);
             challenger.observe_slice(builder, vk.initial_global_cumulative_sum.0.y.0);
             // Observe the padding.
-            let zero: Felt<_> = builder.eval(C::F::zero());
+            let zero: Felt<_> = builder.eval(C::F::ZERO);
             challenger.observe(builder, zero);
 
             // Observe the and public values.
@@ -179,7 +179,7 @@ where
             assert_recursion_public_values_valid::<C, SC>(builder, current_public_values);
 
             // Assert that the proof is complete.
-            builder.assert_felt_eq(current_public_values.is_complete, C::F::one());
+            builder.assert_felt_eq(current_public_values.is_complete, C::F::ONE);
 
             // Update deferred proof digest
             // poseidon2( current_digest[..8] || pv.sp1_vk_digest[..8] ||
@@ -223,13 +223,13 @@ where
         deferred_public_values.deferred_proofs_digest = deferred_proofs_digest;
 
         // Set the exit code to be zero for now.
-        deferred_public_values.exit_code = builder.eval(C::F::zero());
+        deferred_public_values.exit_code = builder.eval(C::F::ZERO);
         // Assign the deferred proof digests.
         deferred_public_values.end_reconstruct_deferred_digest = reconstruct_deferred_digest;
         // Set the is_complete flag.
         deferred_public_values.is_complete = is_complete;
         // Set the `contains_execution_shard` flag.
-        deferred_public_values.contains_execution_shard = builder.eval(C::F::zero());
+        deferred_public_values.contains_execution_shard = builder.eval(C::F::ZERO);
         // Set the cumulative sum to zero.
         deferred_public_values.global_cumulative_sum =
             SepticDigest(SepticCurve::convert(SepticDigest::<C::F>::zero().0, |value| {
@@ -242,7 +242,7 @@ where
             recursion_public_values_digest::<C, SC>(builder, deferred_public_values);
 
         assert_complete(builder, deferred_public_values, is_complete);
-        builder.assert_felt_eq(is_complete, C::F::zero());
+        builder.assert_felt_eq(is_complete, C::F::ZERO);
 
         SC::commit_recursion_public_values(builder, *deferred_public_values);
     }
@@ -263,15 +263,15 @@ impl SP1DeferredWitnessValues<BabyBearPoseidon2> {
             vks_and_proofs,
             vk_merkle_data,
             is_complete: true,
-            sp1_vk_digest: [BabyBear::zero(); DIGEST_SIZE],
-            start_reconstruct_deferred_digest: [BabyBear::zero(); POSEIDON_NUM_WORDS],
+            sp1_vk_digest: [BabyBear::ZERO; DIGEST_SIZE],
+            start_reconstruct_deferred_digest: [BabyBear::ZERO; POSEIDON_NUM_WORDS],
             committed_value_digest: [Word::default(); PV_DIGEST_NUM_WORDS],
-            deferred_proofs_digest: [BabyBear::zero(); POSEIDON_NUM_WORDS],
-            end_pc: BabyBear::zero(),
-            end_shard: BabyBear::zero(),
-            end_execution_shard: BabyBear::zero(),
-            init_addr_bits: [BabyBear::zero(); 32],
-            finalize_addr_bits: [BabyBear::zero(); 32],
+            deferred_proofs_digest: [BabyBear::ZERO; POSEIDON_NUM_WORDS],
+            end_pc: BabyBear::ZERO,
+            end_shard: BabyBear::ZERO,
+            end_execution_shard: BabyBear::ZERO,
+            init_addr_bits: [BabyBear::ZERO; 32],
+            finalize_addr_bits: [BabyBear::ZERO; 32],
         }
     }
 }

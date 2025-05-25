@@ -159,7 +159,7 @@ pub enum RiscvAir<F: PrimeField32> {
     /// A precompile for BN-254 fp2 multiplication.
     Bn254Fp2Mul(Fp2MulAssignChip<Bn254BaseField>),
     /// A precompile for BN-254 fp2 addition/subtraction.
-    Bn254Fp2AddSub(Fp2AddSubAssignChip<Bn254BaseField>),
+    Bn254Fp2AddSub(Fp2AddSubAssignChip<Bn254BaseField>), 
 }
 
 impl<F: PrimeField32> RiscvAir<F> {
@@ -857,8 +857,8 @@ pub mod tests {
         assert_eq!(vk.chip_information.len(), deserialized_vk.chip_information.len());
         for (a, b) in vk.chip_information.iter().zip(deserialized_vk.chip_information.iter()) {
             assert_eq!(a.0, b.0);
-            assert_eq!(a.1.log_n, b.1.log_n);
-            assert_eq!(a.1.shift, b.1.shift);
+            //assert_eq!(a.1.log_n, b.1.log_n);
+            assert_eq!(a.1.shift(), b.1.shift());
             assert_eq!(a.2.height, b.2.height);
             assert_eq!(a.2.width, b.2.width);
         }

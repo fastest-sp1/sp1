@@ -5,11 +5,12 @@ use crate::{
 use hashbrown::HashMap;
 use itertools::Itertools;
 use p3_air::{AirBuilder, ExtensionBuilder, PairBuilder};
-use p3_field::{AbstractExtensionField, AbstractField, ExtensionField, Field, PrimeField};
+use p3_field::{PrimeCharacteristicRing, ExtensionField, Field, PrimeField};
 use p3_matrix::{dense::RowMajorMatrix, Matrix};
 use p3_maybe_rayon::prelude::*;
 use rayon_scan::ScanParallelIterator;
 use std::borrow::Borrow;
+use std::ops::Deref;
 
 /// Computes the width of the local permutation trace in terms of extension field elements.
 #[must_use]
@@ -50,7 +51,7 @@ pub fn populate_local_permutation_row<F: PrimeField, EF: ExtensionField<F>>(
                 let mut denominator = alpha;
                 let mut betas = betas.clone();
                 denominator +=
-                    betas.next().unwrap() * EF::from_canonical_usize(interaction.argument_index());
+                    betas.next().unwrap() * EF::from_usize(interaction.argument_index());
                 for (columns, beta) in interaction.values.iter().zip(betas) {
                     denominator += beta * columns.apply::<F, F>(preprocessed_row, main_row);
                 }
@@ -60,7 +61,7 @@ pub fn populate_local_permutation_row<F: PrimeField, EF: ExtensionField<F>>(
                     mult = -mult;
                 }
 
-                EF::from_base(mult) / denominator
+                EF::from(mult) / denominator
             })
             .sum();
     }
@@ -117,11 +118,11 @@ pub fn generate_permutation_trace<F: PrimeField, EF: ExtensionField<F>>(
     let height = main.height();
     let permutation_trace_width = local_permutation_width;
     let mut permutation_trace = RowMajorMatrix::new(
-        vec![EF::zero(); permutation_trace_width * height],
+        vec![EF::ZERO; permutation_trace_width * height],
         permutation_trace_width,
     );
 
-    let mut local_cumulative_sum = EF::zero();
+    let mut local_cumulative_sum = EF::ZERO;
 
     let random_elements = &random_elements[0..2];
     let local_row_range = 0..local_permutation_width;
@@ -171,7 +172,7 @@ pub fn generate_permutation_trace<F: PrimeField, EF: ExtensionField<F>>(
             );
         }
 
-        let zero = EF::zero();
+        let zero = EF::ZERO;
         let local_cumulative_sums = permutation_trace
             .par_rows_mut()
             .map(|row| {
@@ -227,13 +228,16 @@ pub fn eval_permutation_constraints<'a, F, AB>(
     let main = builder.main();
     let perm = builder.permutation().to_row_major_matrix();
 
-    let preprocessed_local = preprocessed.row_slice(0);
+    //let preprocessed_local = preprocessed.row_slice(0).unwrap();
+    let binding = unsafe {preprocessed.row_slice_unchecked(0)} ;
+    let preprocessed_local = binding.deref();
+
     let main_local = main.to_row_major_matrix();
-    let main_local = main_local.row_slice(0);
+    let main_local = main_local.row_slice(0).unwrap();
     let main_local: &[AB::Var] = (*main_local).borrow();
-    let perm_local = perm.row_slice(0);
+    let perm_local = perm.row_slice(0).unwrap();
     let perm_local: &[AB::VarEF] = (*perm_local).borrow();
-    let perm_next = perm.row_slice(1);
+    let perm_next = perm.row_slice(1).unwrap();
     let perm_next: &[AB::VarEF] = (*perm_next).borrow();
     let perm_width = perm.width();
 
@@ -274,14 +278,14 @@ pub fn eval_permutation_constraints<'a, F, AB>(
 
                 rlc = rlc.clone() +
                     betas.next().unwrap() *
-                        AB::ExprEF::from_canonical_usize(interaction.argument_index());
+                        AB::ExprEF::from_usize(interaction.argument_index());
                 for (field, beta) in interaction.values.iter().zip(betas.clone()) {
                     let elem = field.apply::<AB::Expr, AB::Var>(&preprocessed_local, main_local);
                     rlc = rlc.clone() + beta * elem;
                 }
                 rlcs.push(rlc);
 
-                let send_factor = if is_send { AB::F::one() } else { -AB::F::one() };
+                let send_factor = if is_send { AB::F::ONE } else { -AB::F::ONE };
                 multiplicities.push(
                     interaction
                         .multiplicity
@@ -291,20 +295,20 @@ pub fn eval_permutation_constraints<'a, F, AB>(
             }
 
             // Now we can calculate the numerator and denominator of the combined batch.
-            let mut product = AB::ExprEF::one();
-            let mut numerator = AB::ExprEF::zero();
+            let mut product = AB::ExprEF::ONE;
+            let mut numerator = AB::ExprEF::ZERO;
             for (i, (m, rlc)) in multiplicities.into_iter().zip(rlcs.iter()).enumerate() {
                 // Calculate the running product of all rlcs.
                 product = product.clone() * rlc.clone();
 
                 // Calculate the product of all but the current rlc.
-                let mut all_but_current = AB::ExprEF::one();
+                let mut all_but_current = AB::ExprEF::ONE;
                 for other_rlc in
                     rlcs.iter().enumerate().filter(|(j, _)| i != *j).map(|(_, rlc)| rlc)
                 {
                     all_but_current = all_but_current.clone() * other_rlc.clone();
                 }
-                numerator = numerator.clone() + AB::ExprEF::from_base(m) * all_but_current;
+                numerator = numerator.clone() + AB::ExprEF::from(m) * all_but_current;
             }
 
             // Finally, assert that the entry is equal to the numerator divided by the product.

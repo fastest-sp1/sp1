@@ -5,7 +5,7 @@ use core::arch::asm;
 ///
 /// The result is written over the first input.
 #[allow(unused_variables)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn syscall_bls12381_fp_addmod(x: *mut u32, y: *const u32) {
     #[cfg(target_os = "zkvm")]
     unsafe {
@@ -25,7 +25,7 @@ pub extern "C" fn syscall_bls12381_fp_addmod(x: *mut u32, y: *const u32) {
 ///
 /// The result is written over the first input.
 #[allow(unused_variables)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn syscall_bls12381_fp_submod(x: *mut u32, y: *const u32) {
     #[cfg(target_os = "zkvm")]
     unsafe {
@@ -45,7 +45,7 @@ pub extern "C" fn syscall_bls12381_fp_submod(x: *mut u32, y: *const u32) {
 ///
 /// The result is written over the first input.
 #[allow(unused_variables)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn syscall_bls12381_fp_mulmod(x: *mut u32, y: *const u32) {
     #[cfg(target_os = "zkvm")]
     unsafe {
@@ -65,7 +65,7 @@ pub extern "C" fn syscall_bls12381_fp_mulmod(x: *mut u32, y: *const u32) {
 ///
 /// The result is written over the first input.
 #[allow(unused_variables)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn syscall_bls12381_fp2_addmod(x: *mut u32, y: *const u32) {
     #[cfg(target_os = "zkvm")]
     unsafe {
@@ -85,7 +85,7 @@ pub extern "C" fn syscall_bls12381_fp2_addmod(x: *mut u32, y: *const u32) {
 ///
 /// The result is written over the first input.
 #[allow(unused_variables)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn syscall_bls12381_fp2_submod(x: *mut u32, y: *const u32) {
     #[cfg(target_os = "zkvm")]
     unsafe {
@@ -105,7 +105,7 @@ pub extern "C" fn syscall_bls12381_fp2_submod(x: *mut u32, y: *const u32) {
 ///
 /// The result is written over the first input.
 #[allow(unused_variables)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn syscall_bls12381_fp2_mulmod(x: *mut u32, y: *const u32) {
     #[cfg(target_os = "zkvm")]
     unsafe {
@@ -125,7 +125,7 @@ pub extern "C" fn syscall_bls12381_fp2_mulmod(x: *mut u32, y: *const u32) {
 ///
 /// The result is written over the first input.
 #[allow(unused_variables)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn syscall_bn254_fp_addmod(x: *mut u32, y: *const u32) {
     #[cfg(target_os = "zkvm")]
     unsafe {
@@ -145,7 +145,7 @@ pub extern "C" fn syscall_bn254_fp_addmod(x: *mut u32, y: *const u32) {
 ///
 /// The result is written over the first input.
 #[allow(unused_variables)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn syscall_bn254_fp_submod(x: *mut u32, y: *const u32) {
     #[cfg(target_os = "zkvm")]
     unsafe {
@@ -165,7 +165,7 @@ pub extern "C" fn syscall_bn254_fp_submod(x: *mut u32, y: *const u32) {
 ///
 /// The result is written over the first input.
 #[allow(unused_variables)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn syscall_bn254_fp_mulmod(x: *mut u32, y: *const u32) {
     #[cfg(target_os = "zkvm")]
     unsafe {
@@ -185,7 +185,7 @@ pub extern "C" fn syscall_bn254_fp_mulmod(x: *mut u32, y: *const u32) {
 ///
 /// The result is written over the first input.
 #[allow(unused_variables)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn syscall_bn254_fp2_addmod(x: *mut u32, y: *const u32) {
     #[cfg(target_os = "zkvm")]
     unsafe {
@@ -205,7 +205,7 @@ pub extern "C" fn syscall_bn254_fp2_addmod(x: *mut u32, y: *const u32) {
 ///
 /// The result is written over the first input.
 #[allow(unused_variables)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn syscall_bn254_fp2_submod(x: *mut u32, y: *const u32) {
     #[cfg(target_os = "zkvm")]
     unsafe {
@@ -225,7 +225,7 @@ pub extern "C" fn syscall_bn254_fp2_submod(x: *mut u32, y: *const u32) {
 ///
 /// The result is written over the first input.
 #[allow(unused_variables)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn syscall_bn254_fp2_mulmod(x: *mut u32, y: *const u32) {
     #[cfg(target_os = "zkvm")]
     unsafe {

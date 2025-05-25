@@ -1,7 +1,7 @@
 use enum_map::EnumMap;
 use hashbrown::HashMap;
 use itertools::{EitherOrBoth, Itertools};
-use p3_field::{AbstractField, PrimeField};
+use p3_field::{PrimeCharacteristicRing, PrimeField};
 use sp1_stark::{
     air::{MachineAir, PublicValues},
     shape::Shape,
@@ -335,7 +335,7 @@ impl MachineRecord for ExecutionRecord {
     }
 
     /// Retrieves the public values.  This method is needed for the `MachineRecord` trait, since
-    fn public_values<F: AbstractField>(&self) -> Vec<F> {
+    fn public_values<F: PrimeCharacteristicRing>(&self) -> Vec<F> {
         self.public_values.to_vec()
     }
 }

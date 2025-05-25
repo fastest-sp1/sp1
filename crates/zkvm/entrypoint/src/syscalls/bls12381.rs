@@ -10,7 +10,7 @@ use core::arch::asm;
 /// The caller must ensure that `p` and `q` are valid pointers to data that is aligned along a four
 /// byte boundary.
 #[allow(unused_variables)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn syscall_bls12381_add(p: *mut [u32; 24], q: *const [u32; 24]) {
     #[cfg(target_os = "zkvm")]
     unsafe {
@@ -35,7 +35,7 @@ pub extern "C" fn syscall_bls12381_add(p: *mut [u32; 24], q: *const [u32; 24]) {
 /// The caller must ensure that `p` is valid pointer to data that is aligned along a four byte
 /// boundary.
 #[allow(unused_variables)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn syscall_bls12381_double(p: *mut [u32; 24]) {
     #[cfg(target_os = "zkvm")]
     unsafe {
@@ -58,7 +58,7 @@ pub extern "C" fn syscall_bls12381_double(p: *mut [u32; 24]) {
 /// The caller must ensure that `point` is valid pointer to data that is aligned along a four byte
 /// boundary.
 #[allow(unused_variables)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn syscall_bls12381_decompress(point: &mut [u8; 96], sign_bit: bool) {
     #[cfg(target_os = "zkvm")]
     {

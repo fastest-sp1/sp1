@@ -9,7 +9,7 @@ use std::{
 
 use eyre::Result;
 use p3_baby_bear::BabyBear;
-use p3_field::AbstractField;
+use p3_field::PrimeCharacteristicRing;
 use serde::{Deserialize, Serialize};
 use sp1_core_machine::shape::CoreShapeConfig;
 use sp1_recursion_circuit::machine::{
@@ -411,7 +411,7 @@ impl SP1ProofShape {
     ) -> BTreeMap<[BabyBear; DIGEST_SIZE], usize> {
         Self::generate(core_shape_config, recursion_shape_config, reduce_batch_size)
             .enumerate()
-            .map(|(i, _)| ([BabyBear::from_canonical_usize(i); DIGEST_SIZE], i))
+            .map(|(i, _)| ([BabyBear::from_usize(i); DIGEST_SIZE], i))
             .collect()
     }
 }

@@ -28,6 +28,7 @@ p3-util = { workspace = true }
 p3-symmetric = { workspace = true }
 sp1-derive = { workspace = true }
 sp1-primitives = { workspace = true }
+p3-monty-31 = { workspace = true }
 
 rayon = "1.10.0"
 rayon-scan = "0.1.1"
@@ -75,6 +76,8 @@ test-artifacts = { path = "../../test-artifacts" }
 sp1-stark = { workspace = true }
 sp1-primitives = { workspace = true }
 p3-baby-bear = { workspace = true }
+##p3-monty-31 = { git = "https://github.com/Plonky3/Plonky3.git", package = "p3-monty-31"}
+p3-monty-31 =  { path = "../../../../Plonky3/monty-31" }
 cbindgen = "0.27.0"
 cc = "1.1"
 pathdiff = "0.2.1"

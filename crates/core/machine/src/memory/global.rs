@@ -9,7 +9,7 @@ use core::{
 };
 
 use p3_air::{Air, AirBuilder, BaseAir};
-use p3_field::{AbstractField, PrimeField32};
+use p3_field::{PrimeCharacteristicRing, PrimeField32};
 use p3_matrix::{dense::RowMajorMatrix, Matrix};
 use p3_maybe_rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use sp1_core_executor::{
@@ -122,14 +122,14 @@ impl<F: PrimeField32> MachineAir<F> for MemoryGlobalChip {
                 let MemoryInitializeFinalizeEvent { addr, value, shard, timestamp, used } =
                     event.to_owned();
 
-                let mut row = [F::zero(); NUM_MEMORY_INIT_COLS];
+                let mut row = [F::ZERO; NUM_MEMORY_INIT_COLS];
                 let cols: &mut MemoryInitCols<F> = row.as_mut_slice().borrow_mut();
-                cols.addr = F::from_canonical_u32(addr);
+                cols.addr = F::from_u32(addr);
                 cols.addr_bits.populate(addr);
-                cols.shard = F::from_canonical_u32(shard);
-                cols.timestamp = F::from_canonical_u32(timestamp);
-                cols.value = array::from_fn(|i| F::from_canonical_u32((value >> i) & 1));
-                cols.is_real = F::from_canonical_u32(used);
+                cols.shard = F::from_u32(shard);
+                cols.timestamp = F::from_u32(timestamp);
+                cols.value = array::from_fn(|i| F::from_u32((value >> i) & 1));
+                cols.is_real = F::from_u32(used);
 
                 row
             })
@@ -154,7 +154,7 @@ impl<F: PrimeField32> MachineAir<F> for MemoryGlobalChip {
             }
             if i != 0 {
                 let prev_is_real = memory_events[i - 1].used;
-                cols.is_next_comp = F::from_canonical_u32(prev_is_real);
+                cols.is_next_comp = F::from_u32(prev_is_real);
                 let previous_addr = memory_events[i - 1].addr;
                 assert_ne!(previous_addr, addr);
 
@@ -164,14 +164,14 @@ impl<F: PrimeField32> MachineAir<F> for MemoryGlobalChip {
             }
 
             if i == memory_events.len() - 1 {
-                cols.is_last_addr = F::one();
+                cols.is_last_addr = F::ONE;
             }
         }
 
         // Pad the trace to a power of two depending on the proof shape in `input`.
         rows.resize(
             <MemoryGlobalChip as MachineAir<F>>::num_rows(self, input).unwrap(),
-            [F::zero(); NUM_MEMORY_INIT_COLS],
+            [F::ZERO; NUM_MEMORY_INIT_COLS],
         );
 
         RowMajorMatrix::new(rows.into_iter().flatten().collect::<Vec<_>>(), NUM_MEMORY_INIT_COLS)
@@ -238,9 +238,9 @@ where
 {
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
-        let local = main.row_slice(0);
+        let local = main.row_slice(0).unwrap();
         let local: &MemoryInitCols<AB::Var> = (*local).borrow();
-        let next = main.row_slice(1);
+        let next = main.row_slice(1).unwrap();
         let next: &MemoryInitCols<AB::Var> = (*next).borrow();
 
         // Constrain that `local.is_real` is boolean.
@@ -249,15 +249,15 @@ where
             builder.assert_bool(local.value[i]);
         }
 
-        let mut byte1 = AB::Expr::zero();
-        let mut byte2 = AB::Expr::zero();
-        let mut byte3 = AB::Expr::zero();
-        let mut byte4 = AB::Expr::zero();
+        let mut byte1 = AB::Expr::ZERO;
+        let mut byte2 = AB::Expr::ZERO;
+        let mut byte3 = AB::Expr::ZERO;
+        let mut byte4 = AB::Expr::ZERO;
         for i in 0..8 {
-            byte1 = byte1.clone() + local.value[i].into() * AB::F::from_canonical_u8(1 << i);
-            byte2 = byte2.clone() + local.value[i + 8].into() * AB::F::from_canonical_u8(1 << i);
-            byte3 = byte3.clone() + local.value[i + 16].into() * AB::F::from_canonical_u8(1 << i);
-            byte4 = byte4.clone() + local.value[i + 24].into() * AB::F::from_canonical_u8(1 << i);
+            byte1 = byte1.clone() + local.value[i].into() * AB::F::from_u8(1 << i);
+            byte2 = byte2.clone() + local.value[i + 8].into() * AB::F::from_u8(1 << i);
+            byte3 = byte3.clone() + local.value[i + 16].into() * AB::F::from_u8(1 << i);
+            byte4 = byte4.clone() + local.value[i + 24].into() * AB::F::from_u8(1 << i);
         }
         let value = [byte1, byte2, byte3, byte4];
 
@@ -266,16 +266,16 @@ where
             builder.send(
                 AirInteraction::new(
                     vec![
-                        AB::Expr::zero(),
-                        AB::Expr::zero(),
+                        AB::Expr::ZERO,
+                        AB::Expr::ZERO,
                         local.addr.into(),
                         value[0].clone(),
                         value[1].clone(),
                         value[2].clone(),
                         value[3].clone(),
-                        AB::Expr::one(),
-                        AB::Expr::zero(),
-                        AB::Expr::from_canonical_u8(InteractionKind::Memory as u8),
+                        AB::Expr::ONE,
+                        AB::Expr::ZERO,
+                        AB::Expr::from_u8(InteractionKind::Memory as u8),
                     ],
                     local.is_real.into(),
                     InteractionKind::Global,
@@ -294,9 +294,9 @@ where
                         value[1].clone(),
                         value[2].clone(),
                         value[3].clone(),
-                        AB::Expr::zero(),
-                        AB::Expr::one(),
-                        AB::Expr::from_canonical_u8(InteractionKind::Memory as u8),
+                        AB::Expr::ZERO,
+                        AB::Expr::ONE,
+                        AB::Expr::from_u8(InteractionKind::Memory as u8),
                     ],
                     local.is_real.into(),
                     InteractionKind::Global,
@@ -358,7 +358,7 @@ where
         let prev_addr = prev_addr_bits
             .iter()
             .enumerate()
-            .map(|(i, bit)| bit.clone() * AB::F::from_wrapped_u32(1 << i))
+            .map(|(i, bit)| bit.clone() * AB::F::from_u32(1 << i))
             .sum::<AB::Expr>();
 
         // Constrain the is_prev_addr_zero operation only in the first row.
@@ -369,7 +369,7 @@ where
         builder.assert_bool(local.is_first_comp);
         builder
             .when_first_row()
-            .assert_eq(local.is_first_comp, AB::Expr::one() - local.is_prev_addr_zero.result);
+            .assert_eq(local.is_first_comp, AB::Expr::ONE - local.is_prev_addr_zero.result);
 
         // Ensure at least one real row.
         builder.when_first_row().assert_one(local.is_real);
@@ -390,7 +390,7 @@ where
         // Make assertions for specific types of memory chips.
 
         if self.kind == MemoryChipType::Initialize {
-            builder.when(local.is_real).assert_eq(local.timestamp, AB::F::one());
+            builder.when(local.is_real).assert_eq(local.timestamp, AB::F::ONE);
         }
 
         // Constraints related to register %x0.
@@ -420,7 +420,7 @@ where
         // Constrain the `is_last_addr` flag.
         builder
             .when_transition()
-            .assert_eq(local.is_last_addr, local.is_real * (AB::Expr::one() - next.is_real));
+            .assert_eq(local.is_last_addr, local.is_real * (AB::Expr::ONE - next.is_real));
 
         // Constrain the last address bits to be equal to the corresponding `last_addr_bits` value.
         for (local_bit, pub_bit) in local.addr_bits.bits.iter().zip(last_addr_bits.iter()) {

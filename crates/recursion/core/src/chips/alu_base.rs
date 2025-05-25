@@ -2,7 +2,7 @@ use crate::{builder::SP1RecursionAirBuilder, *};
 use core::borrow::Borrow;
 use p3_air::{Air, AirBuilder, BaseAir, PairBuilder};
 use p3_baby_bear::BabyBear;
-use p3_field::{AbstractField, Field, PrimeField32};
+use p3_field::{PrimeCharacteristicRing, Field, PrimeField32};
 use p3_matrix::{dense::RowMajorMatrix, Matrix};
 use p3_maybe_rayon::prelude::*;
 use sp1_core_machine::utils::next_power_of_two;
@@ -101,7 +101,7 @@ impl<F: PrimeField32> MachineAir<F> for BaseAluChip {
             )
         };
         let padded_nb_rows = self.preprocessed_num_rows(program, instrs.len()).unwrap();
-        let mut values = vec![BabyBear::zero(); padded_nb_rows * NUM_BASE_ALU_PREPROCESSED_COLS];
+        let mut values = vec![BabyBear::ZERO; padded_nb_rows * NUM_BASE_ALU_PREPROCESSED_COLS];
 
         // Generate the trace rows & corresponding records for each chunk of events in parallel.
         let populate_len = instrs.len() * NUM_BASE_ALU_ACCESS_COLS;
@@ -147,7 +147,7 @@ impl<F: PrimeField32> MachineAir<F> for BaseAluChip {
             )
         };
         let padded_nb_rows = self.num_rows(input).unwrap();
-        let mut values = vec![BabyBear::zero(); padded_nb_rows * NUM_BASE_ALU_COLS];
+        let mut values = vec![BabyBear::ZERO; padded_nb_rows * NUM_BASE_ALU_COLS];
 
         // Generate the trace rows & corresponding records for each chunk of events in parallel.
         let populate_len = events.len() * NUM_BASE_ALU_VALUE_COLS;
@@ -182,10 +182,10 @@ where
 {
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
-        let local = main.row_slice(0);
+        let local = main.row_slice(0).unwrap();
         let local: &BaseAluCols<AB::Var> = (*local).borrow();
         let prep = builder.preprocessed();
-        let prep_local = prep.row_slice(0);
+        let prep_local = prep.row_slice(0).unwrap();
         let prep_local: &BaseAluPreprocessedCols<AB::Var> = (*prep_local).borrow();
 
         for (
@@ -216,7 +216,7 @@ mod tests {
     use crate::{chips::test_fixtures, runtime::instruction as instr};
     use machine::tests::test_recursion_linear_program;
     use p3_baby_bear::BabyBear;
-    use p3_field::AbstractField;
+    use p3_field::PrimeCharacteristicRing;
     use p3_matrix::dense::RowMajorMatrix;
     use rand::{rngs::StdRng, Rng, SeedableRng};
     use sp1_stark::{baby_bear_poseidon2::BabyBearPoseidon2, StarkGenericConfig};
@@ -229,7 +229,7 @@ mod tests {
     ) -> RowMajorMatrix<BabyBear> {
         let events = &input.base_alu_events;
         let padded_nb_rows = BaseAluChip.num_rows(input).unwrap();
-        let mut values = vec![BabyBear::zero(); padded_nb_rows * NUM_BASE_ALU_COLS];
+        let mut values = vec![BabyBear::ZERO; padded_nb_rows * NUM_BASE_ALU_COLS];
 
         let populate_len = events.len() * NUM_BASE_ALU_VALUE_COLS;
         values[..populate_len].par_chunks_mut(NUM_BASE_ALU_VALUE_COLS).zip_eq(events).for_each(
@@ -266,7 +266,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
         let padded_nb_rows = BaseAluChip.preprocessed_num_rows(program, instrs.len()).unwrap();
-        let mut values = vec![F::zero(); padded_nb_rows * NUM_BASE_ALU_PREPROCESSED_COLS];
+        let mut values = vec![F::ZERO; padded_nb_rows * NUM_BASE_ALU_PREPROCESSED_COLS];
 
         let populate_len = instrs.len() * NUM_BASE_ALU_ACCESS_COLS;
         values[..populate_len].par_chunks_mut(NUM_BASE_ALU_ACCESS_COLS).zip_eq(instrs).for_each(

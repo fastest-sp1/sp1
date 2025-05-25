@@ -38,7 +38,7 @@ fn random_u32_8() -> [u32; NUM_LIMBS] {
     let mut rng = rand::thread_rng();
     let mut arr = [0u32; NUM_LIMBS];
     for item in arr.iter_mut() {
-        *item = rng.gen();
+        *item = rng.r#gen();
     }
     arr
 }

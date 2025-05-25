@@ -92,7 +92,7 @@ impl<C: CircuitConfig<F = InnerVal, EF = InnerChallenge>> Witnessable<C> for Inn
     }
 
     fn write(&self, witness: &mut impl WitnessWriter<C>) {
-        // vec![Block::from(self.as_base_slice())]
+        // vec![Block::from(self.as_basis_coefficients_slice())]
         witness.write_ext(*self);
     }
 }

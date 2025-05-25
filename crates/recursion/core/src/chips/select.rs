@@ -1,7 +1,7 @@
 use core::borrow::Borrow;
 use p3_air::{Air, BaseAir, PairBuilder};
 use p3_baby_bear::BabyBear;
-use p3_field::{AbstractField, Field, PrimeField32};
+use p3_field::{PrimeCharacteristicRing, Field, PrimeField32};
 use p3_matrix::{dense::RowMajorMatrix, Matrix};
 use p3_maybe_rayon::prelude::*;
 use sp1_core_machine::utils::next_power_of_two;
@@ -80,7 +80,7 @@ impl<F: PrimeField32> MachineAir<F> for SelectChip {
             )
         };
         let padded_nb_rows = self.preprocessed_num_rows(program, instrs.len()).unwrap();
-        let mut values = vec![BabyBear::zero(); padded_nb_rows * SELECT_PREPROCESSED_COLS];
+        let mut values = vec![BabyBear::ZERO; padded_nb_rows * SELECT_PREPROCESSED_COLS];
 
         // Generate the trace rows & corresponding records for each chunk of events in parallel.
         let populate_len = instrs.len() * SELECT_PREPROCESSED_COLS;
@@ -120,7 +120,7 @@ impl<F: PrimeField32> MachineAir<F> for SelectChip {
             std::mem::transmute::<&Vec<SelectIo<F>>, &Vec<SelectIo<BabyBear>>>(&input.select_events)
         };
         let padded_nb_rows = self.num_rows(input).unwrap();
-        let mut values = vec![BabyBear::zero(); padded_nb_rows * SELECT_COLS];
+        let mut values = vec![BabyBear::ZERO; padded_nb_rows * SELECT_COLS];
 
         // Generate the trace rows & corresponding records for each chunk of events in parallel.
         let populate_len = events.len() * SELECT_COLS;
@@ -155,10 +155,10 @@ where
 {
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
-        let local = main.row_slice(0);
+        let local = main.row_slice(0).unwrap();
         let local: &SelectCols<AB::Var> = (*local).borrow();
         let prep = builder.preprocessed();
-        let prep_local = prep.row_slice(0);
+        let prep_local = prep.row_slice(0).unwrap();
         let prep_local: &SelectPreprocessedCols<AB::Var> = (*prep_local).borrow();
 
         builder.receive_single(prep_local.addrs.bit, local.vals.bit, prep_local.is_real);
@@ -168,11 +168,11 @@ where
         builder.send_single(prep_local.addrs.out2, local.vals.out2, prep_local.mult2);
         builder.assert_eq(
             local.vals.out1,
-            local.vals.bit * local.vals.in2 + (AB::Expr::one() - local.vals.bit) * local.vals.in1,
+            local.vals.bit * local.vals.in2 + (AB::Expr::ONE - local.vals.bit) * local.vals.in1,
         );
         builder.assert_eq(
             local.vals.out2,
-            local.vals.bit * local.vals.in1 + (AB::Expr::one() - local.vals.bit) * local.vals.in2,
+            local.vals.bit * local.vals.in1 + (AB::Expr::ONE - local.vals.bit) * local.vals.in2,
         );
     }
 }
@@ -182,7 +182,7 @@ mod tests {
     use crate::{chips::test_fixtures, runtime::instruction as instr};
     use machine::tests::test_recursion_linear_program;
     use p3_baby_bear::BabyBear;
-    use p3_field::AbstractField;
+    use p3_field::PrimeCharacteristicRing;
     use p3_matrix::dense::RowMajorMatrix;
     use rand::{rngs::StdRng, Rng, SeedableRng};
     use sp1_stark::{baby_bear_poseidon2::BabyBearPoseidon2, StarkGenericConfig};
@@ -202,9 +202,9 @@ mod tests {
                 let in1: F = rng.sample(rand::distributions::Standard);
                 let in2: F = rng.sample(rand::distributions::Standard);
                 let bit = F::from_bool(rng.gen_bool(0.5));
-                assert_eq!(bit * (bit - F::one()), F::zero());
+                assert_eq!(bit * (bit - F::ONE), F::ZERO);
 
-                let (out1, out2) = if bit == F::one() { (in2, in1) } else { (in1, in2) };
+                let (out1, out2) = if bit == F::ONE { (in2, in1) } else { (in1, in2) };
                 let alloc_size = 5;
                 let a = (0..alloc_size).map(|x| x + addr).collect::<Vec<_>>();
                 addr += alloc_size;
@@ -230,7 +230,7 @@ mod tests {
 
         let events = &input.select_events;
         let padded_nb_rows = SelectChip.num_rows(input).unwrap();
-        let mut values = vec![F::zero(); padded_nb_rows * SELECT_COLS];
+        let mut values = vec![F::ZERO; padded_nb_rows * SELECT_COLS];
 
         let populate_len = events.len() * SELECT_COLS;
         values[..populate_len].par_chunks_mut(SELECT_COLS).zip_eq(events).for_each(
@@ -267,7 +267,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
         let padded_nb_rows = SelectChip.preprocessed_num_rows(program, instrs.len()).unwrap();
-        let mut values = vec![F::zero(); padded_nb_rows * SELECT_PREPROCESSED_COLS];
+        let mut values = vec![F::ZERO; padded_nb_rows * SELECT_PREPROCESSED_COLS];
 
         let populate_len = instrs.len() * SELECT_PREPROCESSED_COLS;
         values[..populate_len].par_chunks_mut(SELECT_PREPROCESSED_COLS).zip_eq(instrs).for_each(
@@ -275,7 +275,7 @@ mod tests {
                 let SelectInstr { addrs, mult1, mult2 } = instr;
                 let access: &mut SelectPreprocessedCols<_> = row.borrow_mut();
                 *access = SelectPreprocessedCols {
-                    is_real: F::one(),
+                    is_real: F::ONE,
                     addrs: addrs.to_owned(),
                     mult1: mult1.to_owned(),
                     mult2: mult2.to_owned(),

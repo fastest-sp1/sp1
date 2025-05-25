@@ -11,7 +11,7 @@ use sp1_core_executor::events::{
 };
 
 #[link(name = "sp1-core-machine-sys", kind = "static")]
-extern "C-unwind" {
+unsafe extern "C-unwind" {
     pub fn add_sub_event_to_row_babybear(event: &AluEvent, cols: &mut AddSubCols<BabyBear>);
     pub fn mul_event_to_row_babybear(event: &AluEvent, cols: &mut MulCols<BabyBear>);
     pub fn bitwise_event_to_row_babybear(event: &AluEvent, cols: &mut BitwiseCols<BabyBear>);

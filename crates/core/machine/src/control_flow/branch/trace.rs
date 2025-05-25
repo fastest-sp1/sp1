@@ -126,9 +126,9 @@ impl BranchChip {
         cols.next_pc_range_checker.populate(cols.next_pc, blu);
 
         if branching {
-            cols.is_branching = F::one();
+            cols.is_branching = F::ONE;
         } else {
-            cols.not_branching = F::one();
+            cols.not_branching = F::ONE;
         }
     }
 }

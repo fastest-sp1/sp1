@@ -1,6 +1,6 @@
 use core::iter::{once, repeat};
 use p3_air::{AirBuilder, AirBuilderWithPublicValues};
-use p3_field::AbstractField;
+use p3_field::PrimeCharacteristicRing;
 use sp1_stark::{
     air::{AirInteraction, BaseAirBuilder, InteractionScope, MachineAirBuilder},
     InteractionKind,
@@ -78,12 +78,12 @@ pub trait RecursionMemoryAirBuilder: RecursionInteractionAirBuilder {
         let prev_values = once(prev_timestamp)
             .chain(once(addr.clone()))
             .chain(once(memory_access.prev_value().clone().into()))
-            .chain(repeat(Self::Expr::zero()).take(3))
+            .chain(repeat(Self::Expr::ZERO).take(3))
             .collect();
         let current_values = once(timestamp)
             .chain(once(addr.clone()))
             .chain(once(memory_access.value().clone().into()))
-            .chain(repeat(Self::Expr::zero()).take(3))
+            .chain(repeat(Self::Expr::ZERO).take(3))
             .collect();
 
         self.receive(
@@ -105,7 +105,7 @@ pub trait RecursionMemoryAirBuilder: RecursionInteractionAirBuilder {
     ) {
         // We subtract one since a diff of zero is not valid.
         let diff_minus_one: Self::Expr =
-            timestamp.into() - mem_access.prev_timestamp().clone().into() - Self::Expr::one();
+            timestamp.into() - mem_access.prev_timestamp().clone().into() - Self::Expr::ONE;
 
         // Verify that mem_access.ts_diff = mem_access.ts_diff_16bit_limb
         // + mem_access.ts_diff_12bit_limb * 2^16.
@@ -134,18 +134,18 @@ pub trait RecursionMemoryAirBuilder: RecursionInteractionAirBuilder {
         self.when(is_real.clone()).assert_eq(
             value,
             limb_16.clone().into() +
-                limb_12.clone().into() * Self::Expr::from_canonical_u32(1 << 16),
+                limb_12.clone().into() * Self::Expr::from_u32(1 << 16),
         );
 
         // Send the range checks for the limbs.
         self.send_range_check(
-            Self::Expr::from_canonical_u8(RangeCheckOpcode::U16 as u8),
+            Self::Expr::from_u8(RangeCheckOpcode::U16 as u8),
             limb_16,
             is_real.clone(),
         );
 
         self.send_range_check(
-            Self::Expr::from_canonical_u8(RangeCheckOpcode::U12 as u8),
+            Self::Expr::from_u8(RangeCheckOpcode::U12 as u8),
             limb_12,
             is_real,
         )

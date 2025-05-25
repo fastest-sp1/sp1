@@ -2,7 +2,7 @@ use std::{array, iter::once};
 
 use itertools::Itertools;
 use p3_air::{AirBuilder, AirBuilderWithPublicValues, FilteredAirBuilder, PermutationAirBuilder};
-use p3_field::{AbstractField, Field};
+use p3_field::{PrimeCharacteristicRing, Field};
 use p3_uni_stark::{
     ProverConstraintFolder, StarkGenericConfig, SymbolicAirBuilder, VerifierConstraintFolder,
 };
@@ -58,7 +58,7 @@ impl<AB: EmptyMessageBuilder, M> MessageBuilder<M> for AB {
 pub trait BaseAirBuilder: AirBuilder + MessageBuilder<AirInteraction<Self::Expr>> {
     /// Returns a sub-builder whose constraints are enforced only when `condition` is not one.
     fn when_not<I: Into<Self::Expr>>(&mut self, condition: I) -> FilteredAirBuilder<Self> {
-        self.when_ne(condition, Self::F::one())
+        self.when_ne(condition, Self::F::ONE)
     }
 
     /// Asserts that an iterator of expressions are all equal.
@@ -86,7 +86,7 @@ pub trait BaseAirBuilder: AirBuilder + MessageBuilder<AirInteraction<Self::Expr>
         a: impl Into<Self::Expr> + Clone,
         b: impl Into<Self::Expr> + Clone,
     ) -> Self::Expr {
-        condition.clone().into() * a.into() + (Self::Expr::one() - condition.into()) * b.into()
+        condition.clone().into() * a.into() + (Self::Expr::ONE - condition.into()) * b.into()
     }
 
     /// Index an array of expressions using an index bitmap.  This function assumes that the
@@ -96,7 +96,7 @@ pub trait BaseAirBuilder: AirBuilder + MessageBuilder<AirInteraction<Self::Expr>
         array: &[impl Into<Self::Expr> + Clone],
         index_bitmap: &[impl Into<Self::Expr> + Clone],
     ) -> Self::Expr {
-        let mut result = Self::Expr::zero();
+        let mut result = Self::Expr::ZERO;
 
         for (value, i) in array.iter().zip_eq(index_bitmap) {
             result = result.clone() + value.clone().into() * i.clone().into();
@@ -118,7 +118,7 @@ pub trait ByteAirBuilder: BaseAirBuilder {
         c: impl Into<Self::Expr>,
         multiplicity: impl Into<Self::Expr>,
     ) {
-        self.send_byte_pair(opcode, a, Self::Expr::zero(), b, c, multiplicity);
+        self.send_byte_pair(opcode, a, Self::Expr::ZERO, b, c, multiplicity);
     }
 
     /// Sends a byte operation with two outputs to be processed.
@@ -152,7 +152,7 @@ pub trait ByteAirBuilder: BaseAirBuilder {
         c: impl Into<Self::Expr>,
         multiplicity: impl Into<Self::Expr>,
     ) {
-        self.receive_byte_pair(opcode, a, Self::Expr::zero(), b, c, multiplicity);
+        self.receive_byte_pair(opcode, a, Self::Expr::ZERO, b, c, multiplicity);
     }
 
     /// Receives a byte operation with two outputs to be processed.
@@ -338,7 +338,7 @@ pub trait ExtensionAirBuilder: BaseAirBuilder {
         &mut self,
         element: BinomialExtension<I>,
     ) {
-        let base_slice = element.as_base_slice();
+        let base_slice = element.as_basis_coefficients_slice();
         let degree = base_slice.len();
         base_slice[1..degree].iter().for_each(|coeff| {
             self.assert_zero(coeff.clone().into());

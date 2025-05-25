@@ -304,7 +304,7 @@ impl<V: Copy> PagedMemory<V> {
 
     /// Returns an iterator over the occupied addresses.
     pub fn keys(&self) -> impl Iterator<Item = u32> + '_ {
-        self.index.iter().enumerate().filter(|(_, &i)| i != NO_PAGE).flat_map(|(i, index)| {
+        self.index.iter().enumerate().filter(|&(_, &i)| i != NO_PAGE).flat_map(|(i, index)| {
             let upper = i << LOG_PAGE_LEN;
             self.page_table[*index as usize]
                 .0

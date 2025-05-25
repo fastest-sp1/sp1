@@ -8,7 +8,7 @@ use crate::{air::MemoryAirBuilder, utils::zeroed_f_vec};
 use generic_array::GenericArray;
 use num::{BigUint, One, Zero};
 use p3_air::{Air, AirBuilder, BaseAir};
-use p3_field::{AbstractField, PrimeField32};
+use p3_field::{PrimeCharacteristicRing, PrimeField32};
 use p3_matrix::{dense::RowMajorMatrix, Matrix};
 use sp1_core_executor::{
     events::{ByteRecord, FieldOperation, PrecompileEvent},
@@ -186,9 +186,9 @@ impl<F: PrimeField32, E: EllipticCurve + WeierstrassParameters> MachineAir<F>
                 row[0..weierstrass_width].borrow_mut();
 
             cols.is_real = F::from_bool(true);
-            cols.shard = F::from_canonical_u32(event.shard);
-            cols.clk = F::from_canonical_u32(event.clk);
-            cols.ptr = F::from_canonical_u32(event.ptr);
+            cols.shard = F::from_u32(event.shard);
+            cols.clk = F::from_u32(event.clk);
+            cols.ptr = F::from_u32(event.ptr);
             cols.sign_bit = F::from_bool(event.sign_bit);
 
             let x = BigUint::from_bytes_le(&event.x_bytes);
@@ -211,7 +211,7 @@ impl<F: PrimeField32, E: EllipticCurve + WeierstrassParameters> MachineAir<F>
                 let neg_y = &modulus - &decompressed_y;
 
                 let is_y_eq_sqrt_y_result =
-                    F::from_canonical_u8(event.decompressed_y_bytes[0] % 2) == lsb;
+                    F::from_u8(event.decompressed_y_bytes[0] % 2) == lsb;
                 choice_cols.is_y_eq_sqrt_y_result = F::from_bool(is_y_eq_sqrt_y_result);
 
                 if event.sign_bit {
@@ -308,7 +308,7 @@ where
         let main = builder.main();
 
         let weierstrass_cols = num_weierstrass_decompress_cols::<E::BaseField>();
-        let local_slice = main.row_slice(0);
+        let local_slice = main.row_slice(0).unwrap();
         let local: &WeierstrassDecompressCols<AB::Var, E::BaseField> =
             (*local_slice)[0..weierstrass_cols].borrow();
 
@@ -345,7 +345,7 @@ where
 
         local.neg_y.eval(
             builder,
-            &[AB::Expr::zero()].iter(),
+            &[AB::Expr::ZERO].iter(),
             &local.y.multiplication.result,
             FieldOperation::Sub,
             local.is_real,
@@ -374,7 +374,7 @@ where
                 // negative square root of the y value.
                 builder
                     .when(local.is_real)
-                    .when_ne(local.y.lsb, AB::Expr::one() - local.sign_bit)
+                    .when_ne(local.y.lsb, AB::Expr::ONE - local.sign_bit)
                     .assert_all_eq(local.y.multiplication.result, y_limbs);
                 builder
                     .when(local.is_real)
@@ -461,7 +461,7 @@ where
             builder.eval_memory_access(
                 local.shard,
                 local.clk,
-                local.ptr.into() + AB::F::from_canonical_u32((i as u32) * 4 + num_limbs as u32),
+                local.ptr.into() + AB::F::from_u32((i as u32) * 4 + num_limbs as u32),
                 &local.x_access[i],
                 local.is_real,
             );
@@ -470,7 +470,7 @@ where
             builder.eval_memory_access(
                 local.shard,
                 local.clk,
-                local.ptr.into() + AB::F::from_canonical_u32((i as u32) * 4),
+                local.ptr.into() + AB::F::from_u32((i as u32) * 4),
                 &local.y_access[i],
                 local.is_real,
             );
@@ -478,13 +478,13 @@ where
 
         let syscall_id = match E::CURVE_TYPE {
             CurveType::Secp256k1 => {
-                AB::F::from_canonical_u32(SyscallCode::SECP256K1_DECOMPRESS.syscall_id())
+                AB::F::from_u32(SyscallCode::SECP256K1_DECOMPRESS.syscall_id())
             }
             CurveType::Secp256r1 => {
-                AB::F::from_canonical_u32(SyscallCode::SECP256R1_DECOMPRESS.syscall_id())
+                AB::F::from_u32(SyscallCode::SECP256R1_DECOMPRESS.syscall_id())
             }
             CurveType::Bls12381 => {
-                AB::F::from_canonical_u32(SyscallCode::BLS12381_DECOMPRESS.syscall_id())
+                AB::F::from_u32(SyscallCode::BLS12381_DECOMPRESS.syscall_id())
             }
             _ => panic!("Unsupported curve"),
         };
@@ -527,7 +527,7 @@ mod tests {
 
         let len = 100;
         let num_tests = 10;
-        let random_slice = (0..len).map(|_| rng.gen::<u8>()).collect::<Vec<u8>>();
+        let random_slice = (0..len).map(|_| rng.r#gen::<u8>()).collect::<Vec<u8>>();
         rand.seed(len, &random_slice);
 
         for _ in 0..num_tests {

@@ -70,7 +70,7 @@ impl<F> Deref for RecursionProgram<F> {
 
 impl<F: Field> MachineProgram<F> for RecursionProgram<F> {
     fn pc_start(&self) -> F {
-        F::zero()
+        F::ZERO
     }
 
     fn initial_global_cumulative_sum(&self) -> SepticDigest<F> {

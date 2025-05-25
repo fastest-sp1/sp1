@@ -116,15 +116,18 @@ __SP1_HOSTDEV__ __SP1_INLINE__ void populate_perm(
   F ret_state[WIDTH];
   populate_internal_rounds<F>(internal_rounds_state, internal_rounds_s0,
                               internal_sbox, ret_state);
+
   size_t row = NUM_EXTERNAL_ROUNDS / 2;
   for (size_t i = 0; i < WIDTH; i++) {
     external_rounds_state[row * WIDTH + i] = ret_state[i];
+
   }
 
   for (size_t r = NUM_EXTERNAL_ROUNDS / 2; r < NUM_EXTERNAL_ROUNDS; r++) {
     F next_state[WIDTH];
     populate_external_round<F>(external_rounds_state, external_sbox, r,
                                next_state);
+
     if (r == NUM_EXTERNAL_ROUNDS - 1) {
       for (size_t i = 0; i < WIDTH; i++) {
         output_state[i] = next_state[i];

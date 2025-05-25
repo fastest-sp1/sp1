@@ -5,8 +5,8 @@ use num_traits::cast::ToPrimitive;
 
 use p3_air::{Air, BaseAir};
 use p3_baby_bear::BabyBear;
-use p3_commit::{Mmcs, Pcs, PolynomialSpace, TwoAdicMultiplicativeCoset};
-use p3_field::{AbstractField, ExtensionField, Field, TwoAdicField};
+use p3_commit::{Mmcs, Pcs, PolynomialSpace};
+use p3_field::{PrimeCharacteristicRing, ExtensionField, Field, TwoAdicField, coset::TwoAdicMultiplicativeCoset};
 use p3_matrix::{dense::RowMajorMatrix, Dimensions};
 use sp1_recursion_compiler::{
     circuit::CircuitV2Builder,
@@ -49,9 +49,10 @@ pub struct ShardProofVariable<C: CircuitConfig<F = SC::Val>, SC: BabyBearFriConf
 
 /// Get a dummy duplex challenger for use in dummy proofs.
 pub fn dummy_challenger(config: &BabyBearPoseidon2) -> Challenger<BabyBearPoseidon2> {
-    let mut challenger = config.challenger();
+    //let mut challenger = config.challenger();
+    let mut challenger = config.initialise_challenger();
     challenger.input_buffer = vec![];
-    challenger.output_buffer = vec![BabyBear::zero(); challenger.sponge_state.len()];
+    challenger.output_buffer = vec![BabyBear::ZERO; challenger.sponge_state.len()];
     challenger
 }
 
@@ -134,7 +135,7 @@ pub fn dummy_vk_and_shard_proof<A: MachineAir<BabyBear>>(
     let log_blowup = machine.config().fri_config().log_blowup;
     let opening_proof = dummy_pcs_proof(fri_queries, &batch_shapes, log_blowup);
 
-    let public_values = (0..PROOF_MAX_NUM_PVS).map(|_| BabyBear::zero()).collect::<Vec<_>>();
+    let public_values = (0..PROOF_MAX_NUM_PVS).map(|_| BabyBear::ZERO).collect::<Vec<_>>();
 
     // Get the preprocessed chip information.
     let pcs = machine.config().pcs();
@@ -158,7 +159,7 @@ pub fn dummy_vk_and_shard_proof<A: MachineAir<BabyBear>>(
 
     let vk = StarkVerifyingKey {
         commit: dummy_hash(),
-        pc_start: BabyBear::zero(),
+        pc_start: BabyBear::ZERO,
         initial_global_cumulative_sum: SepticDigest::<BabyBear>::zero(),
         chip_information: preprocessed_chip_information,
         chip_ordering: preprocessed_chip_ordering,
@@ -176,20 +177,20 @@ fn dummy_opened_values<F: Field, EF: ExtensionField<F>, A: MachineAir<F>>(
 ) -> ChipOpenedValues<F, EF> {
     let preprocessed_width = chip.preprocessed_width();
     let preprocessed = AirOpenedValues {
-        local: vec![EF::zero(); preprocessed_width],
-        next: vec![EF::zero(); preprocessed_width],
+        local: vec![EF::ZERO; preprocessed_width],
+        next: vec![EF::ZERO; preprocessed_width],
     };
     let main_width = chip.width();
     let main =
-        AirOpenedValues { local: vec![EF::zero(); main_width], next: vec![EF::zero(); main_width] };
+        AirOpenedValues { local: vec![EF::ZERO; main_width], next: vec![EF::ZERO; main_width] };
 
     let permutation_width = chip.permutation_width();
     let permutation = AirOpenedValues {
-        local: vec![EF::zero(); permutation_width * EF::D],
-        next: vec![EF::zero(); permutation_width * EF::D],
+        local: vec![EF::ZERO; permutation_width * EF::DIMENSION],
+        next: vec![EF::ZERO; permutation_width * EF::DIMENSION],
     };
     let quotient_width = chip.quotient_width();
-    let quotient = (0..quotient_width).map(|_| vec![EF::zero(); EF::D]).collect::<Vec<_>>();
+    let quotient = (0..quotient_width).map(|_| vec![EF::ZERO; EF::DIMENSION]).collect::<Vec<_>>();
 
     ChipOpenedValues {
         preprocessed,
@@ -197,7 +198,7 @@ fn dummy_opened_values<F: Field, EF: ExtensionField<F>, A: MachineAir<F>>(
         permutation,
         quotient,
         global_cumulative_sum: SepticDigest::<F>::zero(),
-        local_cumulative_sum: EF::zero(),
+        local_cumulative_sum: EF::ZERO,
         log_degree,
     }
 }
@@ -312,7 +313,7 @@ where
 
             // If the chip is local, then `global_cumulative_sum` must be zero.
             if chip.commit_scope() == InteractionScope::Local {
-                let is_real: Felt<C::F> = builder.constant(C::F::one());
+                let is_real: Felt<C::F> = builder.constant(C::F::ONE);
                 builder.assert_digest_zero_v2(is_real, global_sum);
             }
 
@@ -323,7 +324,7 @@ where
                 .chain(chip.receives())
                 .any(|i| i.scope == InteractionScope::Local);
             if !has_local_interactions {
-                builder.assert_ext_eq(opening.local_cumulative_sum, C::EF::zero().cons());
+                builder.assert_ext_eq(opening.local_cumulative_sum, C::EF::ZERO.cons());
             }
         }
 
@@ -476,8 +477,8 @@ where
             .chips
             .iter()
             .map(|val| val.local_cumulative_sum)
-            .fold(builder.constant(C::EF::zero()), |acc, x| builder.eval(acc + x));
-        let zero_ext: Ext<_, _> = builder.constant(C::EF::zero());
+            .fold(builder.constant(C::EF::ZERO), |acc, x| builder.eval(acc + x));
+        let zero_ext: Ext<_, _> = builder.constant(C::EF::ZERO);
         builder.assert_ext_eq(local_cumulative_sum, zero_ext);
 
         builder.cycle_tracker_v2_exit();

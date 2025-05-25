@@ -256,14 +256,14 @@ mod tests {
     #![allow(clippy::print_stdout)]
 
     use p3_baby_bear::BabyBear;
-    use p3_field::AbstractField;
+    use p3_field::PrimeCharacteristicRing;
     use p3_symmetric::Permutation;
     use sp1_stark::inner_perm;
 
     #[test]
     pub fn test_babybear_poseidon2() {
         let perm = inner_perm();
-        let zeros = [BabyBear::zero(); 16];
+        let zeros = [BabyBear::ZERO; 16];
         let result = perm.permute(zeros);
         println!("{:?}", result);
         super::test_babybear_poseidon2();

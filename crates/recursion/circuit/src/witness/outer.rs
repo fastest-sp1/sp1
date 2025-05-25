@@ -1,7 +1,7 @@
 use std::borrow::Borrow;
 
 use p3_bn254_fr::Bn254Fr;
-use p3_field::AbstractField;
+use p3_field::PrimeCharacteristicRing;
 
 use p3_fri::{CommitPhaseProofStep, QueryProof};
 pub use sp1_recursion_compiler::ir::Witness as OuterWitness;

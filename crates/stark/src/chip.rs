@@ -250,6 +250,7 @@ where
 {
     fn eval(&self, builder: &mut AB) {
         // Evaluate the execution trace constraints.
+        //tracing::debug!("---chip-name:{}", self.air.name());
         self.air.eval(builder);
         // Evaluate permutation constraints.
         let batch_size = self.logup_batch_size();

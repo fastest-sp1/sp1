@@ -1,7 +1,7 @@
 use std::borrow::Borrow;
 
 use p3_air::{Air, AirBuilder};
-use p3_field::AbstractField;
+use p3_field::PrimeCharacteristicRing;
 use p3_matrix::Matrix;
 use sp1_core_executor::{
     events::MemoryAccessPosition, syscalls::SyscallCode, Opcode, Register::X5,
@@ -30,7 +30,7 @@ where
     #[inline(never)]
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
-        let local = main.row_slice(0);
+        let local = main.row_slice(0).unwrap();
         let local: &SyscallInstrColumns<AB::Var> = (*local).borrow();
 
         let public_values_slice: [AB::PublicVar; SP1_PROOF_NUM_PV_ELTS] =
@@ -68,10 +68,10 @@ where
             *local.op_a_access.value(),
             local.op_b_value,
             local.op_c_value,
-            AB::Expr::zero(), // op_a is always register 5 for ecall instructions.
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::one(),
+            AB::Expr::ZERO, // op_a is always register 5 for ecall instructions.
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ONE,
             local.is_halt,
             local.is_real,
         );
@@ -80,8 +80,8 @@ where
         // `next_pc` is constrained for the case where `is_halt` is false to be `pc + 4`
         builder
             .when(local.is_real)
-            .when(AB::Expr::one() - local.is_halt)
-            .assert_eq(local.next_pc, local.pc + AB::Expr::from_canonical_u32(4));
+            .when(AB::Expr::ONE - local.is_halt)
+            .assert_eq(local.next_pc, local.pc + AB::Expr::from_u32(4));
 
         // `num_extra_cycles` is checked to be equal to the return value of
         // `get_num_extra_ecall_cycles`
@@ -93,8 +93,8 @@ where
         // Do the memory eval for op_a. For syscall instructions, we need to eval at register X5.
         builder.eval_memory_access(
             local.shard,
-            local.clk + AB::F::from_canonical_u32(MemoryAccessPosition::A as u32),
-            AB::Expr::from_canonical_u32(X5 as u32),
+            local.clk + AB::F::from_u32(MemoryAccessPosition::A as u32),
+            AB::Expr::from_u32(X5 as u32),
             &local.op_a_access,
             local.is_real,
         );
@@ -136,7 +136,7 @@ impl SyscallInstrsChip {
 
         // SAFETY: Assert that for non real row, the send_to_table value is 0 so that the
         // `send_syscall` interaction is not activated.
-        builder.when(AB::Expr::one() - local.is_real).assert_zero(send_to_table);
+        builder.when(AB::Expr::ONE - local.is_real).assert_zero(send_to_table);
 
         builder.send_syscall(
             local.shard,
@@ -153,7 +153,7 @@ impl SyscallInstrsChip {
             IsZeroOperation::<AB::F>::eval(
                 builder,
                 syscall_id -
-                    AB::Expr::from_canonical_u32(SyscallCode::ENTER_UNCONSTRAINED.syscall_id()),
+                    AB::Expr::from_u32(SyscallCode::ENTER_UNCONSTRAINED.syscall_id()),
                 local.is_enter_unconstrained,
                 local.is_real.into(),
             );
@@ -164,7 +164,7 @@ impl SyscallInstrsChip {
         let is_hint_len = {
             IsZeroOperation::<AB::F>::eval(
                 builder,
-                syscall_id - AB::Expr::from_canonical_u32(SyscallCode::HINT_LEN.syscall_id()),
+                syscall_id - AB::Expr::from_u32(SyscallCode::HINT_LEN.syscall_id()),
                 local.is_hint_len,
                 local.is_real.into(),
             );
@@ -231,7 +231,7 @@ impl SyscallInstrsChip {
             self.get_is_commit_related_syscall(builder, local);
 
         // Verify the index bitmap.
-        let mut bitmap_sum = AB::Expr::zero();
+        let mut bitmap_sum = AB::Expr::ZERO;
         // They should all be bools.
         for bit in local.index_bitmap.iter() {
             builder.when(local.is_real).assert_bool(*bit);
@@ -245,7 +245,7 @@ impl SyscallInstrsChip {
         // When it's some other syscall, there should be no set bits.
         builder
             .when(local.is_real)
-            .when(AB::Expr::one() - (is_commit.clone() + is_commit_deferred_proofs.clone()))
+            .when(AB::Expr::ONE - (is_commit.clone() + is_commit_deferred_proofs.clone()))
             .assert_zero(bitmap_sum);
 
         // Verify that word_idx corresponds to the set bit in index bitmap.
@@ -253,7 +253,7 @@ impl SyscallInstrsChip {
             builder
                 .when(local.is_real)
                 .when(*bit)
-                .assert_eq(local.op_b_value[0], AB::Expr::from_canonical_u32(i as u32));
+                .assert_eq(local.op_b_value[0], AB::Expr::from_u32(i as u32));
         }
         // Verify that the 3 upper bytes of the word_idx are 0.
         for i in 0..3 {
@@ -329,7 +329,7 @@ impl SyscallInstrsChip {
         let is_halt = {
             IsZeroOperation::<AB::F>::eval(
                 builder,
-                syscall_id - AB::Expr::from_canonical_u32(SyscallCode::HALT.syscall_id()),
+                syscall_id - AB::Expr::from_u32(SyscallCode::HALT.syscall_id()),
                 local.is_halt_check,
                 local.is_real.into(),
             );
@@ -359,7 +359,7 @@ impl SyscallInstrsChip {
         let is_commit = {
             IsZeroOperation::<AB::F>::eval(
                 builder,
-                syscall_id - AB::Expr::from_canonical_u32(SyscallCode::COMMIT.syscall_id()),
+                syscall_id - AB::Expr::from_u32(SyscallCode::COMMIT.syscall_id()),
                 local.is_commit,
                 local.is_real.into(),
             );
@@ -371,7 +371,7 @@ impl SyscallInstrsChip {
             IsZeroOperation::<AB::F>::eval(
                 builder,
                 syscall_id -
-                    AB::Expr::from_canonical_u32(
+                    AB::Expr::from_u32(
                         SyscallCode::COMMIT_DEFERRED_PROOFS.syscall_id(),
                     ),
                 local.is_commit_deferred_proofs,

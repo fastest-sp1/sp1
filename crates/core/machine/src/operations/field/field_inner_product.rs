@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use num::{BigUint, Zero};
 use p3_air::AirBuilder;
-use p3_field::{AbstractField, PrimeField32};
+use p3_field::{PrimeCharacteristicRing, PrimeField32};
 use sp1_core_executor::events::ByteRecord;
 use sp1_curves::params::{FieldParameters, Limbs};
 use sp1_derive::AlignedBorrow;
@@ -59,7 +59,7 @@ impl<F: PrimeField32, P: FieldParameters> FieldInnerProductCols<F, P> {
         let p_inner_product = p_a_vec
             .into_iter()
             .zip(p_b_vec)
-            .fold(Polynomial::<F>::new(vec![F::zero()]), |acc, (c, d)| acc + &c * &d);
+            .fold(Polynomial::<F>::new(vec![F::ZERO]), |acc, (c, d)| acc + &c * &d);
         let p_vanishing = p_inner_product - &p_result - &p_carry * &p_modulus;
         assert_eq!(p_vanishing.degree(), P::NB_WITNESS_LIMBS);
 
@@ -104,7 +104,7 @@ where
         let p_result: Polynomial<<AB as AirBuilder>::Expr> = self.result.into();
         let p_carry: Polynomial<<AB as AirBuilder>::Expr> = self.carry.into();
 
-        let p_zero = Polynomial::<AB::Expr>::new(vec![AB::Expr::zero()]);
+        let p_zero = Polynomial::<AB::Expr>::new(vec![AB::Expr::ZERO]);
 
         let p_inner_product = p_a_vec
             .iter()
@@ -155,7 +155,7 @@ mod tests {
     use num::bigint::RandBigInt;
     use p3_air::Air;
     use p3_baby_bear::BabyBear;
-    use p3_field::AbstractField;
+    use p3_field::PrimeCharacteristicRing;
     use p3_matrix::{dense::RowMajorMatrix, Matrix};
     use rand::thread_rng;
     use sp1_curves::edwards::ed25519::Ed25519BaseField;
@@ -214,7 +214,7 @@ mod tests {
             let rows = operands
                 .iter()
                 .map(|(a, b)| {
-                    let mut row = [F::zero(); NUM_TEST_COLS];
+                    let mut row = [F::ZERO; NUM_TEST_COLS];
                     let cols: &mut TestCols<F, P> = row.as_mut_slice().borrow_mut();
                     cols.a[0] = P::to_limbs_field::<F, _>(&a[0]);
                     cols.b[0] = P::to_limbs_field::<F, _>(&b[0]);
@@ -250,9 +250,9 @@ mod tests {
     {
         fn eval(&self, builder: &mut AB) {
             let main = builder.main();
-            let local = main.row_slice(0);
+            let local = main.row_slice(0).unwrap();
             let local: &TestCols<AB::Var, P> = (*local).borrow();
-            local.a_ip_b.eval(builder, &local.a, &local.b, AB::F::one());
+            local.a_ip_b.eval(builder, &local.a, &local.b, AB::F::ONE);
         }
     }
 
@@ -268,16 +268,14 @@ mod tests {
     #[test]
     fn prove_babybear() {
         let config = BabyBearPoseidon2::new();
-        let mut challenger = config.challenger();
 
         let shard = ExecutionRecord::default();
 
         let chip: FieldIpChip<Ed25519BaseField> = FieldIpChip::new();
         let trace: RowMajorMatrix<BabyBear> =
             chip.generate_trace(&shard, &mut ExecutionRecord::default());
-        let proof = uni_stark_prove::<BabyBearPoseidon2, _>(&config, &chip, &mut challenger, trace);
+        let proof = uni_stark_prove::<BabyBearPoseidon2, _>(&config, &chip, trace);
 
-        let mut challenger = config.challenger();
-        uni_stark_verify(&config, &chip, &mut challenger, &proof).unwrap();
+        uni_stark_verify(&config, &chip,  &proof).unwrap();
     }
 }

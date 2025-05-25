@@ -9,7 +9,7 @@ cfg_if::cfg_if! {
 
 /// Write `nbytes` of data to the prover to a given file descriptor `fd` from `write_buf`.
 #[allow(unused_variables)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn syscall_write(fd: u32, write_buf: *const u8, nbytes: usize) {
     cfg_if::cfg_if! {
         if #[cfg(target_os = "zkvm")] {
@@ -38,7 +38,7 @@ pub extern "C" fn syscall_write(fd: u32, write_buf: *const u8, nbytes: usize) {
 
 /// Returns the length of the next element in the hint stream.
 #[allow(unused_variables)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn syscall_hint_len() -> usize {
     #[cfg(target_os = "zkvm")]
     unsafe {
@@ -57,7 +57,7 @@ pub extern "C" fn syscall_hint_len() -> usize {
 
 /// Reads the next element in the hint stream into the given buffer.
 #[allow(unused_variables)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn syscall_hint_read(ptr: *mut u8, len: usize) {
     #[cfg(target_os = "zkvm")]
     unsafe {

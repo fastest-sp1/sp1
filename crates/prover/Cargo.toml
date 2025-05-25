@@ -70,6 +70,10 @@ name = "build_recursion_vks"
 path = "scripts/build_recursion_vks.rs"
 
 [[bin]]
+name = "build_compress_vks"
+path = "scripts/build_compress_vks.rs"
+
+[[bin]]
 name = "find_maximal_shapes"
 path = "scripts/find_maximal_shapes.rs"
 

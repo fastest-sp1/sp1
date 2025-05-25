@@ -3,7 +3,7 @@ use std::{
     ops::{Add, Mul, MulAssign, Sub},
 };
 
-use p3_field::{AbstractField, ExtensionField, Field};
+use p3_field::{Algebra, ExtensionField, Field};
 use p3_matrix::{dense::RowMajorMatrixView, stack::VerticalPair};
 
 use super::{Challenge, PackedChallenge, PackedVal, StarkGenericConfig, Val};
@@ -80,7 +80,7 @@ impl<'a, SC: StarkGenericConfig> AirBuilder for ProverConstraintFolder<'a, SC> {
     fn assert_zero<I: Into<Self::Expr>>(&mut self, x: I) {
         let x: PackedVal<SC> = x.into();
         self.accumulator +=
-            PackedChallenge::<SC>::from_f(self.powers_of_alpha[self.constraint_index]) * x;
+            PackedChallenge::<SC>::from(self.powers_of_alpha[self.constraint_index]) * x;
         self.constraint_index += 1;
     }
 }
@@ -98,7 +98,7 @@ impl<SC: StarkGenericConfig> ExtensionBuilder for ProverConstraintFolder<'_, SC>
     {
         let x: PackedChallenge<SC> = x.into();
         self.accumulator +=
-            PackedChallenge::<SC>::from_f(self.powers_of_alpha[self.constraint_index]) * x;
+            PackedChallenge::<SC>::from(self.powers_of_alpha[self.constraint_index]) * x;
         self.constraint_index += 1;
     }
 }
@@ -194,7 +194,7 @@ impl<'a, F, EF, PubVar, Var, Expr> AirBuilder
 where
     F: Field,
     EF: ExtensionField<F>,
-    Expr: AbstractField
+    Expr: Algebra<F> + Algebra<Var>
         + From<F>
         + Add<Var, Output = Expr>
         + Add<F, Output = Expr>
@@ -255,7 +255,7 @@ impl<F, EF, PubVar, Var, Expr> ExtensionBuilder
 where
     F: Field,
     EF: ExtensionField<F>,
-    Expr: AbstractField<F = EF>
+    Expr: Algebra<F> + Algebra<Var>// + Algebra<EF>
         + From<F>
         + Add<Var, Output = Expr>
         + Add<F, Output = Expr>
@@ -296,7 +296,7 @@ impl<'a, F, EF, PubVar, Var, Expr> PermutationAirBuilder
 where
     F: Field,
     EF: ExtensionField<F>,
-    Expr: AbstractField<F = EF>
+    Expr: Algebra<F> + Algebra<Var> //+ Algebra<EF>
         + From<F>
         + Add<Var, Output = Expr>
         + Add<F, Output = Expr>
@@ -337,7 +337,7 @@ impl<'a, F, EF, PubVar, Var, Expr> MultiTableAirBuilder<'a>
 where
     F: Field,
     EF: ExtensionField<F>,
-    Expr: AbstractField<F = EF>
+    Expr: Algebra<F> + Algebra<Var> //+ Algebra<EF>
         + From<F>
         + Add<Var, Output = Expr>
         + Add<F, Output = Expr>
@@ -378,7 +378,7 @@ impl<F, EF, PubVar, Var, Expr> PairBuilder
 where
     F: Field,
     EF: ExtensionField<F>,
-    Expr: AbstractField<F = EF>
+    Expr: Algebra<F> + Algebra<Var>// + Algebra<EF>
         + From<F>
         + Add<Var, Output = Expr>
         + Add<F, Output = Expr>
@@ -412,7 +412,7 @@ impl<F, EF, PubVar, Var, Expr> EmptyMessageBuilder
 where
     F: Field,
     EF: ExtensionField<F>,
-    Expr: AbstractField<F = EF>
+    Expr: Algebra<F> + Algebra<Var> //+ Algebra<EF>
         + From<F>
         + Add<Var, Output = Expr>
         + Add<F, Output = Expr>
@@ -443,7 +443,7 @@ impl<F, EF, PubVar, Var, Expr> AirBuilderWithPublicValues
 where
     F: Field,
     EF: ExtensionField<F>,
-    Expr: AbstractField<F = EF>
+    Expr: Algebra<F> + Algebra<Var> //+ Algebra<EF>
         + From<F>
         + Add<Var, Output = Expr>
         + Add<F, Output = Expr>

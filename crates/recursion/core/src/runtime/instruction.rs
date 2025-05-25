@@ -1,7 +1,7 @@
 use crate::*;
 #[cfg(feature = "debug")]
 use backtrace::Backtrace;
-use p3_field::{AbstractExtensionField, AbstractField};
+use p3_field::{BasedVectorSpace, PrimeCharacteristicRing};
 use serde::{Deserialize, Serialize};
 
 #[cfg(any(test, feature = "program_validation"))]
@@ -183,7 +183,7 @@ pub enum FieldEltType {
     Extension,
 }
 
-pub fn base_alu<F: AbstractField>(
+pub fn base_alu<F: PrimeCharacteristicRing>(
     opcode: BaseAluOpcode,
     mult: u32,
     out: u32,
@@ -192,16 +192,16 @@ pub fn base_alu<F: AbstractField>(
 ) -> Instruction<F> {
     Instruction::BaseAlu(BaseAluInstr {
         opcode,
-        mult: F::from_canonical_u32(mult),
+        mult: F::from_u32(mult),
         addrs: BaseAluIo {
-            out: Address(F::from_canonical_u32(out)),
-            in1: Address(F::from_canonical_u32(in1)),
-            in2: Address(F::from_canonical_u32(in2)),
+            out: Address(F::from_u32(out)),
+            in1: Address(F::from_u32(in1)),
+            in2: Address(F::from_u32(in2)),
         },
     })
 }
 
-pub fn ext_alu<F: AbstractField>(
+pub fn ext_alu<F: PrimeCharacteristicRing>(
     opcode: ExtAluOpcode,
     mult: u32,
     out: u32,
@@ -210,25 +210,25 @@ pub fn ext_alu<F: AbstractField>(
 ) -> Instruction<F> {
     Instruction::ExtAlu(ExtAluInstr {
         opcode,
-        mult: F::from_canonical_u32(mult),
+        mult: F::from_u32(mult),
         addrs: ExtAluIo {
-            out: Address(F::from_canonical_u32(out)),
-            in1: Address(F::from_canonical_u32(in1)),
-            in2: Address(F::from_canonical_u32(in2)),
+            out: Address(F::from_u32(out)),
+            in1: Address(F::from_u32(in1)),
+            in2: Address(F::from_u32(in2)),
         },
     })
 }
 
-pub fn mem<F: AbstractField>(
+pub fn mem<F: PrimeCharacteristicRing>(
     kind: MemAccessKind,
     mult: u32,
     addr: u32,
     val: u32,
 ) -> Instruction<F> {
-    mem_single(kind, mult, addr, F::from_canonical_u32(val))
+    mem_single(kind, mult, addr, F::from_u32(val))
 }
 
-pub fn mem_single<F: AbstractField>(
+pub fn mem_single<F: PrimeCharacteristicRing>(
     kind: MemAccessKind,
     mult: u32,
     addr: u32,
@@ -237,45 +237,45 @@ pub fn mem_single<F: AbstractField>(
     mem_block(kind, mult, addr, Block::from(val))
 }
 
-pub fn mem_ext<F: AbstractField + Copy, EF: AbstractExtensionField<F>>(
+pub fn mem_ext<F: PrimeCharacteristicRing + Copy, EF: BasedVectorSpace<F>>(
     kind: MemAccessKind,
     mult: u32,
     addr: u32,
     val: EF,
 ) -> Instruction<F> {
-    mem_block(kind, mult, addr, val.as_base_slice().into())
+    mem_block(kind, mult, addr, val.as_basis_coefficients_slice().into())
 }
 
-pub fn mem_block<F: AbstractField>(
+pub fn mem_block<F: PrimeCharacteristicRing>(
     kind: MemAccessKind,
     mult: u32,
     addr: u32,
     val: Block<F>,
 ) -> Instruction<F> {
     Instruction::Mem(MemInstr {
-        addrs: MemIo { inner: Address(F::from_canonical_u32(addr)) },
+        addrs: MemIo { inner: Address(F::from_u32(addr)) },
         vals: MemIo { inner: val },
-        mult: F::from_canonical_u32(mult),
+        mult: F::from_u32(mult),
         kind,
     })
 }
 
-pub fn poseidon2<F: AbstractField>(
+pub fn poseidon2<F: PrimeCharacteristicRing>(
     mults: [u32; WIDTH],
     output: [u32; WIDTH],
     input: [u32; WIDTH],
 ) -> Instruction<F> {
     Instruction::Poseidon2(Box::new(Poseidon2Instr {
-        mults: mults.map(F::from_canonical_u32),
+        mults: mults.map(F::from_u32),
         addrs: Poseidon2Io {
-            output: output.map(F::from_canonical_u32).map(Address),
-            input: input.map(F::from_canonical_u32).map(Address),
+            output: output.map(F::from_u32).map(Address),
+            input: input.map(F::from_u32).map(Address),
         },
     }))
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn select<F: AbstractField>(
+pub fn select<F: PrimeCharacteristicRing>(
     mult1: u32,
     mult2: u32,
     bit: u32,
@@ -285,26 +285,26 @@ pub fn select<F: AbstractField>(
     in2: u32,
 ) -> Instruction<F> {
     Instruction::Select(SelectInstr {
-        mult1: F::from_canonical_u32(mult1),
-        mult2: F::from_canonical_u32(mult2),
+        mult1: F::from_u32(mult1),
+        mult2: F::from_u32(mult2),
         addrs: SelectIo {
-            bit: Address(F::from_canonical_u32(bit)),
-            out1: Address(F::from_canonical_u32(out1)),
-            out2: Address(F::from_canonical_u32(out2)),
-            in1: Address(F::from_canonical_u32(in1)),
-            in2: Address(F::from_canonical_u32(in2)),
+            bit: Address(F::from_u32(bit)),
+            out1: Address(F::from_u32(out1)),
+            out2: Address(F::from_u32(out2)),
+            in1: Address(F::from_u32(in1)),
+            in2: Address(F::from_u32(in2)),
         },
     })
 }
 
-pub fn exp_reverse_bits_len<F: AbstractField>(
+pub fn exp_reverse_bits_len<F: PrimeCharacteristicRing>(
     mult: u32,
     base: F,
     exp: Vec<F>,
     result: F,
 ) -> Instruction<F> {
     Instruction::ExpReverseBitsLen(ExpReverseBitsInstr {
-        mult: F::from_canonical_u32(mult),
+        mult: F::from_u32(mult),
         addrs: ExpReverseBitsIo {
             base: Address(base),
             exp: exp.into_iter().map(Address).collect(),
@@ -314,7 +314,7 @@ pub fn exp_reverse_bits_len<F: AbstractField>(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn fri_fold<F: AbstractField>(
+pub fn fri_fold<F: PrimeCharacteristicRing>(
     z: u32,
     alpha: u32,
     x: u32,
@@ -328,35 +328,35 @@ pub fn fri_fold<F: AbstractField>(
     ro_mults: Vec<u32>,
 ) -> Instruction<F> {
     Instruction::FriFold(Box::new(FriFoldInstr {
-        base_single_addrs: FriFoldBaseIo { x: Address(F::from_canonical_u32(x)) },
+        base_single_addrs: FriFoldBaseIo { x: Address(F::from_u32(x)) },
         ext_single_addrs: FriFoldExtSingleIo {
-            z: Address(F::from_canonical_u32(z)),
-            alpha: Address(F::from_canonical_u32(alpha)),
+            z: Address(F::from_u32(z)),
+            alpha: Address(F::from_u32(alpha)),
         },
         ext_vec_addrs: FriFoldExtVecIo {
             mat_opening: mat_opening
                 .iter()
-                .map(|elm| Address(F::from_canonical_u32(*elm)))
+                .map(|elm| Address(F::from_u32(*elm)))
                 .collect(),
-            ps_at_z: ps_at_z.iter().map(|elm| Address(F::from_canonical_u32(*elm))).collect(),
+            ps_at_z: ps_at_z.iter().map(|elm| Address(F::from_u32(*elm))).collect(),
             alpha_pow_input: alpha_pow_input
                 .iter()
-                .map(|elm| Address(F::from_canonical_u32(*elm)))
+                .map(|elm| Address(F::from_u32(*elm)))
                 .collect(),
-            ro_input: ro_input.iter().map(|elm| Address(F::from_canonical_u32(*elm))).collect(),
+            ro_input: ro_input.iter().map(|elm| Address(F::from_u32(*elm))).collect(),
             alpha_pow_output: alpha_pow_output
                 .iter()
-                .map(|elm| Address(F::from_canonical_u32(*elm)))
+                .map(|elm| Address(F::from_u32(*elm)))
                 .collect(),
-            ro_output: ro_output.iter().map(|elm| Address(F::from_canonical_u32(*elm))).collect(),
+            ro_output: ro_output.iter().map(|elm| Address(F::from_u32(*elm))).collect(),
         },
-        alpha_pow_mults: alpha_mults.iter().map(|mult| F::from_canonical_u32(*mult)).collect(),
-        ro_mults: ro_mults.iter().map(|mult| F::from_canonical_u32(*mult)).collect(),
+        alpha_pow_mults: alpha_mults.iter().map(|mult| F::from_u32(*mult)).collect(),
+        ro_mults: ro_mults.iter().map(|mult| F::from_u32(*mult)).collect(),
     }))
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn batch_fri<F: AbstractField>(
+pub fn batch_fri<F: PrimeCharacteristicRing>(
     acc: u32,
     alpha_pows: Vec<u32>,
     p_at_zs: Vec<u32>,
@@ -365,21 +365,21 @@ pub fn batch_fri<F: AbstractField>(
 ) -> Instruction<F> {
     Instruction::BatchFRI(Box::new(BatchFRIInstr {
         base_vec_addrs: BatchFRIBaseVecIo {
-            p_at_x: p_at_xs.iter().map(|elm| Address(F::from_canonical_u32(*elm))).collect(),
+            p_at_x: p_at_xs.iter().map(|elm| Address(F::from_u32(*elm))).collect(),
         },
-        ext_single_addrs: BatchFRIExtSingleIo { acc: Address(F::from_canonical_u32(acc)) },
+        ext_single_addrs: BatchFRIExtSingleIo { acc: Address(F::from_u32(acc)) },
         ext_vec_addrs: BatchFRIExtVecIo {
-            p_at_z: p_at_zs.iter().map(|elm| Address(F::from_canonical_u32(*elm))).collect(),
-            alpha_pow: alpha_pows.iter().map(|elm| Address(F::from_canonical_u32(*elm))).collect(),
+            p_at_z: p_at_zs.iter().map(|elm| Address(F::from_u32(*elm))).collect(),
+            alpha_pow: alpha_pows.iter().map(|elm| Address(F::from_u32(*elm))).collect(),
         },
-        acc_mult: F::from_canonical_u32(acc_mult),
+        acc_mult: F::from_u32(acc_mult),
     }))
 }
 
-pub fn commit_public_values<F: AbstractField>(
+pub fn commit_public_values<F: PrimeCharacteristicRing>(
     public_values_a: &RecursionPublicValues<u32>,
 ) -> Instruction<F> {
-    let pv_a = public_values_a.as_array().map(|pv| Address(F::from_canonical_u32(pv)));
+    let pv_a = public_values_a.as_array().map(|pv| Address(F::from_u32(pv)));
     let pv_address: &RecursionPublicValues<Address<F>> = pv_a.as_slice().borrow();
 
     Instruction::CommitPublicValues(Box::new(CommitPublicValuesInstr {

@@ -86,7 +86,7 @@ impl<F: PrimeField32> MachineAir<F> for ProgramChip {
                         let cols: &mut ProgramPreprocessedCols<F> = row.borrow_mut();
                         let instruction = &program.instructions[idx];
                         let pc = program.pc_base + (idx as u32 * 4);
-                        cols.pc = F::from_canonical_u32(pc);
+                        cols.pc = F::from_u32(pc);
                         cols.instruction.populate(instruction);
                     }
                 });
@@ -123,10 +123,10 @@ impl<F: PrimeField32> MachineAir<F> for ProgramChip {
             .enumerate()
             .map(|(i, _)| {
                 let pc = input.program.pc_base + (i as u32 * 4);
-                let mut row = [F::zero(); NUM_PROGRAM_MULT_COLS];
+                let mut row = [F::ZERO; NUM_PROGRAM_MULT_COLS];
                 let cols: &mut ProgramMultiplicityCols<F> = row.as_mut_slice().borrow_mut();
                 cols.multiplicity =
-                    F::from_canonical_usize(*instruction_counts.get(&pc).unwrap_or(&0));
+                    F::from_usize(*instruction_counts.get(&pc).unwrap_or(&0));
                 row
             })
             .collect::<Vec<_>>();
@@ -134,7 +134,7 @@ impl<F: PrimeField32> MachineAir<F> for ProgramChip {
         // Pad the trace to a power of two depending on the proof shape in `input`.
         pad_rows_fixed(
             &mut rows,
-            || [F::zero(); NUM_PROGRAM_MULT_COLS],
+            || [F::ZERO; NUM_PROGRAM_MULT_COLS],
             input.fixed_log2_rows::<F, _>(self),
         );
 
@@ -160,9 +160,9 @@ where
         let main = builder.main();
         let preprocessed = builder.preprocessed();
 
-        let prep_local = preprocessed.row_slice(0);
+        let prep_local = preprocessed.row_slice(0).unwrap();
         let prep_local: &ProgramPreprocessedCols<AB::Var> = (*prep_local).borrow();
-        let mult_local = main.row_slice(0);
+        let mult_local = main.row_slice(0).unwrap();
         let mult_local: &ProgramMultiplicityCols<AB::Var> = (*mult_local).borrow();
 
         // Constrain the interaction with CPU table

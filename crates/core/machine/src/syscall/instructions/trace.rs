@@ -80,11 +80,11 @@ impl SyscallInstrsChip {
         cols: &mut SyscallInstrColumns<F>,
         blu: &mut impl ByteRecord,
     ) {
-        cols.is_real = F::one();
-        cols.pc = F::from_canonical_u32(event.pc);
-        cols.next_pc = F::from_canonical_u32(event.next_pc);
-        cols.shard = F::from_canonical_u32(event.shard);
-        cols.clk = F::from_canonical_u32(event.clk);
+        cols.is_real = F::ONE;
+        cols.pc = F::from_u32(event.pc);
+        cols.next_pc = F::from_u32(event.next_pc);
+        cols.shard = F::from_u32(event.shard);
+        cols.clk = F::from_u32(event.clk);
 
         cols.op_a_access.populate(MemoryRecordEnum::Write(event.a_record), blu);
         cols.op_b_value = event.arg1.into();
@@ -95,54 +95,54 @@ impl SyscallInstrsChip {
 
         cols.num_extra_cycles = num_cycles;
         cols.is_halt =
-            F::from_bool(syscall_id == F::from_canonical_u32(SyscallCode::HALT.syscall_id()));
+            F::from_bool(syscall_id == F::from_u32(SyscallCode::HALT.syscall_id()));
 
         // Populate `is_enter_unconstrained`.
         cols.is_enter_unconstrained.populate_from_field_element(
-            syscall_id - F::from_canonical_u32(SyscallCode::ENTER_UNCONSTRAINED.syscall_id()),
+            syscall_id - F::from_u32(SyscallCode::ENTER_UNCONSTRAINED.syscall_id()),
         );
 
         // Populate `is_hint_len`.
         cols.is_hint_len.populate_from_field_element(
-            syscall_id - F::from_canonical_u32(SyscallCode::HINT_LEN.syscall_id()),
+            syscall_id - F::from_u32(SyscallCode::HINT_LEN.syscall_id()),
         );
 
         // Populate `is_halt`.
         cols.is_halt_check.populate_from_field_element(
-            syscall_id - F::from_canonical_u32(SyscallCode::HALT.syscall_id()),
+            syscall_id - F::from_u32(SyscallCode::HALT.syscall_id()),
         );
 
         // Populate `is_commit`.
         cols.is_commit.populate_from_field_element(
-            syscall_id - F::from_canonical_u32(SyscallCode::COMMIT.syscall_id()),
+            syscall_id - F::from_u32(SyscallCode::COMMIT.syscall_id()),
         );
 
         // Populate `is_commit_deferred_proofs`.
         cols.is_commit_deferred_proofs.populate_from_field_element(
-            syscall_id - F::from_canonical_u32(SyscallCode::COMMIT_DEFERRED_PROOFS.syscall_id()),
+            syscall_id - F::from_u32(SyscallCode::COMMIT_DEFERRED_PROOFS.syscall_id()),
         );
 
         // If the syscall is `COMMIT` or `COMMIT_DEFERRED_PROOFS`, set the index bitmap and
         // digest word.
-        if syscall_id == F::from_canonical_u32(SyscallCode::COMMIT.syscall_id()) ||
-            syscall_id == F::from_canonical_u32(SyscallCode::COMMIT_DEFERRED_PROOFS.syscall_id())
+        if syscall_id == F::from_u32(SyscallCode::COMMIT.syscall_id()) ||
+            syscall_id == F::from_u32(SyscallCode::COMMIT_DEFERRED_PROOFS.syscall_id())
         {
             let digest_idx = cols.op_b_value.to_u32() as usize;
-            cols.index_bitmap[digest_idx] = F::one();
+            cols.index_bitmap[digest_idx] = F::ONE;
         }
 
         // For halt and commit deferred proofs syscalls, we need to baby bear range check one of
         // it's operands.
-        if cols.is_halt == F::one() {
+        if cols.is_halt == F::ONE {
             cols.operand_to_check = event.arg1.into();
             cols.operand_range_check_cols.populate(cols.operand_to_check, blu);
-            cols.ecall_range_check_operand = F::one();
+            cols.ecall_range_check_operand = F::ONE;
         }
 
-        if syscall_id == F::from_canonical_u32(SyscallCode::COMMIT_DEFERRED_PROOFS.syscall_id()) {
+        if syscall_id == F::from_u32(SyscallCode::COMMIT_DEFERRED_PROOFS.syscall_id()) {
             cols.operand_to_check = event.arg2.into();
             cols.operand_range_check_cols.populate(cols.operand_to_check, blu);
-            cols.ecall_range_check_operand = F::one();
+            cols.ecall_range_check_operand = F::ONE;
         }
     }
 }

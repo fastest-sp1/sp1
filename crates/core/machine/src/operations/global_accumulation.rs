@@ -1,6 +1,6 @@
 use crate::operations::GlobalInteractionOperation;
 use p3_air::AirBuilder;
-use p3_field::{AbstractExtensionField, AbstractField, Field, PrimeField32};
+use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, Field, PrimeField32};
 use sp1_derive::AlignedBorrow;
 use sp1_stark::{
     air::{BaseAirBuilder, SP1AirBuilder, SepticExtensionAirBuilder},
@@ -48,14 +48,14 @@ impl<F: PrimeField32, const N: usize> GlobalAccumulationOperation<F, N> {
                 x: SepticExtension(global_interaction_cols[i].x_coordinate.0),
                 y: SepticExtension(global_interaction_cols[i].y_coordinate.0),
             };
-            assert!(is_real[i] == F::one() || is_real[i] == F::zero());
-            let sum_point = if is_real[i] == F::one() {
+            assert!(is_real[i] == F::ONE || is_real[i] == F::ZERO);
+            let sum_point = if is_real[i] == F::ONE {
                 point_cur.add_incomplete(*initial_digest)
             } else {
                 *initial_digest
             };
-            let sum_checker = if is_real[i] == F::one() {
-                SepticExtension::<F>::zero()
+            let sum_checker = if is_real[i] == F::ONE {
+                SepticExtension::<F>::ZERO
             } else {
                 SepticCurve::<F>::sum_checker_x(*initial_digest, point_cur, sum_point)
             };
@@ -92,7 +92,7 @@ impl<F: PrimeField32, const N: usize> GlobalAccumulationOperation<F, N> {
         self.initial_digest[1] = SepticBlock::from(sums[0].y.0);
         for i in 0..N {
             if len >= i + 2 {
-                self.sum_checker[i] = SepticBlock([F::zero(); 7]);
+                self.sum_checker[i] = SepticBlock([F::ZERO; 7]);
                 self.cumulative_sum[i][0] = SepticBlock::from(sums[i + 1].x.0);
                 self.cumulative_sum[i][1] = SepticBlock::from(sums[i + 1].y.0);
             } else {
@@ -130,28 +130,28 @@ impl<F: Field, const N: usize> GlobalAccumulationOperation<F, N> {
 
         // Next, constrain the accumulation.
         let initial_digest = SepticCurve::<AB::Expr> {
-            x: SepticExtension::<AB::Expr>::from_base_fn(|i| {
+            x: SepticExtension::<AB::Expr>::from_basis_coefficients_fn(|i| {
                 local_accumulation.initial_digest[0][i].into()
             }),
-            y: SepticExtension::<AB::Expr>::from_base_fn(|i| {
+            y: SepticExtension::<AB::Expr>::from_basis_coefficients_fn(|i| {
                 local_accumulation.initial_digest[1][i].into()
             }),
         };
 
         let ith_cumulative_sum = |idx: usize| SepticCurve::<AB::Expr> {
-            x: SepticExtension::<AB::Expr>::from_base_fn(|i| {
+            x: SepticExtension::<AB::Expr>::from_basis_coefficients_fn(|i| {
                 local_accumulation.cumulative_sum[idx][0].0[i].into()
             }),
-            y: SepticExtension::<AB::Expr>::from_base_fn(|i| {
+            y: SepticExtension::<AB::Expr>::from_basis_coefficients_fn(|i| {
                 local_accumulation.cumulative_sum[idx][1].0[i].into()
             }),
         };
 
         let ith_point_to_add = |idx: usize| SepticCurve::<AB::Expr> {
-            x: SepticExtension::<AB::Expr>::from_base_fn(|i| {
+            x: SepticExtension::<AB::Expr>::from_basis_coefficients_fn(|i| {
                 global_interaction_cols[idx].x_coordinate.0[i].into()
             }),
-            y: SepticExtension::<AB::Expr>::from_base_fn(|i| {
+            y: SepticExtension::<AB::Expr>::from_basis_coefficients_fn(|i| {
                 global_interaction_cols[idx].y_coordinate.0[i].into()
             }),
         };
@@ -181,7 +181,7 @@ impl<F: Field, const N: usize> GlobalAccumulationOperation<F, N> {
                 point_to_add,
                 next_sum.clone(),
             );
-            let witnessed_sum_checker_x = SepticExtension::<AB::Expr>::from_base_fn(|idx| {
+            let witnessed_sum_checker_x = SepticExtension::<AB::Expr>::from_basis_coefficients_fn(|idx| {
                 local_accumulation.sum_checker[i].0[idx].into()
             });
             // Since `sum_checker_x` is degree 3, we constrain it to be equal to
@@ -191,10 +191,10 @@ impl<F: Field, const N: usize> GlobalAccumulationOperation<F, N> {
             // are both zero.
             builder
                 .when(local_is_real[i])
-                .assert_septic_ext_eq(witnessed_sum_checker_x, SepticExtension::<AB::Expr>::zero());
+                .assert_septic_ext_eq(witnessed_sum_checker_x, SepticExtension::<AB::Expr>::ZERO);
             builder
                 .when(local_is_real[i])
-                .assert_septic_ext_eq(sum_checker_y, SepticExtension::<AB::Expr>::zero());
+                .assert_septic_ext_eq(sum_checker_y, SepticExtension::<AB::Expr>::ZERO);
 
             // If `is_real == 0`, current_sum == next_sum must hold.
             builder
@@ -207,10 +207,10 @@ impl<F: Field, const N: usize> GlobalAccumulationOperation<F, N> {
         let final_digest = ith_cumulative_sum(N - 1);
 
         let next_initial_digest = SepticCurve::<AB::Expr> {
-            x: SepticExtension::<AB::Expr>::from_base_fn(|i| {
+            x: SepticExtension::<AB::Expr>::from_basis_coefficients_fn(|i| {
                 next_accumulation.initial_digest[0][i].into()
             }),
-            y: SepticExtension::<AB::Expr>::from_base_fn(|i| {
+            y: SepticExtension::<AB::Expr>::from_basis_coefficients_fn(|i| {
                 next_accumulation.initial_digest[1][i].into()
             }),
         };

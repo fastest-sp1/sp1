@@ -1,6 +1,6 @@
 use std::{cell::UnsafeCell, ptr};
 
-use p3_field::AbstractField;
+use p3_field::PrimeCharacteristicRing;
 use sp1_primitives::types::RecursionProgramType;
 
 use super::{
@@ -313,7 +313,7 @@ impl<C: Config> Builder<C> {
     }
 
     pub fn print_debug(&mut self, val: usize) {
-        let constant = self.eval(C::N::from_canonical_usize(val));
+        let constant = self.eval(C::N::from_usize(val));
         self.print_v(constant);
     }
 
@@ -419,7 +419,7 @@ impl<C: Config> Builder<C> {
     /// Materializes a usize into a variable.
     pub fn materialize(&mut self, num: Usize<C::N>) -> Var<C::N> {
         match num {
-            Usize::Const(num) => self.eval(C::N::from_canonical_usize(num)),
+            Usize::Const(num) => self.eval(C::N::from_usize(num)),
             Usize::Var(num) => num,
         }
     }
@@ -433,12 +433,12 @@ impl<C: Config> Builder<C> {
     pub fn commit_public_value(&mut self, val: Felt<C::F>) {
         assert!(!self.is_sub_builder, "Cannot commit to a public value with a sub builder");
         if self.nb_public_values.is_none() {
-            self.nb_public_values = Some(self.eval(C::N::zero()));
+            self.nb_public_values = Some(self.eval(C::N::ZERO));
         }
         let nb_public_values = *self.nb_public_values.as_ref().unwrap();
 
         self.push_op(DslIr::Commit(val, nb_public_values));
-        self.assign(nb_public_values, nb_public_values + C::N::one());
+        self.assign(nb_public_values, nb_public_values + C::N::ONE);
     }
 
     /// Commits an array of felts in public values.
@@ -703,7 +703,7 @@ impl<C: Config> RangeBuilder<'_, C> {
     }
 
     pub fn for_each(self, mut f: impl FnMut(Var<C::N>, &mut Builder<C>)) {
-        let step_size = C::N::from_canonical_usize(self.step_size);
+        let step_size = C::N::from_usize(self.step_size);
         let loop_variable: Var<C::N> = self.builder.uninit();
         let mut loop_body_builder = Builder::<C>::new_sub_builder(
             self.builder.variable_count(),

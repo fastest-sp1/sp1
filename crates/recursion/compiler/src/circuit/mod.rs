@@ -10,8 +10,7 @@ pub use config::*;
 mod tests {
     use std::sync::Arc;
 
-    use p3_baby_bear::DiffusionMatrixBabyBear;
-    use p3_field::AbstractField;
+    use p3_field::PrimeCharacteristicRing;
 
     use sp1_core_machine::utils::run_test_machine;
     use sp1_recursion_core::{machine::RecursionAir, Runtime, RuntimeError};
@@ -47,19 +46,19 @@ mod tests {
         builder.assert_ext_eq(x, exts[0] + felts[0]);
 
         let y = builder.hint_felt_v2();
-        let zero: Felt<_> = builder.constant(F::zero());
+        let zero: Felt<_> = builder.constant(F::ZERO);
         builder.assert_felt_eq(y, zero);
 
         let block = builder.into_root_block();
         let mut compiler = AsmCompiler::default();
         let program = Arc::new(compiler.compile_inner(block).validate().unwrap());
         let mut runtime =
-            Runtime::<F, EF, DiffusionMatrixBabyBear>::new(program.clone(), SC::new().perm);
+            Runtime::<F, EF>::new(program.clone(), SC::new().perm);
         runtime.witness_stream = [
-            vec![F::one().into(), F::one().into(), F::two().into()],
-            vec![F::zero().into(), F::one().into(), F::two().into()],
-            vec![F::one().into()],
-            vec![F::zero().into()],
+            vec![F::ONE.into(), F::ONE.into(), F::TWO.into()],
+            vec![F::ZERO.into(), F::ONE.into(), F::TWO.into()],
+            vec![F::ONE.into()],
+            vec![F::ZERO.into()],
         ]
         .concat()
         .into();
@@ -92,9 +91,9 @@ mod tests {
         let mut compiler = AsmCompiler::default();
         let program = Arc::new(compiler.compile_inner(block).validate().unwrap());
         let mut runtime =
-            Runtime::<F, EF, DiffusionMatrixBabyBear>::new(program.clone(), SC::new().perm);
+            Runtime::<F, EF>::new(program.clone(), SC::new().perm);
         runtime.witness_stream =
-            [vec![F::one().into(), F::one().into(), F::two().into()]].concat().into();
+            [vec![F::ONE.into(), F::ONE.into(), F::TWO.into()]].concat().into();
 
         match runtime.run() {
             Err(RuntimeError::EmptyWitnessStream) => (),

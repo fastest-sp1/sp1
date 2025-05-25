@@ -41,8 +41,8 @@ pub(crate) mod tests {
         linear_program, machine::RecursionAir, runtime::instruction as instr,
         stark::BabyBearPoseidon2Outer, MemAccessKind, Runtime,
     };
-    use p3_baby_bear::{BabyBear, DiffusionMatrixBabyBear};
-    use p3_field::{AbstractField, PrimeField32};
+    use p3_baby_bear::BabyBear;
+    use p3_field::{PrimeCharacteristicRing, PrimeField32};
     use p3_symmetric::Permutation;
 
     use sp1_core_machine::{
@@ -63,7 +63,7 @@ pub(crate) mod tests {
 
         let input = [1; WIDTH];
         let output = inner_perm()
-            .permute(input.map(BabyBear::from_canonical_u32))
+            .permute(input.map(BabyBear::from_u32))
             .map(|x| BabyBear::as_canonical_u32(&x));
 
         let rng = &mut rand::thread_rng();
@@ -97,7 +97,7 @@ pub(crate) mod tests {
                 .collect::<Vec<_>>();
 
         let program = Arc::new(linear_program(instructions).unwrap());
-        let mut runtime = Runtime::<F, EF, DiffusionMatrixBabyBear>::new(
+        let mut runtime = Runtime::<F, EF>::new(
             program.clone(),
             BabyBearPoseidon2::new().perm,
         );

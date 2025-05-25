@@ -66,7 +66,7 @@ use core::{
 };
 
 use p3_air::{Air, AirBuilder, BaseAir};
-use p3_field::{AbstractField, PrimeField32};
+use p3_field::{PrimeCharacteristicRing, PrimeField32};
 use p3_matrix::{dense::RowMajorMatrix, Matrix};
 use sp1_core_executor::{
     events::{ByteLookupEvent, ByteRecord},
@@ -222,10 +222,10 @@ impl<F: PrimeField32> MachineAir<F> for DivRemChip {
                     event.opcode == Opcode::REM ||
                     event.opcode == Opcode::DIV
             );
-            let mut row = [F::zero(); NUM_DIVREM_COLS];
+            let mut row = [F::ZERO; NUM_DIVREM_COLS];
             let cols: &mut DivRemCols<F> = row.as_mut_slice().borrow_mut();
 
-            cols.pc = F::from_canonical_u32(event.pc);
+            cols.pc = F::from_u32(event.pc);
 
             // Initialize cols with basic operands and flags derived from the current event.
             {
@@ -233,7 +233,7 @@ impl<F: PrimeField32> MachineAir<F> for DivRemChip {
                 cols.b = Word::from(event.b);
                 cols.c = Word::from(event.c);
                 cols.op_a_not_0 = F::from_bool(!event.op_a_0);
-                cols.is_real = F::one();
+                cols.is_real = F::ONE;
                 cols.is_divu = F::from_bool(event.opcode == Opcode::DIVU);
                 cols.is_remu = F::from_bool(event.opcode == Opcode::REMU);
                 cols.is_div = F::from_bool(event.opcode == Opcode::DIV);
@@ -247,9 +247,9 @@ impl<F: PrimeField32> MachineAir<F> for DivRemChip {
 
             // Calculate flags for sign detection.
             {
-                cols.rem_msb = F::from_canonical_u8(get_msb(remainder));
-                cols.b_msb = F::from_canonical_u8(get_msb(event.b));
-                cols.c_msb = F::from_canonical_u8(get_msb(event.c));
+                cols.rem_msb = F::from_u8(get_msb(remainder));
+                cols.b_msb = F::from_u8(get_msb(event.b));
+                cols.c_msb = F::from_u8(get_msb(event.c));
                 cols.is_overflow_b.populate(event.b, i32::MIN as u32);
                 cols.is_overflow_c.populate(event.c, -1i32 as u32);
                 if is_signed_operation(event.opcode) {
@@ -291,7 +291,7 @@ impl<F: PrimeField32> MachineAir<F> for DivRemChip {
 
             // Calculate the modified multiplicity
             {
-                cols.remainder_check_multiplicity = cols.is_real * (F::one() - cols.is_c_0.result);
+                cols.remainder_check_multiplicity = cols.is_real * (F::ONE - cols.is_c_0.result);
             }
 
             // Calculate c * quotient + remainder.
@@ -303,7 +303,7 @@ impl<F: PrimeField32> MachineAir<F> for DivRemChip {
                         ((quotient as u64) * (event.c as u64)).to_le_bytes()
                     }
                 };
-                cols.c_times_quotient = c_times_quotient.map(F::from_canonical_u8);
+                cols.c_times_quotient = c_times_quotient.map(F::from_u8);
 
                 let remainder_bytes = {
                     if is_signed_operation(event.opcode) {
@@ -322,7 +322,7 @@ impl<F: PrimeField32> MachineAir<F> for DivRemChip {
                         x += carry[i - 1];
                     }
                     carry[i] = x / base;
-                    cols.carry[i] = F::from_canonical_u32(carry[i]);
+                    cols.carry[i] = F::from_u32(carry[i]);
                 }
 
                 // Range check.
@@ -339,7 +339,7 @@ impl<F: PrimeField32> MachineAir<F> for DivRemChip {
         // Pad the trace to a power of two depending on the proof shape in `input`.
         pad_rows_fixed(
             &mut rows,
-            || [F::zero(); NUM_DIVREM_COLS],
+            || [F::ZERO; NUM_DIVREM_COLS],
             input.fixed_log2_rows::<F, _>(self),
         );
 
@@ -350,13 +350,13 @@ impl<F: PrimeField32> MachineAir<F> for DivRemChip {
         // Create the template for the padded rows. These are fake rows that don't fail on some
         // sanity checks.
         let padded_row_template = {
-            let mut row = [F::zero(); NUM_DIVREM_COLS];
+            let mut row = [F::ZERO; NUM_DIVREM_COLS];
             let cols: &mut DivRemCols<F> = row.as_mut_slice().borrow_mut();
             // 0 divided by 1. quotient = remainder = 0.
-            cols.is_divu = F::one();
-            cols.c[0] = F::one();
-            cols.abs_c[0] = F::one();
-            cols.max_abs_c_or_1[0] = F::one();
+            cols.is_divu = F::ONE;
+            cols.c[0] = F::ONE;
+            cols.abs_c[0] = F::ONE;
+            cols.max_abs_c_or_1[0] = F::ONE;
 
             cols.is_c_0.populate(1);
 
@@ -395,11 +395,11 @@ where
 {
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
-        let local = main.row_slice(0);
+        let local = main.row_slice(0).unwrap();
         let local: &DivRemCols<AB::Var> = (*local).borrow();
-        let base = AB::F::from_canonical_u32(1 << 8);
-        let one: AB::Expr = AB::F::one().into();
-        let zero: AB::Expr = AB::F::zero().into();
+        let base = AB::F::from_u32(1 << 8);
+        let one: AB::Expr = AB::F::ONE.into();
+        let zero: AB::Expr = AB::F::ZERO.into();
 
         // Calculate whether b, remainder, and c are negative.
         {
@@ -429,26 +429,26 @@ where
 
             // The lower 4 bytes of c_times_quotient must match the lower 4 bytes of (c * quotient).
             builder.send_instruction(
-                AB::Expr::zero(),
-                AB::Expr::zero(),
-                AB::Expr::from_canonical_u32(UNUSED_PC),
-                AB::Expr::from_canonical_u32(UNUSED_PC + DEFAULT_PC_INC),
-                AB::Expr::zero(),
-                AB::Expr::from_canonical_u32(Opcode::MUL as u32),
+                AB::Expr::ZERO,
+                AB::Expr::ZERO,
+                AB::Expr::from_u32(UNUSED_PC),
+                AB::Expr::from_u32(UNUSED_PC + DEFAULT_PC_INC),
+                AB::Expr::ZERO,
+                AB::Expr::from_u32(Opcode::MUL as u32),
                 Word(lower_half),
                 local.quotient,
                 local.c,
-                AB::Expr::zero(),
-                AB::Expr::zero(),
-                AB::Expr::zero(),
-                AB::Expr::zero(),
-                AB::Expr::zero(),
+                AB::Expr::ZERO,
+                AB::Expr::ZERO,
+                AB::Expr::ZERO,
+                AB::Expr::ZERO,
+                AB::Expr::ZERO,
                 local.is_real,
             );
 
             let opcode_for_upper_half = {
-                let mulh = AB::Expr::from_canonical_u32(Opcode::MULH as u32);
-                let mulhu = AB::Expr::from_canonical_u32(Opcode::MULHU as u32);
+                let mulh = AB::Expr::from_u32(Opcode::MULH as u32);
+                let mulhu = AB::Expr::from_u32(Opcode::MULHU as u32);
                 let is_signed = local.is_div + local.is_rem;
                 let is_unsigned = local.is_divu + local.is_remu;
                 is_signed * mulh + is_unsigned * mulhu
@@ -462,20 +462,20 @@ where
             ];
 
             builder.send_instruction(
-                AB::Expr::zero(),
-                AB::Expr::zero(),
-                AB::Expr::from_canonical_u32(UNUSED_PC),
-                AB::Expr::from_canonical_u32(UNUSED_PC + DEFAULT_PC_INC),
-                AB::Expr::zero(),
+                AB::Expr::ZERO,
+                AB::Expr::ZERO,
+                AB::Expr::from_u32(UNUSED_PC),
+                AB::Expr::from_u32(UNUSED_PC + DEFAULT_PC_INC),
+                AB::Expr::ZERO,
                 opcode_for_upper_half,
                 Word(upper_half),
                 local.quotient,
                 local.c,
-                AB::Expr::zero(),
-                AB::Expr::zero(),
-                AB::Expr::zero(),
-                AB::Expr::zero(),
-                AB::Expr::zero(),
+                AB::Expr::ZERO,
+                AB::Expr::ZERO,
+                AB::Expr::ZERO,
+                AB::Expr::ZERO,
+                AB::Expr::ZERO,
                 local.is_real,
             );
         }
@@ -510,9 +510,9 @@ where
 
         // Add remainder to product c * quotient, and compare it to b.
         {
-            let sign_extension = local.rem_neg * AB::F::from_canonical_u8(u8::MAX);
+            let sign_extension = local.rem_neg * AB::F::from_u8(u8::MAX);
             let mut c_times_quotient_plus_remainder: Vec<AB::Expr> =
-                vec![AB::F::zero().into(); LONG_WORD_SIZE];
+                vec![AB::F::ZERO.into(); LONG_WORD_SIZE];
 
             // Add remainder to c_times_quotient and propagate carry.
             for i in 0..LONG_WORD_SIZE {
@@ -549,7 +549,7 @@ where
                     let not_overflow = one.clone() - local.is_overflow;
                     builder.when(not_overflow.clone()).when(local.b_neg).assert_eq(
                         c_times_quotient_plus_remainder[i].clone(),
-                        AB::F::from_canonical_u8(u8::MAX),
+                        AB::F::from_u8(u8::MAX),
                     );
                     builder
                         .when(not_overflow.clone())
@@ -618,7 +618,7 @@ where
                 builder
                     .when(local.is_c_0.result)
                     .when(local.is_divu + local.is_div)
-                    .assert_eq(local.quotient[i], AB::F::from_canonical_u8(u8::MAX));
+                    .assert_eq(local.quotient[i], AB::F::from_u8(u8::MAX));
             }
         }
 
@@ -635,37 +635,37 @@ where
             // In the case that `c` or `rem` is negative, instead check that their sum is zero by
             // sending an AddEvent.
             builder.send_instruction(
-                AB::Expr::zero(),
-                AB::Expr::zero(),
-                AB::Expr::from_canonical_u32(UNUSED_PC),
-                AB::Expr::from_canonical_u32(UNUSED_PC + DEFAULT_PC_INC),
-                AB::Expr::zero(),
-                AB::Expr::from_canonical_u32(Opcode::ADD as u32),
+                AB::Expr::ZERO,
+                AB::Expr::ZERO,
+                AB::Expr::from_u32(UNUSED_PC),
+                AB::Expr::from_u32(UNUSED_PC + DEFAULT_PC_INC),
+                AB::Expr::ZERO,
+                AB::Expr::from_u32(Opcode::ADD as u32),
                 Word([zero.clone(), zero.clone(), zero.clone(), zero.clone()]),
                 local.c,
                 local.abs_c,
-                AB::Expr::zero(),
-                AB::Expr::zero(),
-                AB::Expr::zero(),
-                AB::Expr::zero(),
-                AB::Expr::zero(),
+                AB::Expr::ZERO,
+                AB::Expr::ZERO,
+                AB::Expr::ZERO,
+                AB::Expr::ZERO,
+                AB::Expr::ZERO,
                 local.abs_c_alu_event,
             );
             builder.send_instruction(
-                AB::Expr::zero(),
-                AB::Expr::zero(),
-                AB::Expr::from_canonical_u32(UNUSED_PC),
-                AB::Expr::from_canonical_u32(UNUSED_PC + DEFAULT_PC_INC),
-                AB::Expr::zero(),
-                AB::Expr::from_canonical_u32(Opcode::ADD as u32),
+                AB::Expr::ZERO,
+                AB::Expr::ZERO,
+                AB::Expr::from_u32(UNUSED_PC),
+                AB::Expr::from_u32(UNUSED_PC + DEFAULT_PC_INC),
+                AB::Expr::ZERO,
+                AB::Expr::from_u32(Opcode::ADD as u32),
                 Word([zero.clone(), zero.clone(), zero.clone(), zero.clone()]),
                 local.remainder,
                 local.abs_remainder,
-                AB::Expr::zero(),
-                AB::Expr::zero(),
-                AB::Expr::zero(),
-                AB::Expr::zero(),
-                AB::Expr::zero(),
+                AB::Expr::ZERO,
+                AB::Expr::ZERO,
+                AB::Expr::ZERO,
+                AB::Expr::ZERO,
+                AB::Expr::ZERO,
                 local.abs_rem_alu_event,
             );
 
@@ -692,7 +692,7 @@ where
             // - If is_real == 1 then is_c_0_result must be the expected one, so
             //   remainder_check_multiplicity = (1 - is_c_0_result) * is_real.
             builder.assert_eq(
-                (AB::Expr::one() - local.is_c_0.result) * local.is_real,
+                (AB::Expr::ONE - local.is_c_0.result) * local.is_real,
                 local.remainder_check_multiplicity,
             );
 
@@ -707,20 +707,20 @@ where
             // Dispatch abs(remainder) < max(abs(c), 1), this is equivalent to abs(remainder) <
             // abs(c) if not division by 0.
             builder.send_instruction(
-                AB::Expr::zero(),
-                AB::Expr::zero(),
-                AB::Expr::from_canonical_u32(UNUSED_PC),
-                AB::Expr::from_canonical_u32(UNUSED_PC + DEFAULT_PC_INC),
-                AB::Expr::zero(),
-                AB::Expr::from_canonical_u32(Opcode::SLTU as u32),
+                AB::Expr::ZERO,
+                AB::Expr::ZERO,
+                AB::Expr::from_u32(UNUSED_PC),
+                AB::Expr::from_u32(UNUSED_PC + DEFAULT_PC_INC),
+                AB::Expr::ZERO,
+                AB::Expr::from_u32(Opcode::SLTU as u32),
                 Word([one.clone(), zero.clone(), zero.clone(), zero.clone()]),
                 local.abs_remainder,
                 local.max_abs_c_or_1,
-                AB::Expr::zero(),
-                AB::Expr::zero(),
-                AB::Expr::zero(),
-                AB::Expr::zero(),
-                AB::Expr::zero(),
+                AB::Expr::ZERO,
+                AB::Expr::ZERO,
+                AB::Expr::ZERO,
+                AB::Expr::ZERO,
+                AB::Expr::ZERO,
                 local.remainder_check_multiplicity,
             );
         }
@@ -732,7 +732,7 @@ where
                 (local.c_msb, local.c[WORD_SIZE - 1]),
                 (local.rem_msb, local.remainder[WORD_SIZE - 1]),
             ];
-            let opcode = AB::F::from_canonical_u32(ByteOpcode::MSB as u32);
+            let opcode = AB::F::from_u32(ByteOpcode::MSB as u32);
             for msb_pair in msb_pairs.iter() {
                 let msb = msb_pair.0;
                 let byte = msb_pair.1;
@@ -789,10 +789,10 @@ where
             );
 
             let opcode = {
-                let divu: AB::Expr = AB::F::from_canonical_u32(Opcode::DIVU as u32).into();
-                let remu: AB::Expr = AB::F::from_canonical_u32(Opcode::REMU as u32).into();
-                let div: AB::Expr = AB::F::from_canonical_u32(Opcode::DIV as u32).into();
-                let rem: AB::Expr = AB::F::from_canonical_u32(Opcode::REM as u32).into();
+                let divu: AB::Expr = AB::F::from_u32(Opcode::DIVU as u32).into();
+                let remu: AB::Expr = AB::F::from_u32(Opcode::REMU as u32).into();
+                let div: AB::Expr = AB::F::from_u32(Opcode::DIV as u32).into();
+                let rem: AB::Expr = AB::F::from_u32(Opcode::REM as u32).into();
 
                 local.is_divu * divu +
                     local.is_remu * remu +
@@ -810,20 +810,20 @@ where
             // - `is_syscall = 0`
             // - `is_halt = 0`
             builder.receive_instruction(
-                AB::Expr::zero(),
-                AB::Expr::zero(),
+                AB::Expr::ZERO,
+                AB::Expr::ZERO,
                 local.pc,
-                local.pc + AB::Expr::from_canonical_u32(DEFAULT_PC_INC),
-                AB::Expr::zero(),
+                local.pc + AB::Expr::from_u32(DEFAULT_PC_INC),
+                AB::Expr::ZERO,
                 opcode,
                 local.a,
                 local.b,
                 local.c,
-                AB::Expr::one() - local.op_a_not_0,
-                AB::Expr::zero(),
-                AB::Expr::zero(),
-                AB::Expr::zero(),
-                AB::Expr::zero(),
+                AB::Expr::ONE - local.op_a_not_0,
+                AB::Expr::ZERO,
+                AB::Expr::ZERO,
+                AB::Expr::ZERO,
+                AB::Expr::ZERO,
                 local.is_real,
             );
 
@@ -872,7 +872,7 @@ mod tests {
     #[test]
     fn prove_babybear() {
         let config = BabyBearPoseidon2::new();
-        let mut challenger = config.challenger();
+        //let mut challenger = config.challenger();
 
         let mut divrem_events: Vec<AluEvent> = Vec::new();
 
@@ -924,10 +924,9 @@ mod tests {
         let chip = DivRemChip::default();
         let trace: RowMajorMatrix<BabyBear> =
             chip.generate_trace(&shard, &mut ExecutionRecord::default());
-        let proof = uni_stark_prove::<BabyBearPoseidon2, _>(&config, &chip, &mut challenger, trace);
+        let proof = uni_stark_prove::<BabyBearPoseidon2, _>(&config, &chip, trace);
 
-        let mut challenger = config.challenger();
-        uni_stark_verify(&config, &chip, &mut challenger, &proof).unwrap();
+        uni_stark_verify(&config, &chip, &proof).unwrap();
     }
 
     #[test]

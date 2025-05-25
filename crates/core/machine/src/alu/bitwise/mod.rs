@@ -6,7 +6,7 @@ use core::{
 use hashbrown::HashMap;
 use itertools::Itertools;
 use p3_air::{Air, AirBuilder, BaseAir};
-use p3_field::{AbstractField, PrimeField, PrimeField32};
+use p3_field::{PrimeCharacteristicRing, PrimeField, PrimeField32};
 use p3_matrix::{dense::RowMajorMatrix, Matrix};
 use p3_maybe_rayon::prelude::{IntoParallelRefIterator, ParallelIterator, ParallelSlice};
 use sp1_core_executor::{
@@ -75,7 +75,7 @@ impl<F: PrimeField32> MachineAir<F> for BitwiseChip {
             .bitwise_events
             .par_iter()
             .map(|event| {
-                let mut row = [F::zero(); NUM_BITWISE_COLS];
+                let mut row = [F::ZERO; NUM_BITWISE_COLS];
                 let cols: &mut BitwiseCols<F> = row.as_mut_slice().borrow_mut();
                 let mut blu = Vec::new();
                 self.event_to_row(event, cols, &mut blu);
@@ -86,7 +86,7 @@ impl<F: PrimeField32> MachineAir<F> for BitwiseChip {
         // Pad the trace to a power of two.
         pad_rows_fixed(
             &mut rows,
-            || [F::zero(); NUM_BITWISE_COLS],
+            || [F::ZERO; NUM_BITWISE_COLS],
             input.fixed_log2_rows::<F, _>(self),
         );
 
@@ -103,7 +103,7 @@ impl<F: PrimeField32> MachineAir<F> for BitwiseChip {
             .map(|events| {
                 let mut blu: HashMap<ByteLookupEvent, usize> = HashMap::new();
                 events.iter().for_each(|event| {
-                    let mut row = [F::zero(); NUM_BITWISE_COLS];
+                    let mut row = [F::ZERO; NUM_BITWISE_COLS];
                     let cols: &mut BitwiseCols<F> = row.as_mut_slice().borrow_mut();
                     self.event_to_row(event, cols, &mut blu);
                 });
@@ -135,7 +135,7 @@ impl BitwiseChip {
         cols: &mut BitwiseCols<F>,
         blu: &mut impl ByteRecord,
     ) {
-        cols.pc = F::from_canonical_u32(event.pc);
+        cols.pc = F::from_u32(event.pc);
 
         let a = event.a.to_le_bytes();
         let b = event.b.to_le_bytes();
@@ -177,7 +177,7 @@ where
 {
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
-        let local = main.row_slice(0);
+        let local = main.row_slice(0).unwrap();
         let local: &BitwiseCols<AB::Var> = (*local).borrow();
 
         // Get the opcode for the operation.
@@ -212,20 +212,20 @@ where
         // - `is_halt = 0`
         // Note that `is_xor + is_or + is_and` is checked to be boolean below.
         builder.receive_instruction(
-            AB::Expr::zero(),
-            AB::Expr::zero(),
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
             local.pc,
-            local.pc + AB::Expr::from_canonical_u32(DEFAULT_PC_INC),
-            AB::Expr::zero(),
+            local.pc + AB::Expr::from_u32(DEFAULT_PC_INC),
+            AB::Expr::ZERO,
             cpu_opcode,
             local.a,
             local.b,
             local.c,
-            AB::Expr::one() - local.op_a_not_0,
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
+            AB::Expr::ONE - local.op_a_not_0,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
             local.is_xor + local.is_or + local.is_and,
         );
 
@@ -278,7 +278,7 @@ mod tests {
     #[test]
     fn prove_babybear() {
         let config = BabyBearPoseidon2::new();
-        let mut challenger = config.challenger();
+        let mut challenger = config.initialise_challenger();
 
         let mut shard = ExecutionRecord::default();
         shard.bitwise_events = [
@@ -290,10 +290,9 @@ mod tests {
         let chip = BitwiseChip::default();
         let trace: RowMajorMatrix<BabyBear> =
             chip.generate_trace(&shard, &mut ExecutionRecord::default());
-        let proof = uni_stark_prove::<BabyBearPoseidon2, _>(&config, &chip, &mut challenger, trace);
+        let proof = uni_stark_prove::<BabyBearPoseidon2, _>(&config, &chip, trace);
 
-        let mut challenger = config.challenger();
-        uni_stark_verify(&config, &chip, &mut challenger, &proof).unwrap();
+        uni_stark_verify(&config, &chip, &proof).unwrap();
     }
 
     #[test]

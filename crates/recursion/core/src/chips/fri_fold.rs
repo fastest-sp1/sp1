@@ -9,7 +9,7 @@ use std::borrow::BorrowMut;
 use tracing::instrument;
 
 use p3_air::{Air, AirBuilder, BaseAir, PairBuilder};
-use p3_field::{AbstractField, PrimeField32};
+use p3_field::{PrimeCharacteristicRing, PrimeField32};
 use p3_matrix::{dense::RowMajorMatrix, Matrix};
 use sp1_stark::air::{BaseAirBuilder, ExtensionAirBuilder};
 
@@ -121,7 +121,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for FriFoldChip<DEGREE>
             })
             .for_each(|instruction| {
                 let mut row_add = vec![
-                    [BabyBear::zero(); NUM_FRI_FOLD_PREPROCESSED_COLS];
+                    [BabyBear::ZERO; NUM_FRI_FOLD_PREPROCESSED_COLS];
                     instruction.ext_vec_addrs.ps_at_z.len()
                 ];
 
@@ -144,7 +144,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for FriFoldChip<DEGREE>
         if self.pad {
             pad_rows_fixed(
                 &mut rows,
-                || [BabyBear::zero(); NUM_FRI_FOLD_PREPROCESSED_COLS],
+                || [BabyBear::ZERO; NUM_FRI_FOLD_PREPROCESSED_COLS],
                 self.fixed_log2_rows,
             );
         }
@@ -185,7 +185,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for FriFoldChip<DEGREE>
         let mut rows = events
             .iter()
             .map(|event| {
-                let mut row = [BabyBear::zero(); NUM_FRI_FOLD_COLS];
+                let mut row = [BabyBear::ZERO; NUM_FRI_FOLD_COLS];
                 let cols: &mut FriFoldCols<BabyBear> = row.as_mut_slice().borrow_mut();
                 unsafe {
                     crate::sys::fri_fold_event_to_row_babybear(event, cols);
@@ -197,7 +197,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for FriFoldChip<DEGREE>
 
         // Pad the trace to a power of two.
         if self.pad {
-            rows.resize(self.num_rows(input).unwrap(), [BabyBear::zero(); NUM_FRI_FOLD_COLS]);
+            rows.resize(self.num_rows(input).unwrap(), [BabyBear::ZERO; NUM_FRI_FOLD_COLS]);
         }
 
         // Convert the trace to a row major matrix.
@@ -330,11 +330,11 @@ where
 {
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
-        let (local, next) = (main.row_slice(0), main.row_slice(1));
+        let (local, next) = (main.row_slice(0).unwrap(), main.row_slice(1).unwrap());
         let local: &FriFoldCols<AB::Var> = (*local).borrow();
         let next: &FriFoldCols<AB::Var> = (*next).borrow();
         let prepr = builder.preprocessed();
-        let (prepr_local, prepr_next) = (prepr.row_slice(0), prepr.row_slice(1));
+        let (prepr_local, prepr_next) = (prepr.row_slice(0).unwrap(), prepr.row_slice(1).unwrap());
         let prepr_local: &FriFoldPreprocessedCols<AB::Var> = (*prepr_local).borrow();
         let prepr_next: &FriFoldPreprocessedCols<AB::Var> = (*prepr_next).borrow();
 
@@ -361,7 +361,7 @@ mod tests {
         MemAccessKind, RecursionProgram,
     };
     use p3_baby_bear::BabyBear;
-    use p3_field::{AbstractExtensionField, AbstractField};
+    use p3_field::{BasedVectorSpace, PrimeCharacteristicRing};
     use p3_matrix::dense::RowMajorMatrix;
     use rand::{rngs::StdRng, Rng, SeedableRng};
     use sp1_core_machine::utils::setup_logger;
@@ -380,10 +380,10 @@ mod tests {
         type EF = <SC as StarkGenericConfig>::Challenge;
 
         let mut rng = StdRng::seed_from_u64(0xDEADBEEF);
-        let mut random_felt = move || -> F { F::from_canonical_u32(rng.gen_range(0..1 << 16)) };
+        let mut random_felt = move || -> F { F::from_u32(rng.gen_range(0..1 << 16)) };
         let mut rng = StdRng::seed_from_u64(0xDEADBEEF);
         let mut random_block =
-            move || Block::from([F::from_canonical_u32(rng.gen_range(0..1 << 16)); 4]);
+            move || Block::from([F::from_u32(rng.gen_range(0..1 << 16)); 4]);
         let mut addr = 0;
 
         let num_ext_vecs: u32 = size_of::<FriFoldExtVecIo<u8>>() as u32;
@@ -494,13 +494,13 @@ mod tests {
                         MemAccessKind::Read,
                         1,
                         alpha_pow_output_a[j],
-                        Block::from(alpha_pow_output[j].as_base_slice()),
+                        Block::from(alpha_pow_output[j].as_basis_coefficients_slice()),
                     ));
                     instructions.push(instr::mem_block(
                         MemAccessKind::Read,
                         1,
                         ro_output_a[j],
-                        Block::from(ro_output[j].as_base_slice()),
+                        Block::from(ro_output[j].as_basis_coefficients_slice()),
                     ));
                 });
 
@@ -517,14 +517,14 @@ mod tests {
 
         let mut rng = StdRng::seed_from_u64(0xDEADBEEF);
         let mut rng2 = StdRng::seed_from_u64(0xDEADBEEF);
-        let mut random_felt = move || -> F { F::from_canonical_u32(rng.gen_range(0..1 << 16)) };
+        let mut random_felt = move || -> F { F::from_u32(rng.gen_range(0..1 << 16)) };
         let mut random_block = move || Block::from([random_felt(); 4]);
 
         let shard = ExecutionRecord {
             fri_fold_events: (0..17)
                 .map(|_| FriFoldEvent {
                     base_single: FriFoldBaseIo {
-                        x: F::from_canonical_u32(rng2.gen_range(0..1 << 16)),
+                        x: F::from_u32(rng2.gen_range(0..1 << 16)),
                     },
                     ext_single: FriFoldExtSingleIo { z: random_block(), alpha: random_block() },
                     ext_vec: crate::FriFoldExtVecIo {
@@ -554,7 +554,7 @@ mod tests {
             .fri_fold_events
             .iter()
             .map(|event| {
-                let mut row = [F::zero(); NUM_FRI_FOLD_COLS];
+                let mut row = [F::ZERO; NUM_FRI_FOLD_COLS];
 
                 let cols: &mut FriFoldCols<F> = row.as_mut_slice().borrow_mut();
 
@@ -576,7 +576,7 @@ mod tests {
 
         rows.resize(
             FriFoldChip::<DEGREE>::default().num_rows(input).unwrap(),
-            [F::zero(); NUM_FRI_FOLD_COLS],
+            [F::ZERO; NUM_FRI_FOLD_COLS],
         );
 
         RowMajorMatrix::new(rows.into_iter().flatten().collect(), NUM_FRI_FOLD_COLS)
@@ -615,7 +615,7 @@ mod tests {
                     ro_mults,
                 } = instruction.as_ref();
                 let mut row_add =
-                    vec![[F::zero(); NUM_FRI_FOLD_PREPROCESSED_COLS]; ext_vec_addrs.ps_at_z.len()];
+                    vec![[F::ZERO; NUM_FRI_FOLD_PREPROCESSED_COLS]; ext_vec_addrs.ps_at_z.len()];
 
                 row_add.iter_mut().enumerate().for_each(|(i, row)| {
                     let row: &mut FriFoldPreprocessedCols<F> = row.as_mut_slice().borrow_mut();
@@ -635,14 +635,14 @@ mod tests {
                     // Read the memory for the input vectors.
                     row.alpha_pow_input_mem = MemoryAccessCols {
                         addr: ext_vec_addrs.alpha_pow_input[i],
-                        mult: F::neg_one(),
+                        mult: F::NEG_ONE,
                     };
                     row.ro_input_mem =
-                        MemoryAccessCols { addr: ext_vec_addrs.ro_input[i], mult: F::neg_one() };
+                        MemoryAccessCols { addr: ext_vec_addrs.ro_input[i], mult: F::NEG_ONE };
                     row.p_at_z_mem =
-                        MemoryAccessCols { addr: ext_vec_addrs.ps_at_z[i], mult: F::neg_one() };
+                        MemoryAccessCols { addr: ext_vec_addrs.ps_at_z[i], mult: F::NEG_ONE };
                     row.p_at_x_mem =
-                        MemoryAccessCols { addr: ext_vec_addrs.mat_opening[i], mult: F::neg_one() };
+                        MemoryAccessCols { addr: ext_vec_addrs.mat_opening[i], mult: F::NEG_ONE };
 
                     // Write the memory for the output vectors.
                     row.alpha_pow_output_mem = MemoryAccessCols {
@@ -652,12 +652,12 @@ mod tests {
                     row.ro_output_mem =
                         MemoryAccessCols { addr: ext_vec_addrs.ro_output[i], mult: ro_mults[i] };
 
-                    row.is_real = F::one();
+                    row.is_real = F::ONE;
                 });
                 rows.extend(row_add);
             });
 
-        pad_rows_fixed(&mut rows, || [F::zero(); NUM_FRI_FOLD_PREPROCESSED_COLS], None);
+        pad_rows_fixed(&mut rows, || [F::ZERO; NUM_FRI_FOLD_PREPROCESSED_COLS], None);
 
         RowMajorMatrix::new(rows.into_iter().flatten().collect(), NUM_FRI_FOLD_PREPROCESSED_COLS)
     }

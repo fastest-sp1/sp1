@@ -13,9 +13,9 @@ use instruction::{
 use itertools::Itertools;
 use memory::*;
 pub use opcode::*;
-use p3_field::{AbstractExtensionField, AbstractField, ExtensionField, PrimeField32};
+use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, ExtensionField, PrimeField32};
 use p3_maybe_rayon::prelude::*;
-use p3_poseidon2::{Poseidon2, Poseidon2ExternalMatrixGeneral};
+use p3_baby_bear::Poseidon2BabyBear;
 use p3_symmetric::{CryptographicPermutation, Permutation};
 use p3_util::reverse_bits_len;
 pub use program::*;
@@ -57,18 +57,12 @@ pub const NUM_BITS: usize = 31;
 
 pub const D: usize = 4;
 
-type Perm<F, Diffusion> = Poseidon2<
-    F,
-    Poseidon2ExternalMatrixGeneral,
-    Diffusion,
-    PERMUTATION_WIDTH,
-    POSEIDON2_SBOX_DEGREE,
->;
+type Perm = Poseidon2BabyBear<PERMUTATION_WIDTH>;
 
 /// TODO fully document.
 /// Taken from [`sp1_recursion_core::runtime::Runtime`].
 /// Many missing things (compared to the old `Runtime`) will need to be implemented.
-pub struct Runtime<'a, F: PrimeField32, EF: ExtensionField<F>, Diffusion> {
+pub struct Runtime<'a, F: PrimeField32, EF: ExtensionField<F>> {
     pub timestamp: usize,
 
     pub nb_poseidons: usize,
@@ -112,11 +106,9 @@ pub struct Runtime<'a, F: PrimeField32, EF: ExtensionField<F>, Diffusion> {
     pub debug_stdout: Box<dyn Write + Send + 'a>,
 
     /// Entries for dealing with the Poseidon2 hash state.
-    perm: Option<Perm<F, Diffusion>>,
+    perm: Option<Perm>,
 
     _marker_ef: PhantomData<EF>,
-
-    _marker_diffusion: PhantomData<Diffusion>,
 }
 
 #[derive(Error, Debug)]
@@ -139,25 +131,14 @@ pub enum RuntimeError<F: Debug, EF: Debug> {
     EmptyWitnessStream,
 }
 
-impl<F: PrimeField32, EF: ExtensionField<F>, Diffusion> Runtime<'_, F, EF, Diffusion>
+//impl<F: PrimeField32, EF: ExtensionField<F>, Diffusion> Runtime<'_, F, EF, Diffusion>
+impl<F: PrimeField32, EF: ExtensionField<F>> Runtime<'_, F, EF>
 where
-    Poseidon2<
-        F,
-        Poseidon2ExternalMatrixGeneral,
-        Diffusion,
-        PERMUTATION_WIDTH,
-        POSEIDON2_SBOX_DEGREE,
-    >: CryptographicPermutation<[F; PERMUTATION_WIDTH]>,
+    Poseidon2BabyBear<PERMUTATION_WIDTH>: CryptographicPermutation<[F; PERMUTATION_WIDTH]>,
 {
     pub fn new(
         program: Arc<RecursionProgram<F>>,
-        perm: Poseidon2<
-            F,
-            Poseidon2ExternalMatrixGeneral,
-            Diffusion,
-            PERMUTATION_WIDTH,
-            POSEIDON2_SBOX_DEGREE,
-        >,
+        perm: Poseidon2BabyBear<PERMUTATION_WIDTH>,
     ) -> Self {
         let record = ExecutionRecord::<F> { program: program.clone(), ..Default::default() };
         let memory = MemVec::with_capacity(program.total_memory);
@@ -183,7 +164,7 @@ where
             debug_stdout: Box::new(stdout()),
             perm: Some(perm),
             _marker_ef: PhantomData,
-            _marker_diffusion: PhantomData,
+          //  _marker_diffusion: PhantomData,
         }
     }
 
@@ -208,8 +189,8 @@ where
     /// whether/how to read and write from the memory in `env`. There must be a strict
     /// happens-before relation where reads happen before writes, and memory read from must be
     /// initialized.
-    unsafe fn execute_one(
-        state: &mut ExecState<F, Diffusion>,
+    fn execute_one(
+        state: &mut ExecState<F>,
         witness_stream: Option<&mut VecDeque<Block<F>>>,
         instruction: Instruction<F>,
     ) -> Result<(), RuntimeError<F, EF>> {
@@ -217,8 +198,8 @@ where
         let record = &mut state.record;
         match instruction {
             Instruction::BaseAlu(instr @ BaseAluInstr { opcode, mult: _, addrs }) => {
-                let in1 = memory.mr_unchecked(addrs.in1).val[0];
-                let in2 = memory.mr_unchecked(addrs.in2).val[0];
+                let in1 = unsafe { memory.mr_unchecked(addrs.in1).val[0] };
+                let in2 = unsafe { memory.mr_unchecked(addrs.in2).val[0] };
                 // Do the computation.
                 let out = match opcode {
                     BaseAluOpcode::AddF => in1 + in2,
@@ -230,7 +211,7 @@ where
                             // Check for division exceptions and error. Note that 0/0 is defined
                             // to be 1.
                             if in1.is_zero() {
-                                AbstractField::one()
+                                PrimeCharacteristicRing::ONE
                             } else {
                                 return Err(RuntimeError::DivFOutOfDomain {
                                     in1,
@@ -242,15 +223,15 @@ where
                         }
                     },
                 };
-                memory.mw_unchecked(addrs.out, Block::from(out));
+                 unsafe { memory.mw_unchecked(addrs.out, Block::from(out))};
                 record.base_alu_events.push(BaseAluEvent { out, in1, in2 });
             }
             Instruction::ExtAlu(instr @ ExtAluInstr { opcode, mult: _, addrs }) => {
-                let in1 = memory.mr_unchecked(addrs.in1).val;
-                let in2 = memory.mr_unchecked(addrs.in2).val;
+                let in1 =  unsafe { memory.mr_unchecked(addrs.in1).val };
+                let in2 =  unsafe { memory.mr_unchecked(addrs.in2).val };
                 // Do the computation.
-                let in1_ef = EF::from_base_slice(&in1.0);
-                let in2_ef = EF::from_base_slice(&in2.0);
+                let in1_ef = EF::from_basis_coefficients_slice(&in1.0).unwrap();
+                let in2_ef = EF::from_basis_coefficients_slice(&in2.0).unwrap();
                 let out_ef = match opcode {
                     ExtAluOpcode::AddE => in1_ef + in2_ef,
                     ExtAluOpcode::SubE => in1_ef - in2_ef,
@@ -261,7 +242,7 @@ where
                             // Check for division exceptions and error. Note that 0/0 is defined
                             // to be 1.
                             if in1_ef.is_zero() {
-                                AbstractField::one()
+                                PrimeCharacteristicRing::ONE
                             } else {
                                 return Err(RuntimeError::DivEOutOfDomain {
                                     in1: in1_ef,
@@ -273,8 +254,8 @@ where
                         }
                     },
                 };
-                let out = Block::from(out_ef.as_base_slice());
-                memory.mw_unchecked(addrs.out, out);
+                let out = Block::from(out_ef.as_basis_coefficients_slice());
+                 unsafe { memory.mw_unchecked(addrs.out, out) };
                 record.ext_alu_events.push(ExtAluEvent { out, in1, in2 });
             }
             Instruction::Mem(MemInstr {
@@ -285,23 +266,23 @@ where
             }) => {
                 match kind {
                     MemAccessKind::Read => {
-                        let mem_entry = memory.mr_unchecked(addr);
+                        let mem_entry =  unsafe { memory.mr_unchecked(addr)};
                         assert_eq!(
                             mem_entry.val, val,
                             "stored memory value should be the specified value"
                         );
                     }
-                    MemAccessKind::Write => memory.mw_unchecked(addr, val),
+                    MemAccessKind::Write =>  unsafe { memory.mw_unchecked(addr, val)},
                 }
                 record.mem_const_count += 1;
             }
             Instruction::Poseidon2(instr) => {
                 let Poseidon2Instr { addrs: Poseidon2Io { input, output }, mults: _ } = *instr;
-                let in_vals = std::array::from_fn(|i| memory.mr_unchecked(input[i]).val[0]);
+                let in_vals = std::array::from_fn(|i|  unsafe { memory.mr_unchecked(input[i]).val[0]});
                 let perm_output = perm.permute(in_vals);
 
                 perm_output.iter().zip(output).for_each(|(&val, addr)| {
-                    memory.mw_unchecked(addr, Block::from(val));
+                     unsafe { memory.mw_unchecked(addr, Block::from(val))};
                 });
                 record
                     .poseidon2_events
@@ -312,13 +293,13 @@ where
                 mult1: _,
                 mult2: _,
             }) => {
-                let bit = memory.mr_unchecked(bit).val[0];
-                let in1 = memory.mr_unchecked(in1).val[0];
-                let in2 = memory.mr_unchecked(in2).val[0];
-                let out1_val = bit * in2 + (F::one() - bit) * in1;
-                let out2_val = bit * in1 + (F::one() - bit) * in2;
-                memory.mw_unchecked(out1, Block::from(out1_val));
-                memory.mw_unchecked(out2, Block::from(out2_val));
+                let bit =  unsafe { memory.mr_unchecked(bit).val[0]};
+                let in1 =  unsafe { memory.mr_unchecked(in1).val[0]};
+                let in2 =  unsafe { memory.mr_unchecked(in2).val[0]};
+                let out1_val = bit * in2 + (F::ONE - bit) * in1;
+                let out2_val = bit * in1 + (F::ONE - bit) * in2;
+                 unsafe { memory.mw_unchecked(out1, Block::from(out1_val))};
+                 unsafe { memory.mw_unchecked(out2, Block::from(out2_val))};
                 record.select_events.push(SelectEvent {
                     bit,
                     out1: out1_val,
@@ -331,16 +312,16 @@ where
                 addrs: ExpReverseBitsIo { base, exp, result },
                 mult: _,
             }) => {
-                let base_val = memory.mr_unchecked(base).val[0];
+                let base_val =  unsafe { memory.mr_unchecked(base).val[0]};
                 let exp_bits: Vec<_> =
-                    exp.iter().map(|bit| memory.mr_unchecked(*bit).val[0]).collect();
+                    exp.iter().map(|bit|  unsafe { memory.mr_unchecked(*bit).val[0]}).collect();
                 let exp_val = exp_bits
                     .iter()
                     .enumerate()
                     .fold(0, |acc, (i, &val)| acc + val.as_canonical_u32() * (1 << i));
                 let out =
                     base_val.exp_u64(reverse_bits_len(exp_val as usize, exp_bits.len()) as u64);
-                memory.mw_unchecked(result, Block::from(out));
+                 unsafe { memory.mw_unchecked(result, Block::from(out))};
                 record.exp_reverse_bits_len_events.push(ExpReverseBitsEvent {
                     result: out,
                     base: base_val,
@@ -348,14 +329,14 @@ where
                 });
             }
             Instruction::HintBits(HintBitsInstr { output_addrs_mults, input_addr }) => {
-                let num = memory.mr_unchecked(input_addr).val[0].as_canonical_u32();
+                let num =  unsafe { memory.mr_unchecked(input_addr).val[0].as_canonical_u32()};
                 // Decompose the num into LE bits.
                 let bits = (0..output_addrs_mults.len())
-                    .map(|i| Block::from(F::from_canonical_u32((num >> i) & 1)))
+                    .map(|i| Block::from(F::from_u32((num >> i) & 1)))
                     .collect::<Vec<_>>();
                 // Write the bits to the array at dst.
                 for (bit, (addr, _mult)) in bits.into_iter().zip(output_addrs_mults) {
-                    memory.mw_unchecked(addr, bit);
+                     unsafe { memory.mw_unchecked(addr, bit)};
                     record.mem_var_events.push(MemEvent { inner: bit });
                 }
             }
@@ -368,17 +349,17 @@ where
                     input2_x_addrs,
                     input2_y_addrs,
                 } = *instr;
-                let input1_x = SepticExtension::<F>::from_base_fn(|i| {
-                    memory.mr_unchecked(input1_x_addrs[i]).val[0]
+                let input1_x = SepticExtension::<F>::from_basis_coefficients_fn(|i| {
+                     unsafe { memory.mr_unchecked(input1_x_addrs[i]).val[0]}
                 });
-                let input1_y = SepticExtension::<F>::from_base_fn(|i| {
-                    memory.mr_unchecked(input1_y_addrs[i]).val[0]
+                let input1_y = SepticExtension::<F>::from_basis_coefficients_fn(|i| {
+                     unsafe { memory.mr_unchecked(input1_y_addrs[i]).val[0]}
                 });
-                let input2_x = SepticExtension::<F>::from_base_fn(|i| {
-                    memory.mr_unchecked(input2_x_addrs[i]).val[0]
+                let input2_x = SepticExtension::<F>::from_basis_coefficients_fn(|i| {
+                     unsafe { memory.mr_unchecked(input2_x_addrs[i]).val[0]}
                 });
-                let input2_y = SepticExtension::<F>::from_base_fn(|i| {
-                    memory.mr_unchecked(input2_y_addrs[i]).val[0]
+                let input2_y = SepticExtension::<F>::from_basis_coefficients_fn(|i| {
+                     unsafe { memory.mr_unchecked(input2_y_addrs[i]).val[0]}
                 });
                 let point1 = SepticCurve { x: input1_x, y: input1_y };
                 let point2 = SepticCurve { x: input2_x, y: input2_y };
@@ -387,13 +368,13 @@ where
                 for (val, (addr, _mult)) in
                     output.x.0.into_iter().zip(output_x_addrs_mults.into_iter())
                 {
-                    memory.mw_unchecked(addr, Block::from(val));
+                     unsafe { memory.mw_unchecked(addr, Block::from(val))};
                     record.mem_var_events.push(MemEvent { inner: Block::from(val) });
                 }
                 for (val, (addr, _mult)) in
                     output.y.0.into_iter().zip(output_y_addrs_mults.into_iter())
                 {
-                    memory.mw_unchecked(addr, Block::from(val));
+                     unsafe { memory.mw_unchecked(addr, Block::from(val))};
                     record.mem_var_events.push(MemEvent { inner: Block::from(val) });
                 }
             }
@@ -405,24 +386,24 @@ where
                     alpha_pow_mults: _,
                     ro_mults: _,
                 } = *instr;
-                let x = memory.mr_unchecked(base_single_addrs.x).val[0];
-                let z = memory.mr_unchecked(ext_single_addrs.z).val;
+                let x =  unsafe { memory.mr_unchecked(base_single_addrs.x).val[0] };
+                let z =  unsafe { memory.mr_unchecked(ext_single_addrs.z).val };
                 let z: EF = z.ext();
-                let alpha = memory.mr_unchecked(ext_single_addrs.alpha).val;
+                let alpha =  unsafe { memory.mr_unchecked(ext_single_addrs.alpha).val };
                 let alpha: EF = alpha.ext();
                 let mat_opening = ext_vec_addrs
                     .mat_opening
                     .iter()
-                    .map(|addr| memory.mr_unchecked(*addr).val)
+                    .map(|addr|  unsafe { memory.mr_unchecked(*addr).val})
                     .collect_vec();
                 let ps_at_z = ext_vec_addrs
                     .ps_at_z
                     .iter()
-                    .map(|addr| memory.mr_unchecked(*addr).val)
+                    .map(|addr|  unsafe { memory.mr_unchecked(*addr).val})
                     .collect_vec();
 
                 for m in 0..ps_at_z.len() {
-                    // let m = F::from_canonical_u32(m);
+                    // let m = F::from_u32(m);
                     // Get the opening values.
                     let p_at_x = mat_opening[m];
                     let p_at_x: EF = p_at_x.ext();
@@ -434,36 +415,36 @@ where
 
                     // First we peek to get the current value.
                     let alpha_pow: EF =
-                        memory.mr_unchecked(ext_vec_addrs.alpha_pow_input[m]).val.ext();
+                         unsafe { memory.mr_unchecked(ext_vec_addrs.alpha_pow_input[m]).val.ext() };
 
-                    let ro: EF = memory.mr_unchecked(ext_vec_addrs.ro_input[m]).val.ext();
+                    let ro: EF =  unsafe { memory.mr_unchecked(ext_vec_addrs.ro_input[m]).val.ext() };
 
                     let new_ro = ro + alpha_pow * quotient;
                     let new_alpha_pow = alpha_pow * alpha;
 
-                    memory.mw_unchecked(
+                     unsafe { memory.mw_unchecked(
                         ext_vec_addrs.ro_output[m],
-                        Block::from(new_ro.as_base_slice()),
-                    );
+                        Block::from(new_ro.as_basis_coefficients_slice()),
+                    ) };
 
-                    memory.mw_unchecked(
+                     unsafe { memory.mw_unchecked(
                         ext_vec_addrs.alpha_pow_output[m],
-                        Block::from(new_alpha_pow.as_base_slice()),
-                    );
+                        Block::from(new_alpha_pow.as_basis_coefficients_slice()),
+                    )};
 
                     record.fri_fold_events.push(FriFoldEvent {
                         base_single: FriFoldBaseIo { x },
                         ext_single: FriFoldExtSingleIo {
-                            z: Block::from(z.as_base_slice()),
-                            alpha: Block::from(alpha.as_base_slice()),
+                            z: Block::from(z.as_basis_coefficients_slice()),
+                            alpha: Block::from(alpha.as_basis_coefficients_slice()),
                         },
                         ext_vec: FriFoldExtVecIo {
-                            mat_opening: Block::from(p_at_x.as_base_slice()),
-                            ps_at_z: Block::from(p_at_z.as_base_slice()),
-                            alpha_pow_input: Block::from(alpha_pow.as_base_slice()),
-                            ro_input: Block::from(ro.as_base_slice()),
-                            alpha_pow_output: Block::from(new_alpha_pow.as_base_slice()),
-                            ro_output: Block::from(new_ro.as_base_slice()),
+                            mat_opening: Block::from(p_at_x.as_basis_coefficients_slice()),
+                            ps_at_z: Block::from(p_at_z.as_basis_coefficients_slice()),
+                            alpha_pow_input: Block::from(alpha_pow.as_basis_coefficients_slice()),
+                            ro_input: Block::from(ro.as_basis_coefficients_slice()),
+                            alpha_pow_output: Block::from(new_alpha_pow.as_basis_coefficients_slice()),
+                            ro_output: Block::from(new_ro.as_basis_coefficients_slice()),
                         },
                     });
                 }
@@ -472,41 +453,41 @@ where
                 let BatchFRIInstr { base_vec_addrs, ext_single_addrs, ext_vec_addrs, acc_mult: _ } =
                     *instr;
 
-                let mut acc = EF::zero();
+                let mut acc = EF::ZERO;
                 let p_at_xs = base_vec_addrs
                     .p_at_x
                     .iter()
-                    .map(|addr| memory.mr_unchecked(*addr).val[0])
+                    .map(|addr|  unsafe { memory.mr_unchecked(*addr).val[0]})
                     .collect_vec();
                 let p_at_zs = ext_vec_addrs
                     .p_at_z
                     .iter()
-                    .map(|addr| memory.mr_unchecked(*addr).val.ext::<EF>())
+                    .map(|addr|  unsafe { memory.mr_unchecked(*addr).val.ext::<EF>()})
                     .collect_vec();
                 let alpha_pows: Vec<_> = ext_vec_addrs
                     .alpha_pow
                     .iter()
-                    .map(|addr| memory.mr_unchecked(*addr).val.ext::<EF>())
+                    .map(|addr|  unsafe { memory.mr_unchecked(*addr).val.ext::<EF>()})
                     .collect_vec();
 
                 for m in 0..p_at_zs.len() {
-                    acc += alpha_pows[m] * (p_at_zs[m] - EF::from_base(p_at_xs[m]));
+                    acc += alpha_pows[m] * (p_at_zs[m] - EF::from(p_at_xs[m]));
                     record.batch_fri_events.push(BatchFRIEvent {
                         base_vec: BatchFRIBaseVecIo { p_at_x: p_at_xs[m] },
-                        ext_single: BatchFRIExtSingleIo { acc: Block::from(acc.as_base_slice()) },
+                        ext_single: BatchFRIExtSingleIo { acc: Block::from(acc.as_basis_coefficients_slice()) },
                         ext_vec: BatchFRIExtVecIo {
-                            p_at_z: Block::from(p_at_zs[m].as_base_slice()),
-                            alpha_pow: Block::from(alpha_pows[m].as_base_slice()),
+                            p_at_z: Block::from(p_at_zs[m].as_basis_coefficients_slice()),
+                            alpha_pow: Block::from(alpha_pows[m].as_basis_coefficients_slice()),
                         },
                     });
                 }
 
-                memory.mw_unchecked(ext_single_addrs.acc, Block::from(acc.as_base_slice()));
+                 unsafe { memory.mw_unchecked(ext_single_addrs.acc, Block::from(acc.as_basis_coefficients_slice()))};
             }
             Instruction::CommitPublicValues(instr) => {
                 let pv_addrs = instr.pv_addrs.as_array();
                 let pv_values: [F; RECURSIVE_PROOF_NUM_PV_ELTS] =
-                    array::from_fn(|i| memory.mr_unchecked(pv_addrs[i]).val[0]);
+                    array::from_fn(|i|  unsafe { memory.mr_unchecked(pv_addrs[i]).val[0]});
                 record.public_values = *pv_values.as_slice().borrow();
                 record
                     .commit_pv_hash_events
@@ -515,21 +496,21 @@ where
 
             Instruction::Print(PrintInstr { field_elt_type, addr }) => match field_elt_type {
                 FieldEltType::Base => {
-                    let f = memory.mr_unchecked(addr).val[0];
+                    let f =  unsafe { memory.mr_unchecked(addr).val[0]};
                     writeln!(debug_stdout.lock().unwrap(), "PRINTF={f}")
                 }
                 FieldEltType::Extension => {
-                    let ef = memory.mr_unchecked(addr).val;
+                    let ef =  unsafe { memory.mr_unchecked(addr).val};
                     writeln!(debug_stdout.lock().unwrap(), "PRINTEF={ef:?}")
                 }
             }
             .map_err(RuntimeError::DebugPrint)?,
             Instruction::HintExt2Felts(HintExt2FeltsInstr { output_addrs_mults, input_addr }) => {
-                let fs = memory.mr_unchecked(input_addr).val;
+                let fs =  unsafe { memory.mr_unchecked(input_addr).val};
                 // Write the bits to the array at dst.
                 for (f, (addr, _mult)) in fs.into_iter().zip(output_addrs_mults) {
                     let felt = Block::from(f);
-                    memory.mw_unchecked(addr, felt);
+                     unsafe { memory.mw_unchecked(addr, felt)};
                     record.mem_var_events.push(MemEvent { inner: felt });
                 }
             }
@@ -543,7 +524,7 @@ where
                 let witness = witness_stream.drain(0..output_addrs_mults.len());
                 for ((addr, _mult), val) in zip(output_addrs_mults, witness) {
                     // Inline [`Self::mw`] to mutably borrow multiple fields of `self`.
-                    memory.mw_unchecked(addr, val);
+                    unsafe { memory.mw_unchecked(addr, val)};
                     record.mem_var_events.push(MemEvent { inner: val });
                 }
             }
@@ -559,8 +540,8 @@ where
     /// # Safety
     ///
     /// This function makes the same safety assumptions as [`RecursionProgram::new_unchecked`].
-    unsafe fn execute_raw(
-        env: &ExecEnv<F, Diffusion>,
+    fn execute_raw(
+        env: &ExecEnv<F>,
         program: &RawProgram<Instruction<F>>,
         root_program: &Arc<RecursionProgram<F>>,
         mut witness_stream: Option<&mut VecDeque<Block<F>>>,
@@ -579,13 +560,11 @@ where
             match block {
                 SeqBlock::Basic(basic_block) => {
                     for instruction in &basic_block.instrs {
-                        unsafe {
-                            Self::execute_one(
+                        Self::execute_one(
                                 &mut state,
                                 witness_stream.as_deref_mut(),
                                 instruction.clone(),
-                            )
-                        }?;
+                            )?;
                     }
                 }
                 SeqBlock::Parallel(vec) => {
@@ -610,8 +589,7 @@ where
 
     /// Run the program.
     pub fn run(&mut self) -> Result<(), RuntimeError<F, EF>> {
-        let record = unsafe {
-            Self::execute_raw(
+        let record = Self::execute_raw(
                 &ExecEnv {
                     memory: &self.memory,
                     perm: self.perm.as_ref().unwrap(),
@@ -620,8 +598,7 @@ where
                 &self.program.inner,
                 &self.program,
                 Some(&mut self.witness_stream),
-            )
-        }?;
+            )?;
 
         self.record = record;
 
@@ -629,14 +606,14 @@ where
     }
 }
 
-struct ExecState<'a, 'b, F, Diffusion> {
-    pub env: ExecEnv<'a, 'b, F, Diffusion>,
+struct ExecState<'a, 'b, F> {
+    pub env: ExecEnv<'a, 'b, F>,
     pub record: ExecutionRecord<F>,
     #[cfg(feature = "debug")]
     pub last_trace: Option<Trace>,
 }
 
-impl<F, Diffusion> ExecState<'_, '_, F, Diffusion> {
+impl<F> ExecState<'_, '_, F> {
     fn resolve_trace(&mut self) -> Option<&mut Trace> {
         cfg_if::cfg_if! {
             if #[cfg(feature = "debug")] {
@@ -653,9 +630,9 @@ impl<F, Diffusion> ExecState<'_, '_, F, Diffusion> {
     }
 }
 
-impl<'a, 'b, F, Diffusion> Clone for ExecState<'a, 'b, F, Diffusion>
+impl<'a, 'b, F> Clone for ExecState<'a, 'b, F>
 where
-    ExecEnv<'a, 'b, F, Diffusion>: Clone,
+    ExecEnv<'a, 'b, F>: Clone,
     ExecutionRecord<F>: Clone,
 {
     fn clone(&self) -> Self {
@@ -687,13 +664,13 @@ where
     }
 }
 
-struct ExecEnv<'a, 'b, F, Diffusion> {
+struct ExecEnv<'a, 'b, F> {
     pub memory: &'a MemVec<F>,
-    pub perm: &'a Perm<F, Diffusion>,
+    pub perm: &'a Perm,
     pub debug_stdout: &'a Mutex<dyn Write + Send + 'b>,
 }
 
-impl<F, Diffusion> Clone for ExecEnv<'_, '_, F, Diffusion> {
+impl<F> Clone for ExecEnv<'_, '_, F> {
     fn clone(&self) -> Self {
         let Self { memory, perm, debug_stdout } = self;
         Self { memory, perm, debug_stdout }

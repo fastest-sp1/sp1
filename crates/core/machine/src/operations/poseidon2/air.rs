@@ -1,9 +1,10 @@
 use std::array;
 
 use p3_air::PairBuilder;
-use p3_baby_bear::{MONTY_INVERSE, POSEIDON2_INTERNAL_MATRIX_DIAG_16_BABYBEAR_MONTY};
-use p3_field::{AbstractField, PrimeField32};
-use p3_poseidon2::matmul_internal;
+use p3_baby_bear::INTERNAL_DIAG_MONTY_16;
+use p3_field::{PrimeCharacteristicRing, PrimeField32};
+
+use p3_poseidon2::matmul_internal_sp1;
 use sp1_primitives::RC_16_30_U32;
 use sp1_stark::air::MachineAirBuilder;
 
@@ -11,7 +12,7 @@ use super::{permutation::Poseidon2Cols, NUM_EXTERNAL_ROUNDS, NUM_INTERNAL_ROUNDS
 
 pub fn apply_m_4_mut<AF>(x: &mut [AF])
 where
-    AF: AbstractField,
+    AF: PrimeCharacteristicRing,
 {
     let t01 = x[0].clone() + x[1].clone();
     let t23 = x[2].clone() + x[3].clone();
@@ -24,7 +25,7 @@ where
     x[2] = t01233 + t23;
 }
 
-pub fn external_linear_layer_mut<AF: AbstractField>(state: &mut [AF; WIDTH]) {
+pub fn external_linear_layer_mut<AF: PrimeCharacteristicRing>(state: &mut [AF; WIDTH]) {
     for j in (0..WIDTH).step_by(4) {
         apply_m_4_mut(&mut state[j..j + 4]);
     }
@@ -36,23 +37,30 @@ pub fn external_linear_layer_mut<AF: AbstractField>(state: &mut [AF; WIDTH]) {
     }
 }
 
-pub fn external_linear_layer<AF: AbstractField + Copy>(state: &[AF; WIDTH]) -> [AF; WIDTH] {
+pub fn external_linear_layer<AF: PrimeCharacteristicRing + Copy>(state: &[AF; WIDTH]) -> [AF; WIDTH] {
     let mut state = *state;
     external_linear_layer_mut(&mut state);
     state
 }
 
-pub fn internal_linear_layer_mut<F: AbstractField>(state: &mut [F; WIDTH]) {
-    let matmul_constants: [<F as AbstractField>::F; WIDTH] =
-        POSEIDON2_INTERNAL_MATRIX_DIAG_16_BABYBEAR_MONTY
+//pub fn internal_linear_layer_mut<AF: PrimeCharacteristicRing<PrimeSubfield = F> + Field>(state: &mut [AF; WIDTH]) {
+pub fn internal_linear_layer_mut<AF>(state: &mut [AF; WIDTH]) 
+where
+    AF: PrimeCharacteristicRing,
+{
+    //let matmul_constants: [<AF as PrimeCharacteristicRing>::PrimeSubfield; WIDTH] =
+    let matmul_constants: [AF; WIDTH] =
+        INTERNAL_DIAG_MONTY_16
             .iter()
-            .map(|x| <F as AbstractField>::F::from_wrapped_u32(x.as_canonical_u32()))
+            .map(|x| AF::from_u32(x.as_canonical_u32()))
+            //.map(|x| <AF as PrimeCharacteristicRing>::PrimeSubfield::from_u32(x.as_canonical_u32()))
             .collect::<Vec<_>>()
             .try_into()
-            .unwrap();
-    matmul_internal(state, matmul_constants);
-    let monty_inverse = F::from_wrapped_u32(MONTY_INVERSE.as_canonical_u32());
-    state.iter_mut().for_each(|i| *i = i.clone() * monty_inverse.clone());
+            .unwrap(); 
+    matmul_internal_sp1(state, matmul_constants);
+
+    //let monty_inverse = AF::from_u32(MONTY_INVERSE.as_canonical_u32());
+    //state.iter_mut().for_each(|i| *i = i.clone() * monty_inverse.clone());
 }
 
 /// Eval the constraints for the external rounds.
@@ -71,13 +79,13 @@ where
     // Add the round constants.
     let round = if r < NUM_EXTERNAL_ROUNDS / 2 { r } else { r + NUM_INTERNAL_ROUNDS };
     let add_rc: [AB::Expr; WIDTH] = array::from_fn(|i| {
-        local_state[i].clone() + AB::F::from_wrapped_u32(RC_16_30_U32[round][i])
+        local_state[i].clone() + AB::F::from_u32(RC_16_30_U32[round][i])
     });
 
     // Apply the sboxes.
     // See `populate_external_round` for why we don't have columns for the sbox output here.
-    let mut sbox_deg_7: [AB::Expr; WIDTH] = core::array::from_fn(|_| AB::Expr::zero());
-    let mut sbox_deg_3: [AB::Expr; WIDTH] = core::array::from_fn(|_| AB::Expr::zero());
+    let mut sbox_deg_7: [AB::Expr; WIDTH] = core::array::from_fn(|_| AB::Expr::ZERO);
+    let mut sbox_deg_3: [AB::Expr; WIDTH] = core::array::from_fn(|_| AB::Expr::ZERO);
     for i in 0..WIDTH {
         let calculated_sbox_deg_3 = add_rc[i].clone() * add_rc[i].clone() * add_rc[i].clone();
 
@@ -120,7 +128,7 @@ where
         // Add the round constant.
         let round = r + NUM_EXTERNAL_ROUNDS / 2;
         let add_rc = if r == 0 { state[0].clone() } else { s0[r - 1].into() } +
-            AB::Expr::from_wrapped_u32(RC_16_30_U32[round][0]);
+            AB::Expr::from_u32(RC_16_30_U32[round][0]);
 
         let mut sbox_deg_3 = add_rc.clone() * add_rc.clone() * add_rc.clone();
         if let Some(internal_sbox) = local_row.internal_rounds_sbox() {
@@ -147,3 +155,47 @@ where
         builder.assert_eq(external_state[i], state[i].clone())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    //use p3_field::PrimeCharacteristicRing;
+    use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
+    #[test]
+    fn test_local_external_linear_layer() {
+        let mut input: [BabyBear; 16] = BabyBear::new_array([
+            894848333, 1437655012, 1200606629, 1690012884, 71131202, 1749206695, 1717947831,
+            120589055, 19776022, 42382981, 1831865506, 724844064, 171220207, 1299207443, 227047920,
+            1783754913,
+        ]);
+
+        //sp1
+        let expected: [BabyBear; 16] = BabyBear::new_array([
+            1977003202, 275423229, 149669171, 119092734, 212141362, 57409241, 2003712403, 1377784331, 
+            1746930307, 1564946509, 272867965, 839322770, 1247853484, 474497709, 1648233987, 1050217978
+            ]);
+
+         let ret = external_linear_layer(&input);
+         
+        assert_eq!(ret, expected); 
+    }
+
+     #[test]
+    fn test_local_internal_linear_layer() {
+        let mut input: [BabyBear; 16] = BabyBear::new_array([
+            894848333, 1437655012, 1200606629, 1690012884, 71131202, 1749206695, 1717947831,
+            120589055, 19776022, 42382981, 1831865506, 724844064, 171220207, 1299207443, 227047920,
+            1783754913,
+        ]);
+
+        let expected: [BabyBear; 16] = BabyBear::new_array([
+            925407769, 1551681711, 722526423, 315099541, 1203865770, 431153091, 867214325, 872835009, 
+            1290679418, 1417814860, 1721490076, 833828430, 1180381619, 422160376, 344105810, 524430026
+            ]);
+
+        internal_linear_layer_mut(&mut input);
+        assert_eq!(input, expected); 
+    }
+}
+
+

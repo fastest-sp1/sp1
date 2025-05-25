@@ -1,7 +1,7 @@
 use std::borrow::Borrow;
 
 use p3_baby_bear::BabyBear;
-use p3_field::{AbstractExtensionField, AbstractField};
+use p3_field::{BasedVectorSpace, PrimeCharacteristicRing};
 use p3_fri::{CommitPhaseProofStep, QueryProof};
 
 use sp1_recursion_compiler::ir::{Builder, Config, Ext, Felt};
@@ -36,7 +36,7 @@ impl<C: CircuitConfig<F = BabyBear, Bit = Felt<BabyBear>>> WitnessWriter<C>
     }
 
     fn write_ext(&mut self, value: <C>::EF) {
-        self.push(Block::from(value.as_base_slice()))
+        self.push(Block::from(value.as_basis_coefficients_slice()))
     }
 }
 

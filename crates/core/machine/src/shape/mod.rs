@@ -667,7 +667,7 @@ pub mod tests {
         // Try to commit the traces.
         let main_data = prover.commit(&record, main_traces);
 
-        let mut challenger = prover.machine().config().challenger();
+        let mut challenger = prover.machine().config().initialise_challenger();
 
         // Try to "open".
         prover.open(&pk, main_data, &mut challenger).unwrap();

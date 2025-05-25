@@ -1,7 +1,7 @@
 use core::borrow::Borrow;
 use p3_air::AirBuilder;
 use p3_baby_bear::BabyBear;
-use p3_field::{AbstractField, Field, PrimeField32, TwoAdicField};
+use p3_field::{PrimeCharacteristicRing, Field, PrimeField32, TwoAdicField};
 use p3_matrix::Matrix;
 use sp1_stark::air::{BaseAirBuilder, SP1AirBuilder};
 
@@ -12,7 +12,7 @@ use super::{ShaExtendChip, ShaExtendCols};
 impl<F: Field> ShaExtendCols<F> {
     pub fn populate_flags(&mut self, i: usize) {
         // The generator of the multiplicative subgroup.
-        let g = F::from_canonical_u32(BabyBear::two_adic_generator(4).as_canonical_u32());
+        let g = F::from_u32(BabyBear::two_adic_generator(4).as_canonical_u32());
 
         // Populate the columns needed to keep track of cycles of 16 rows.
         self.cycle_16 = g.exp_u64((i + 1) as u64);
@@ -21,11 +21,11 @@ impl<F: Field> ShaExtendCols<F> {
         self.cycle_16_start.populate_from_field_element(self.cycle_16 - g);
 
         // Populate the columns needed to track the end of a cycle of 16 rows.
-        self.cycle_16_end.populate_from_field_element(self.cycle_16 - F::one());
+        self.cycle_16_end.populate_from_field_element(self.cycle_16 - F::ONE);
 
         // Populate the columns needed to keep track of cycles of 48 rows.
         let j = 16 + (i % 48);
-        self.i = F::from_canonical_usize(j);
+        self.i = F::from_usize(j);
         self.cycle_48[0] = F::from_bool((16..32).contains(&j));
         self.cycle_48[1] = F::from_bool((32..48).contains(&j));
         self.cycle_48[2] = F::from_bool((48..64).contains(&j));
@@ -37,20 +37,20 @@ impl<F: Field> ShaExtendCols<F> {
 impl ShaExtendChip {
     pub fn eval_flags<AB: SP1AirBuilder>(&self, builder: &mut AB) {
         let main = builder.main();
-        let (local, next) = (main.row_slice(0), main.row_slice(1));
+        let (local, next) = (main.row_slice(0).unwrap(), main.row_slice(1).unwrap());
         let local: &ShaExtendCols<AB::Var> = (*local).borrow();
         let next: &ShaExtendCols<AB::Var> = (*next).borrow();
 
-        let one = AB::Expr::from(AB::F::one());
+        let one = AB::Expr::from(AB::F::ONE);
 
         // Generator with order 16 within BabyBear.
-        let g = AB::F::from_canonical_u32(BabyBear::two_adic_generator(4).as_canonical_u32());
+        let g = AB::F::from_u32(BabyBear::two_adic_generator(4).as_canonical_u32());
 
         // First row of the table must have g^1.
         builder.when_first_row().assert_eq(local.cycle_16, g);
 
         // First row of the table must have i = 16.
-        builder.when_first_row().assert_eq(local.i, AB::F::from_canonical_u32(16));
+        builder.when_first_row().assert_eq(local.i, AB::F::from_u32(16));
 
         // Every row's `cycle_16` must be previous multiplied by `g`.
         builder.when_transition().assert_eq(local.cycle_16 * g, next.cycle_16);
@@ -66,15 +66,15 @@ impl ShaExtendChip {
         // Constrain `cycle_16_end.result` to be `cycle_16 - 1 == 0`. Intuitively g^16 is 1.
         IsZeroOperation::<AB::F>::eval(
             builder,
-            local.cycle_16 - AB::Expr::one(),
+            local.cycle_16 - AB::Expr::ONE,
             local.cycle_16_end,
             one.clone(),
         );
 
         // Constrain `cycle_48` to be [1, 0, 0] in the first row.
-        builder.when_first_row().assert_eq(local.cycle_48[0], AB::F::one());
-        builder.when_first_row().assert_eq(local.cycle_48[1], AB::F::zero());
-        builder.when_first_row().assert_eq(local.cycle_48[2], AB::F::zero());
+        builder.when_first_row().assert_eq(local.cycle_48[0], AB::F::ONE);
+        builder.when_first_row().assert_eq(local.cycle_48[1], AB::F::ZERO);
+        builder.when_first_row().assert_eq(local.cycle_48[2], AB::F::ZERO);
 
         // Shift the indices of `cycles_48` at the end of each 16 rows. Otherwise, keep them the
         // same.
@@ -106,7 +106,7 @@ impl ShaExtendChip {
         builder
             .when_transition()
             .when(local.cycle_16_end.result * local.cycle_48[2])
-            .assert_eq(next.i, AB::F::from_canonical_u32(16));
+            .assert_eq(next.i, AB::F::from_u32(16));
 
         // When it's not the end of a 48-cycle, the next `i` must be the current plus one.
         builder

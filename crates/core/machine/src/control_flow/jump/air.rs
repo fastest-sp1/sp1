@@ -1,7 +1,7 @@
 use std::borrow::Borrow;
 
 use p3_air::{Air, AirBuilder};
-use p3_field::AbstractField;
+use p3_field::PrimeCharacteristicRing;
 use p3_matrix::Matrix;
 use sp1_core_executor::{Opcode, DEFAULT_PC_INC, UNUSED_PC};
 use sp1_stark::air::{BaseAirBuilder, SP1AirBuilder};
@@ -18,7 +18,7 @@ where
     #[inline(never)]
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
-        let local = main.row_slice(0);
+        let local = main.row_slice(0).unwrap();
         let local: &JumpColumns<AB::Var> = (*local).borrow();
 
         // SAFETY: All selectors `is_jal`, `is_jalr` are checked to be boolean.
@@ -40,20 +40,20 @@ where
         // - `is_halt = 0`
         // `next_pc` and `op_a_value` still has to be constrained, and this is done below.
         builder.receive_instruction(
-            AB::Expr::zero(),
-            AB::Expr::zero(),
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
             local.pc.reduce::<AB>(),
             local.next_pc.reduce::<AB>(),
-            AB::Expr::zero(),
+            AB::Expr::ZERO,
             opcode,
             local.op_a_value,
             local.op_b_value,
             local.op_c_value,
             local.op_a_0,
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
             is_real.clone(),
         );
 
@@ -63,7 +63,7 @@ where
         // we shouldn't verify the return address.
         builder.when(is_real.clone()).when_not(local.op_a_0).assert_eq(
             local.op_a_value.reduce::<AB>(),
-            local.pc.reduce::<AB>() + AB::F::from_canonical_u32(DEFAULT_PC_INC),
+            local.pc.reduce::<AB>() + AB::F::from_u32(DEFAULT_PC_INC),
         );
 
         // Range check op_a, pc, and next_pc.
@@ -100,40 +100,40 @@ where
         // Verify that the new pc is calculated correctly for JAL instructions.
         // SAFETY: `is_jal` is boolean, and zero for padding rows.
         builder.send_instruction(
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::from_canonical_u32(UNUSED_PC),
-            AB::Expr::from_canonical_u32(UNUSED_PC + DEFAULT_PC_INC),
-            AB::Expr::zero(),
-            AB::Expr::from_canonical_u32(Opcode::ADD as u32),
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::from_u32(UNUSED_PC),
+            AB::Expr::from_u32(UNUSED_PC + DEFAULT_PC_INC),
+            AB::Expr::ZERO,
+            AB::Expr::from_u32(Opcode::ADD as u32),
             local.next_pc,
             local.pc,
             local.op_b_value,
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
             local.is_jal,
         );
 
         // Verify that the new pc is calculated correctly for JALR instructions.
         // SAFETY: `is_jalr` is boolean, and zero for padding rows.
         builder.send_instruction(
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::from_canonical_u32(UNUSED_PC),
-            AB::Expr::from_canonical_u32(UNUSED_PC + DEFAULT_PC_INC),
-            AB::Expr::zero(),
-            AB::Expr::from_canonical_u32(Opcode::ADD as u32),
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::from_u32(UNUSED_PC),
+            AB::Expr::from_u32(UNUSED_PC + DEFAULT_PC_INC),
+            AB::Expr::ZERO,
+            AB::Expr::from_u32(Opcode::ADD as u32),
             local.next_pc,
             local.op_b_value,
             local.op_c_value,
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
             local.is_jalr,
         );
     }

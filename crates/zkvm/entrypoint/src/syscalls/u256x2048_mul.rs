@@ -6,7 +6,7 @@ use core::arch::asm;
 /// The low 2048-bit result is written to the `lo` pointer, and the high 256-bit overflow is written
 /// to the `hi` pointer.
 #[allow(unused_variables)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn syscall_u256x2048_mul(
     a: *const [u32; 8],
     b: *const [u32; 64],

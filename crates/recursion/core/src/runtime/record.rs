@@ -1,6 +1,6 @@
 use std::{array, ops::Add, sync::Arc};
 
-use p3_field::{AbstractField, Field, PrimeField32};
+use p3_field::{PrimeCharacteristicRing, Field, PrimeField32};
 use sp1_stark::{air::MachineAir, MachineRecord, SP1CoreOpts, PROOF_MAX_NUM_PVS};
 
 use super::{
@@ -80,14 +80,14 @@ impl<F: PrimeField32> MachineRecord for ExecutionRecord<F> {
         commit_pv_hash_events.append(&mut other.commit_pv_hash_events);
     }
 
-    fn public_values<T: AbstractField>(&self) -> Vec<T> {
+    fn public_values<T: PrimeCharacteristicRing>(&self) -> Vec<T> {
         let pv_elms = self.public_values.as_array();
 
         let ret: [T; PROOF_MAX_NUM_PVS] = array::from_fn(|i| {
             if i < pv_elms.len() {
-                T::from_canonical_u32(pv_elms[i].as_canonical_u32())
+                T::from_u32(pv_elms[i].as_canonical_u32())
             } else {
-                T::zero()
+                T::ZERO
             }
         });
 

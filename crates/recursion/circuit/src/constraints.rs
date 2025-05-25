@@ -1,7 +1,7 @@
 use p3_air::{Air, BaseAir};
 use p3_baby_bear::BabyBear;
-use p3_commit::{LagrangeSelectors, Mmcs, PolynomialSpace, TwoAdicMultiplicativeCoset};
-use p3_field::{AbstractExtensionField, AbstractField, Field, TwoAdicField};
+use p3_commit::{LagrangeSelectors, Mmcs, PolynomialSpace};
+use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, Field, TwoAdicField, coset::TwoAdicMultiplicativeCoset};
 use p3_matrix::dense::RowMajorMatrix;
 
 use sp1_recursion_compiler::ir::{
@@ -63,7 +63,7 @@ where
         );
 
         // Assert that the quotient times the zerofier is equal to the folded constraints.
-        builder.assert_ext_eq(folded_constraints * sels.inv_zeroifier, quotient);
+        builder.assert_ext_eq(folded_constraints * sels.inv_vanishing, quotient);
     }
 
     #[allow(clippy::type_complexity)]
@@ -77,7 +77,7 @@ where
         public_values: &[Felt<C::F>],
     ) -> Ext<C::F, C::EF> {
         let mut unflatten = |v: &[Ext<C::F, C::EF>]| {
-            v.chunks_exact(<SC::Challenge as AbstractExtensionField<C::F>>::D)
+            v.chunks_exact(<SC::Challenge as BasedVectorSpace<C::F>>::DIMENSION)
                 .map(|chunk| {
                     builder.eval(
                         chunk
@@ -85,7 +85,7 @@ where
                             .enumerate()
                             .map(
                                 |(e_i, x): (usize, &Ext<C::F, C::EF>)| -> SymbolicExt<C::F, C::EF> {
-                                    SymbolicExt::from(*x) * C::EF::monomial(e_i)
+                                    SymbolicExt::from(*x) * C::EF::ith_basis_element(e_i).unwrap()
                                 },
                             )
                             .sum::<SymbolicExt<_, _>>(),
@@ -110,7 +110,7 @@ where
             is_last_row: selectors.is_last_row,
             is_transition: selectors.is_transition,
             alpha,
-            accumulator: SymbolicExt::zero(),
+            accumulator: SymbolicExt::ZERO,
             _marker: std::marker::PhantomData,
         };
 
@@ -126,7 +126,7 @@ where
         zeta: Ext<C::F, C::EF>,
     ) -> Ext<C::F, C::EF> {
         // Compute the maximum power of zeta we will need.
-        let max_domain_log_n = qc_domains.iter().map(|d| d.log_n).max().unwrap();
+        let max_domain_log_n = qc_domains.iter().map(|d| d.log_size()).max().unwrap();
 
         // Compute all powers of zeta of the form zeta^(2^i) up to `zeta^(2^max_domain_log_n)`.
         let mut zetas: Vec<Ext<_, _>> = vec![zeta];
@@ -147,20 +147,20 @@ where
                     .map(|(_, other_domain)| {
                         // `shift_power` is used in the computation of
                         let shift_power =
-                            other_domain.shift.exp_power_of_2(other_domain.log_n).inverse();
+                            other_domain.shift().exp_power_of_2(other_domain.log_size()).inverse();
                         // This is `other_domain.zp_at_point_f(builder, domain.first_point())`.
                         // We compute it as a constant here.
-                        let z_f = domain.first_point().exp_power_of_2(other_domain.log_n) *
+                        let z_f = domain.first_point().exp_power_of_2(other_domain.log_size()) *
                             shift_power -
-                            C::F::one();
+                            C::F::ONE;
                         (
                             {
                                 // We use the precomputed powers of zeta to compute (inline) the
                                 // value of `other_domain.
                                 // zp_at_point_variable(builder, zeta)`.
                                 let z: Ext<_, _> = builder.eval(
-                                    zetas[other_domain.log_n] * SymbolicFelt::from_f(shift_power) -
-                                        SymbolicExt::from_f(C::EF::one()),
+                                    zetas[other_domain.log_size()] * SymbolicFelt::from_prime_subfield(shift_power) -
+                                        SymbolicExt::from_ext(C::EF::ONE),
                                 );
                                 z.to_operand().symbolic()
                             },
@@ -183,11 +183,11 @@ where
                 .iter()
                 .enumerate()
                 .map(|(ch_i, ch)| {
-                    assert_eq!(ch.len(), C::EF::D);
+                    assert_eq!(ch.len(), C::EF::DIMENSION);
                     zps[ch_i].to_operand().symbolic() *
                         ch.iter()
                             .enumerate()
-                            .map(|(e_i, &c)| C::EF::monomial(e_i).cons() * SymbolicExt::from(c))
+                            .map(|(e_i, &c)| C::EF::ith_basis_element(e_i).unwrap().cons() * SymbolicExt::from(c))
                             .sum::<SymbolicExt<_, _>>()
                 })
                 .sum::<SymbolicExt<_, _>>(),
@@ -226,7 +226,7 @@ where
 
         // Verify that the permutation width matches the expected value for the chip.
         if opening.permutation.local.len() !=
-            chip.permutation_width() * <SC::Challenge as AbstractExtensionField<C::F>>::D
+            chip.permutation_width() * <SC::Challenge as BasedVectorSpace<C::F>>::DIMENSION
         {
             return Err(OpeningShapeError::PermutationWidthMismatch(
                 chip.permutation_width(),
@@ -234,7 +234,7 @@ where
             ));
         }
         if opening.permutation.next.len() !=
-            chip.permutation_width() * <SC::Challenge as AbstractExtensionField<C::F>>::D
+            chip.permutation_width() * <SC::Challenge as BasedVectorSpace<C::F>>::DIMENSION
         {
             return Err(OpeningShapeError::PermutationWidthMismatch(
                 chip.permutation_width(),
@@ -252,9 +252,9 @@ where
         // For each quotient chunk, verify that the number of elements is equal to the degree of the
         // challenge extension field over the value field.
         for slice in &opening.quotient {
-            if slice.len() != <SC::Challenge as AbstractExtensionField<C::F>>::D {
+            if slice.len() != <SC::Challenge as BasedVectorSpace<C::F>>::DIMENSION {
                 return Err(OpeningShapeError::QuotientChunkSizeMismatch(
-                    <SC::Challenge as AbstractExtensionField<C::F>>::D,
+                    <SC::Challenge as BasedVectorSpace<C::F>>::DIMENSION,
                     slice.len(),
                 ));
             }

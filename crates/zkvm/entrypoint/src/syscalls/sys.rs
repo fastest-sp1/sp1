@@ -23,27 +23,29 @@ static SYS_RAND_WARNING: std::sync::Once = std::sync::Once::new();
 /// # Safety
 ///
 /// Make sure that `buf` has at least `nwords` words.
-#[no_mangle]
-pub unsafe extern "C" fn sys_rand(recv_buf: *mut u8, words: usize) {
+#[unsafe(no_mangle)]
+pub  extern "C" fn sys_rand(recv_buf: *mut u8, words: usize) {
     SYS_RAND_WARNING.call_once(|| {
         eprintln!("WARNING: Using insecure random number generator.");
     });
     let mut rng = RNG.lock().unwrap();
     for i in 0..words {
-        let element = recv_buf.add(i);
-        *element = rng.gen();
+        unsafe{
+            let element = recv_buf.add(i);
+            *element = rng.r#gen();  //new rust version:1.85
+        }
     }
 }
 
 #[allow(clippy::missing_safety_doc)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn sys_panic(msg_ptr: *const u8, len: usize) -> ! {
     sys_write(2, msg_ptr, len);
     syscall_halt(1);
 }
 
 #[allow(unused_variables)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub const fn sys_getenv(
     recv_buf: *mut u32,
     words: usize,
@@ -54,13 +56,13 @@ pub const fn sys_getenv(
 }
 
 #[allow(unused_variables)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub const fn sys_alloc_words(nwords: usize) -> *mut u32 {
     core::ptr::null_mut()
 }
 
 #[allow(unused_unsafe)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub fn sys_write(fd: u32, write_buf: *const u8, nbytes: usize) {
     unsafe {
         syscall_write(fd, write_buf, nbytes);

@@ -35,7 +35,7 @@ pub struct InstructionCols<T> {
 impl<F: PrimeField> InstructionCols<F> {
     pub fn populate(&mut self, instruction: &Instruction) {
         self.opcode = instruction.opcode.as_field::<F>();
-        self.op_a = F::from_canonical_u8(instruction.op_a);
+        self.op_a = F::from_u8(instruction.op_a);
         self.op_b = instruction.op_b.into();
         self.op_c = instruction.op_c.into();
 

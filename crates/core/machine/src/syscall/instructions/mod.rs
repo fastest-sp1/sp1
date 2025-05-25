@@ -19,7 +19,7 @@ mod tests {
     use std::borrow::BorrowMut;
 
     use p3_baby_bear::BabyBear;
-    use p3_field::AbstractField;
+    use p3_field::PrimeCharacteristicRing;
     use p3_matrix::dense::RowMajorMatrix;
     use sp1_core_executor::{ExecutionRecord, Instruction, Opcode, Program};
     use sp1_stark::{
@@ -125,20 +125,20 @@ mod tests {
                     if *chip_name == cpu_chip_name {
                         let third_row = trace.row_mut(2);
                         let third_row: &mut CpuCols<BabyBear> = third_row.borrow_mut();
-                        assert!(third_row.is_syscall == BabyBear::one());
-                        third_row.num_extra_cycles = BabyBear::from_canonical_usize(8);
+                        assert!(third_row.is_syscall == BabyBear::ONE);
+                        third_row.num_extra_cycles = BabyBear::from_usize(8);
                         // Correct value is 48.
 
                         let fourth_row = trace.row_mut(3);
                         let fourth_row: &mut CpuCols<BabyBear> = fourth_row.borrow_mut();
-                        fourth_row.clk_16bit_limb = BabyBear::from_canonical_usize(20);
+                        fourth_row.clk_16bit_limb = BabyBear::from_usize(20);
                         // Correct value is 60.
                     }
 
                     if *chip_name == syscall_chip_name {
                         let first_row = trace.row_mut(0);
                         let first_row: &mut SyscallInstrColumns<BabyBear> = first_row.borrow_mut();
-                        first_row.num_extra_cycles = BabyBear::from_canonical_usize(4);
+                        first_row.num_extra_cycles = BabyBear::from_usize(4);
                         // Correct value is 48.
                     }
                 }

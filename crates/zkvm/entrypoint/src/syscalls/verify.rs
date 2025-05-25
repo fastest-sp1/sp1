@@ -6,12 +6,12 @@ cfg_if::cfg_if! {
         use crate::syscalls::VERIFY_SP1_PROOF;
         use crate::zkvm::DEFERRED_PROOFS_DIGEST;
         use p3_baby_bear::BabyBear;
-        use p3_field::AbstractField;
+        use p3_field::PrimeCharacteristicRing;
         use sp1_primitives::hash_deferred_proof;
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[allow(unused_variables)]
 pub fn syscall_verify_sp1_proof(vk_digest: &[u32; 8], pv_digest: &[u8; 32]) {
     #[cfg(target_os = "zkvm")]
@@ -38,10 +38,10 @@ pub fn syscall_verify_sp1_proof(vk_digest: &[u32; 8], pv_digest: &[u8; 32]) {
 
         // Next 8 elements are vkey_digest
         let vk_digest_babybear =
-            vk_digest.iter().map(|x| BabyBear::from_canonical_u32(*x)).collect::<Vec<_>>();
+            vk_digest.iter().map(|x| BabyBear::from_u32(*x)).collect::<Vec<_>>();
         // Remaining 32 elements are pv_digest converted from u8 to BabyBear
         let pv_digest_babybear =
-            pv_digest.iter().map(|b| BabyBear::from_canonical_u8(*b)).collect::<Vec<_>>();
+            pv_digest.iter().map(|b| BabyBear::from_u8(*b)).collect::<Vec<_>>();
 
         *deferred_proofs_digest = hash_deferred_proof(
             deferred_proofs_digest,

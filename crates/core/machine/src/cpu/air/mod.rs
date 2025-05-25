@@ -2,7 +2,7 @@ pub mod register;
 
 use core::borrow::Borrow;
 use p3_air::{Air, AirBuilder, AirBuilderWithPublicValues, BaseAir};
-use p3_field::AbstractField;
+use p3_field::PrimeCharacteristicRing;
 use p3_matrix::Matrix;
 use sp1_core_executor::{ByteOpcode, DEFAULT_PC_INC};
 use sp1_stark::{
@@ -26,7 +26,7 @@ where
     #[inline(never)]
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
-        let (local, next) = (main.row_slice(0), main.row_slice(1));
+        let (local, next) = (main.row_slice(0).unwrap(), main.row_slice(1).unwrap());
         let local: &CpuCols<AB::Var> = (*local).borrow();
         let next: &CpuCols<AB::Var> = (*next).borrow();
 
@@ -38,7 +38,7 @@ where
         // We represent the `clk` with a 16 bit limb and a 8 bit limb.
         // The range checks for these limbs are done in `eval_shard_clk`.
         let clk =
-            AB::Expr::from_canonical_u32(1u32 << 16) * local.clk_8bit_limb + local.clk_16bit_limb;
+            AB::Expr::from_u32(1u32 << 16) * local.clk_8bit_limb + local.clk_16bit_limb;
 
         // Program constraints.
         // SAFETY: `local.is_real` is checked to be boolean in `eval_is_real`.
@@ -54,9 +54,9 @@ where
         // The correctness of `is_memory` and `is_syscall` will be checked in the opcode specific
         // chips. In these correct cases, `is_memory + is_syscall` will be always boolean.
         let expected_shard_to_send =
-            builder.if_else(local.is_memory + local.is_syscall, local.shard, AB::Expr::zero());
+            builder.if_else(local.is_memory + local.is_syscall, local.shard, AB::Expr::ZERO);
         let expected_clk_to_send =
-            builder.if_else(local.is_memory + local.is_syscall, clk.clone(), AB::Expr::zero());
+            builder.if_else(local.is_memory + local.is_syscall, clk.clone(), AB::Expr::ZERO);
         builder.when(local.is_real).assert_eq(local.shard_to_send, expected_shard_to_send);
         builder.when(local.is_real).assert_eq(local.clk_to_send, expected_clk_to_send);
 
@@ -103,10 +103,10 @@ where
         self.eval_is_real(builder, local, next);
 
         // Check that when `is_real=0` that all flags that send interactions are zero.
-        let not_real = AB::Expr::one() - local.is_real;
-        builder.when(not_real.clone()).assert_zero(AB::Expr::one() - local.instruction.imm_b);
-        builder.when(not_real.clone()).assert_zero(AB::Expr::one() - local.instruction.imm_c);
-        builder.when(not_real.clone()).assert_zero(AB::Expr::one() - local.is_syscall);
+        let not_real = AB::Expr::ONE - local.is_real;
+        builder.when(not_real.clone()).assert_zero(AB::Expr::ONE - local.instruction.imm_b);
+        builder.when(not_real.clone()).assert_zero(AB::Expr::ONE - local.instruction.imm_c);
+        builder.when(not_real.clone()).assert_zero(AB::Expr::ONE - local.is_syscall);
     }
 }
 
@@ -135,10 +135,10 @@ impl CpuChip {
         // Verify that the shard value is within 16 bits.
         // SAFETY: `local.is_real` is checked to be boolean in `eval_is_real`.
         builder.send_byte(
-            AB::Expr::from_canonical_u8(ByteOpcode::U16Range as u8),
+            AB::Expr::from_u8(ByteOpcode::U16Range as u8),
             local.shard,
-            AB::Expr::zero(),
-            AB::Expr::zero(),
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
             local.is_real,
         );
 
@@ -149,10 +149,10 @@ impl CpuChip {
         // therefore less than `2^8`, this means that the sum cannot overflow in a 31 bit field.
         // The default clk increment is also `4`, equal to `DEFAULT_PC_INC`.
         let expected_next_clk =
-            clk.clone() + AB::Expr::from_canonical_u32(DEFAULT_PC_INC) + local.num_extra_cycles;
+            clk.clone() + AB::Expr::from_u32(DEFAULT_PC_INC) + local.num_extra_cycles;
 
         let next_clk =
-            AB::Expr::from_canonical_u32(1u32 << 16) * next.clk_8bit_limb + next.clk_16bit_limb;
+            AB::Expr::from_u32(1u32 << 16) * next.clk_8bit_limb + next.clk_16bit_limb;
         builder.when_transition().when(next.is_real).assert_eq(expected_next_clk, next_clk);
 
         // Range check that the clk is within 24 bits using it's limb values.

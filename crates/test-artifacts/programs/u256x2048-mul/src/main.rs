@@ -49,7 +49,7 @@ pub fn main() {
     // Test 10 random pairs of a and b.
     let mut rng = rand::thread_rng();
     for _ in 0..10 {
-        let a: [u8; 32] = rng.gen();
+        let a: [u8; 32] = rng.r#gen();
         let mut b = [0u8; 256];
         rng.fill(&mut b);
 

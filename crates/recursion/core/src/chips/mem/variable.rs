@@ -87,7 +87,7 @@ impl<F: PrimeField32> MachineAir<F> for MemoryChip<F> {
             Some(log2_rows) => 1 << log2_rows,
             None => next_power_of_two(nb_rows, None),
         };
-        let mut values = vec![F::zero(); padded_nb_rows * NUM_MEM_PREPROCESSED_INIT_COLS];
+        let mut values = vec![F::ZERO; padded_nb_rows * NUM_MEM_PREPROCESSED_INIT_COLS];
 
         // Generate the trace rows & corresponding records for each chunk of events in parallel.
         let populate_len = accesses.len() * NUM_MEM_ACCESS_COLS;
@@ -107,9 +107,9 @@ impl<F: PrimeField32> MachineAir<F> for MemoryChip<F> {
         // Generate the trace rows & corresponding records for each chunk of events in parallel.
         let mut rows = input
             .mem_var_events
-            .chunks(NUM_VAR_MEM_ENTRIES_PER_ROW)
+            .chunks(NUM_VAR_MEM_ENTRIES_PER_ROW) //=2
             .map(|row_events| {
-                let mut row = [F::zero(); NUM_MEM_INIT_COLS];
+                let mut row = [F::ZERO; NUM_MEM_INIT_COLS];
                 let cols: &mut MemoryCols<_> = row.as_mut_slice().borrow_mut();
                 for (cell, vals) in zip(&mut cols.values, row_events) {
                     *cell = vals.inner;
@@ -119,7 +119,7 @@ impl<F: PrimeField32> MachineAir<F> for MemoryChip<F> {
             .collect::<Vec<_>>();
 
         // Pad the rows to the next power of two.
-        pad_rows_fixed(&mut rows, || [F::zero(); NUM_MEM_INIT_COLS], input.fixed_log2_rows(self));
+        pad_rows_fixed(&mut rows, || [F::ZERO; NUM_MEM_INIT_COLS], input.fixed_log2_rows(self));
 
         // Convert the trace to a row major matrix.
         RowMajorMatrix::new(rows.into_iter().flatten().collect::<Vec<_>>(), NUM_MEM_INIT_COLS)
@@ -140,10 +140,10 @@ where
 {
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
-        let local = main.row_slice(0);
+        let local = main.row_slice(0).unwrap();
         let local: &MemoryCols<AB::Var> = (*local).borrow();
         let prep = builder.preprocessed();
-        let prep_local = prep.row_slice(0);
+        let prep_local = prep.row_slice(0).unwrap();
         let prep_local: &MemoryPreprocessedCols<AB::Var> = (*prep_local).borrow();
 
         for (value, access) in zip(local.values, prep_local.accesses) {
@@ -157,7 +157,7 @@ mod tests {
     #![allow(clippy::print_stdout)]
 
     use p3_baby_bear::BabyBear;
-    use p3_field::AbstractField;
+    use p3_field::PrimeCharacteristicRing;
     use p3_matrix::dense::RowMajorMatrix;
 
     use super::*;
@@ -166,8 +166,8 @@ mod tests {
     pub fn generate_trace() {
         let shard = ExecutionRecord::<BabyBear> {
             mem_var_events: vec![
-                MemEvent { inner: BabyBear::one().into() },
-                MemEvent { inner: BabyBear::one().into() },
+                MemEvent { inner: BabyBear::ONE.into() },
+                MemEvent { inner: BabyBear::ONE.into() },
             ],
             ..Default::default()
         };

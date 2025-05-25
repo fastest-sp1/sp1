@@ -165,7 +165,7 @@ mod tests {
     use num::bigint::RandBigInt;
     use p3_air::Air;
     use p3_baby_bear::BabyBear;
-    use p3_field::AbstractField;
+    use p3_field::PrimeCharacteristicRing;
     use p3_matrix::{dense::RowMajorMatrix, Matrix};
     use rand::thread_rng;
     use sp1_curves::edwards::ed25519::Ed25519BaseField;
@@ -228,7 +228,7 @@ mod tests {
             let rows = operands
                 .iter()
                 .map(|(a, b)| {
-                    let mut row = [F::zero(); NUM_TEST_COLS];
+                    let mut row = [F::ZERO; NUM_TEST_COLS];
                     let cols: &mut TestCols<F, P> = row.as_mut_slice().borrow_mut();
                     cols.a = P::to_limbs_field::<F, _>(a);
                     cols.b = P::to_limbs_field::<F, _>(b);
@@ -261,9 +261,9 @@ mod tests {
     {
         fn eval(&self, builder: &mut AB) {
             let main = builder.main();
-            let local = main.row_slice(0);
+            let local = main.row_slice(0).unwrap();
             let local: &TestCols<AB::Var, P> = (*local).borrow();
-            local.a_den_b.eval(builder, &local.a, &local.b, self.sign, AB::F::zero());
+            local.a_den_b.eval(builder, &local.a, &local.b, self.sign, AB::F::ZERO);
         }
     }
 
@@ -279,7 +279,6 @@ mod tests {
     #[test]
     fn prove_field() {
         let config = BabyBearPoseidon2::new();
-        let mut challenger = config.challenger();
 
         let shard = ExecutionRecord::default();
 
@@ -288,10 +287,9 @@ mod tests {
             chip.generate_trace(&shard, &mut ExecutionRecord::default());
         // This it to test that the proof DOESN'T work if messed up.
         // let row = trace.row_mut(0);
-        // row[0] = BabyBear::from_canonical_u8(0);
-        let proof = uni_stark_prove::<BabyBearPoseidon2, _>(&config, &chip, &mut challenger, trace);
+        // row[0] = BabyBear::from_u8(0);
+        let proof = uni_stark_prove::<BabyBearPoseidon2, _>(&config, &chip, trace);
 
-        let mut challenger = config.challenger();
-        uni_stark_verify(&config, &chip, &mut challenger, &proof).unwrap();
+        uni_stark_verify(&config, &chip, &proof).unwrap();
     }
 }

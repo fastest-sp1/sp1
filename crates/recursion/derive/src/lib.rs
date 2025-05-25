@@ -9,7 +9,7 @@ pub fn derive_variable(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let name = input.ident; // Struct name
 
-    let gen = match input.data {
+    let r#gen = match input.data {
         Data::Struct(data) => match data.fields {
             Fields::Named(fields) => {
                 let fields_init = fields.named.iter().map(|f| {
@@ -144,5 +144,5 @@ pub fn derive_variable(input: TokenStream) -> TokenStream {
         _ => unimplemented!(),
     };
 
-    gen.into()
+    r#gen.into()
 }

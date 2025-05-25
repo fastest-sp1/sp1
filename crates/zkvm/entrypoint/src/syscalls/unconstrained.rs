@@ -1,7 +1,7 @@
 #[cfg(target_os = "zkvm")]
 use core::arch::asm;
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub fn syscall_enter_unconstrained() -> bool {
     #[allow(unused_mut)]
     let mut continue_unconstrained: u32;
@@ -23,7 +23,7 @@ pub fn syscall_enter_unconstrained() -> bool {
     continue_unconstrained == 1
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub fn syscall_exit_unconstrained() {
     #[cfg(target_os = "zkvm")]
     unsafe {

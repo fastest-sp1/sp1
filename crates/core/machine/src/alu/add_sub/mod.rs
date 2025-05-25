@@ -6,7 +6,7 @@ use core::{
 use hashbrown::HashMap;
 use itertools::Itertools;
 use p3_air::{Air, AirBuilder, BaseAir};
-use p3_field::{AbstractField, PrimeField, PrimeField32};
+use p3_field::{PrimeCharacteristicRing, PrimeField, PrimeField32};
 use p3_matrix::{dense::RowMajorMatrix, Matrix};
 use p3_maybe_rayon::prelude::{ParallelBridge, ParallelIterator};
 use sp1_core_executor::{
@@ -124,7 +124,7 @@ impl<F: PrimeField32> MachineAir<F> for AddSubChip {
             .map(|events| {
                 let mut blu: HashMap<ByteLookupEvent, usize> = HashMap::new();
                 events.iter().for_each(|event| {
-                    let mut row = [F::zero(); NUM_ADD_SUB_COLS];
+                    let mut row = [F::ZERO; NUM_ADD_SUB_COLS];
                     let cols: &mut AddSubCols<F> = row.as_mut_slice().borrow_mut();
                     self.event_to_row(event, cols, &mut blu);
                 });
@@ -156,7 +156,7 @@ impl AddSubChip {
         cols: &mut AddSubCols<F>,
         blu: &mut impl ByteRecord,
     ) {
-        cols.pc = F::from_canonical_u32(event.pc);
+        cols.pc = F::from_u32(event.pc);
 
         let is_add = event.opcode == Opcode::ADD;
         cols.is_add = F::from_bool(is_add);
@@ -184,7 +184,7 @@ where
 {
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
-        let local = main.row_slice(0);
+        let local = main.row_slice(0).unwrap();
         let local: &AddSubCols<AB::Var> = (*local).borrow();
 
         // SAFETY: All selectors `is_add` and `is_sub` are checked to be boolean.
@@ -196,8 +196,8 @@ where
         builder.assert_bool(local.is_sub);
         builder.assert_bool(is_real.clone());
 
-        let opcode = AB::Expr::from_f(Opcode::ADD.as_field()) * local.is_add +
-            AB::Expr::from_f(Opcode::SUB.as_field()) * local.is_sub;
+        let opcode = AB::Expr::from(Opcode::ADD.as_field::<AB::F>()) * local.is_add
+            + AB::Expr::from(Opcode::SUB.as_field::<AB::F>()) * local.is_sub;
 
         // Evaluate the addition operation.
         // This is enforced only when `op_a_not_0 == 1`.
@@ -226,20 +226,20 @@ where
         // - `is_syscall = 0`
         // - `is_halt = 0`
         builder.receive_instruction(
-            AB::Expr::zero(),
-            AB::Expr::zero(),
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
             local.pc,
-            local.pc + AB::Expr::from_canonical_u32(DEFAULT_PC_INC),
-            AB::Expr::zero(),
+            local.pc + AB::Expr::from_u32(DEFAULT_PC_INC),
+            AB::Expr::ZERO,
             opcode.clone(),
             local.add_operation.value,
             local.operand_1,
             local.operand_2,
-            AB::Expr::one() - local.op_a_not_0,
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
+            AB::Expr::ONE - local.op_a_not_0,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
             local.is_add,
         );
 
@@ -254,20 +254,20 @@ where
         // - `is_syscall = 0`
         // - `is_halt = 0`
         builder.receive_instruction(
-            AB::Expr::zero(),
-            AB::Expr::zero(),
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
             local.pc,
-            local.pc + AB::Expr::from_canonical_u32(DEFAULT_PC_INC),
-            AB::Expr::zero(),
+            local.pc + AB::Expr::from_u32(DEFAULT_PC_INC),
+            AB::Expr::ZERO,
             opcode,
             local.operand_1,
             local.add_operation.value,
             local.operand_2,
-            AB::Expr::one() - local.op_a_not_0,
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
+            AB::Expr::ONE - local.op_a_not_0,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
             local.is_sub,
         );
     }
@@ -336,8 +336,7 @@ mod tests {
     #[test]
     fn prove_babybear() {
         let config = BabyBearPoseidon2::new();
-        let mut challenger = config.challenger();
-
+ 
         let mut shard = ExecutionRecord::default();
         for i in 0..1 {
             let operand_1 = thread_rng().gen_range(0..u32::MAX);
@@ -369,10 +368,10 @@ mod tests {
         let chip = AddSubChip::default();
         let trace: RowMajorMatrix<BabyBear> =
             chip.generate_trace(&shard, &mut ExecutionRecord::default());
-        let proof = prove::<BabyBearPoseidon2, _>(&config, &chip, &mut challenger, trace);
+        let proof = prove::<BabyBearPoseidon2, _>(&config, &chip, trace);
 
-        let mut challenger = config.challenger();
-        verify(&config, &chip, &mut challenger, &proof).unwrap();
+        //let mut challenger = config.initialise_challenger();
+        verify(&config, &chip, &proof).unwrap();
     }
 
     #[cfg(feature = "sys")]
@@ -406,7 +405,7 @@ mod tests {
                 let rows = events
                     .iter()
                     .map(|event| {
-                        let mut row = [F::zero(); NUM_ADD_SUB_COLS];
+                        let mut row = [F::ZERO; NUM_ADD_SUB_COLS];
                         let cols: &mut AddSubCols<F> = row.as_mut_slice().borrow_mut();
                         unsafe {
                             crate::sys::add_sub_event_to_row_babybear(event, cols);
@@ -423,7 +422,7 @@ mod tests {
             rows.extend(row_batch);
         }
 
-        pad_rows_fixed(&mut rows, || [F::zero(); NUM_ADD_SUB_COLS], None);
+        pad_rows_fixed(&mut rows, || [F::ZERO; NUM_ADD_SUB_COLS], None);
 
         // Convert the trace to a row major matrix.
         RowMajorMatrix::new(rows.into_iter().flatten().collect::<Vec<_>>(), NUM_ADD_SUB_COLS)

@@ -49,9 +49,9 @@ impl<F: PrimeField32> MachineAir<F> for CpuChip {
                     let cols: &mut CpuCols<F> = row.borrow_mut();
 
                     if idx >= input.cpu_events.len() {
-                        cols.instruction.imm_b = F::one();
-                        cols.instruction.imm_c = F::one();
-                        cols.is_syscall = F::one();
+                        cols.instruction.imm_b = F::ONE;
+                        cols.instruction.imm_c = F::ONE;
+                        cols.is_syscall = F::ONE;
                     } else {
                         let mut byte_lookup_events = Vec::new();
                         let event = &input.cpu_events[idx];
@@ -84,7 +84,7 @@ impl<F: PrimeField32> MachineAir<F> for CpuChip {
                 // The blu map stores shard -> map(byte lookup event -> multiplicity).
                 let mut blu: HashMap<ByteLookupEvent, usize> = HashMap::new();
                 ops.iter().for_each(|op| {
-                    let mut row = [F::zero(); NUM_CPU_COLS];
+                    let mut row = [F::ZERO; NUM_CPU_COLS];
                     let cols: &mut CpuCols<F> = row.as_mut_slice().borrow_mut();
                     let instruction = &input.program.fetch(op.pc);
                     self.event_to_row::<F>(
@@ -125,8 +125,8 @@ impl CpuChip {
         self.populate_shard_clk(cols, event, blu_events, shard);
 
         // Populate basic fields.
-        cols.pc = F::from_canonical_u32(event.pc);
-        cols.next_pc = F::from_canonical_u32(event.next_pc);
+        cols.pc = F::from_u32(event.pc);
+        cols.next_pc = F::from_u32(event.next_pc);
         cols.instruction.populate(instruction);
         cols.op_a_immutable = F::from_bool(
             instruction.is_memory_store_instruction() || instruction.is_branch_instruction(),
@@ -145,15 +145,15 @@ impl CpuChip {
         {
             cols.shard
         } else {
-            F::zero()
+            F::ZERO
         };
         cols.clk_to_send = if instruction.is_memory_load_instruction() ||
             instruction.is_memory_store_instruction() ||
             instruction.is_ecall_instruction()
         {
-            F::from_canonical_u32(event.clk)
+            F::from_u32(event.clk)
         } else {
-            F::zero()
+            F::ZERO
         };
 
         // Populate memory accesses for a, b, and c.
@@ -179,7 +179,7 @@ impl CpuChip {
             let syscall_id = cols.op_a_access.prev_value[0];
             let num_extra_cycles = cols.op_a_access.prev_value[2];
             cols.is_halt =
-                F::from_bool(syscall_id == F::from_canonical_u32(SyscallCode::HALT.syscall_id()));
+                F::from_bool(syscall_id == F::from_u32(SyscallCode::HALT.syscall_id()));
             cols.num_extra_cycles = num_extra_cycles;
         }
 
@@ -208,7 +208,7 @@ impl CpuChip {
         });
 
         // Assert that the instruction is not a no-op.
-        cols.is_real = F::one();
+        cols.is_real = F::ONE;
     }
 
     /// Populates the shard and clk related rows.
@@ -219,12 +219,12 @@ impl CpuChip {
         blu_events: &mut impl ByteRecord,
         shard: u32,
     ) {
-        cols.shard = F::from_canonical_u32(shard);
+        cols.shard = F::from_u32(shard);
 
         let clk_16bit_limb = (event.clk & 0xffff) as u16;
         let clk_8bit_limb = ((event.clk >> 16) & 0xff) as u8;
-        cols.clk_16bit_limb = F::from_canonical_u16(clk_16bit_limb);
-        cols.clk_8bit_limb = F::from_canonical_u8(clk_8bit_limb);
+        cols.clk_16bit_limb = F::from_u16(clk_16bit_limb);
+        cols.clk_8bit_limb = F::from_u8(clk_8bit_limb);
 
         blu_events.add_byte_lookup_event(ByteLookupEvent::new(U16Range, shard as u16, 0, 0, 0));
         blu_events.add_byte_lookup_event(ByteLookupEvent::new(U16Range, clk_16bit_limb, 0, 0, 0));

@@ -1,7 +1,7 @@
 use core::borrow::Borrow;
 
 use p3_air::{Air, AirBuilder, BaseAir};
-use p3_field::AbstractField;
+use p3_field::PrimeCharacteristicRing;
 use p3_keccak_air::{KeccakAir, NUM_KECCAK_COLS, NUM_ROUNDS, U64_LIMBS};
 use p3_matrix::Matrix;
 use sp1_core_executor::syscalls::SyscallCode;
@@ -29,13 +29,13 @@ where
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
 
-        let (local, next) = (main.row_slice(0), main.row_slice(1));
+        let (local, next) = (main.row_slice(0).unwrap(), main.row_slice(1).unwrap());
         let local: &KeccakMemCols<AB::Var> = (*local).borrow();
         let next: &KeccakMemCols<AB::Var> = (*next).borrow();
 
         let first_step = local.keccak.step_flags[0];
         let final_step = local.keccak.step_flags[NUM_ROUNDS - 1];
-        let not_final_step = AB::Expr::one() - final_step;
+        let not_final_step = AB::Expr::ONE - final_step;
 
         // Constrain memory in the first and last cycles.
         builder.assert_eq((first_step + final_step) * local.is_real, local.do_memory_check);
@@ -51,7 +51,7 @@ where
             builder.eval_memory_access(
                 local.shard,
                 local.clk + final_step, // The clk increments by 1 after a final step
-                local.state_addr + AB::Expr::from_canonical_u32(i * 4),
+                local.state_addr + AB::Expr::from_u32(i * 4),
                 &local.state_mem[i as usize],
                 local.do_memory_check,
             );
@@ -62,9 +62,9 @@ where
         builder.receive_syscall(
             local.shard,
             local.clk,
-            AB::F::from_canonical_u32(SyscallCode::KECCAK_PERMUTE.syscall_id()),
+            AB::F::from_u32(SyscallCode::KECCAK_PERMUTE.syscall_id()),
             local.state_addr,
-            AB::Expr::zero(),
+            AB::Expr::ZERO,
             local.receive_ecall,
             InteractionScope::Local,
         );
@@ -80,11 +80,11 @@ where
         // The last row must be nonreal because NUM_ROUNDS is not a power of 2. This constraint
         // ensures that the table does not end abruptly.
         builder.when_last_row().assert_zero(local.is_real);
-
+        //pass
         // Verify that local.a values are equal to the memory values in the 0 and 23rd rows of each
         // cycle Memory values are 32 bit values (encoded as 4 8-bit columns).
         // local.a values are 64 bit values (encoded as 4 16-bit columns).
-        let expr_2_pow_8 = AB::Expr::from_canonical_u32(2u32.pow(8));
+        let expr_2_pow_8 = AB::Expr::from_u32(2u32.pow(8));
         for i in 0..STATE_SIZE as u32 {
             // Interpret u32 memory words as u16 limbs
             let least_sig_word = local.state_mem[(i * 2) as usize].value();
@@ -158,7 +158,7 @@ mod test {
         let mut inputs = Vec::<Vec<u8>>::new();
         let mut outputs = Vec::<[u8; 32]>::new();
         for len in 0..NUM_TEST_CASES {
-            let bytes = (0..len * 71).map(|_| rng.gen::<u8>()).collect::<Vec<_>>();
+            let bytes = (0..len * 71).map(|_| rng.r#gen::<u8>()).collect::<Vec<_>>();
             inputs.push(bytes.clone());
 
             let mut keccak = tiny_keccak::Keccak::v256();
@@ -196,7 +196,7 @@ mod test {
         let mut public_values = SP1PublicValues::from(&public_values);
 
         let config = BabyBearPoseidon2::new();
-        let mut challenger = config.challenger();
+        let mut challenger = config.initialise_challenger();
         let machine = RiscvAir::machine(config);
         let (_, vk) = machine.setup(&Program::from(KECCAK256_ELF).unwrap());
         let _ =

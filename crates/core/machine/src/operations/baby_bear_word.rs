@@ -1,5 +1,5 @@
 use p3_air::AirBuilder;
-use p3_field::{AbstractField, Field, PrimeField32};
+use p3_field::{PrimeCharacteristicRing, Field, PrimeField32};
 use sp1_core_executor::{
     events::{ByteLookupEvent, ByteRecord},
     ByteOpcode,
@@ -53,10 +53,10 @@ impl<F: Field> BabyBearWordRangeChecker<F> {
 
         // The range check bit is on if and only if the most significant byte of the word is < 120.
         builder.send_byte(
-            AB::Expr::from_canonical_u32(ByteOpcode::LTU as u32),
+            AB::Expr::from_u32(ByteOpcode::LTU as u32),
             cols.most_sig_byte_lt_120,
             ms_byte,
-            AB::Expr::from_canonical_u8(120),
+            AB::Expr::from_u8(120),
             is_real.clone(),
         );
 
@@ -66,7 +66,7 @@ impl<F: Field> BabyBearWordRangeChecker<F> {
         // BabyBear word we need the most significant byte to be =120.
         is_real_builder
             .when_not(cols.most_sig_byte_lt_120)
-            .assert_eq(ms_byte, AB::Expr::from_canonical_u8(120));
+            .assert_eq(ms_byte, AB::Expr::from_u8(120));
 
         // Moreover, if the most significant byte =120, then the 3 other bytes must all be zero.s
         let mut assert_zero_builder = is_real_builder.when_not(cols.most_sig_byte_lt_120);

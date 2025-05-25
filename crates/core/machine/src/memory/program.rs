@@ -4,7 +4,7 @@ use core::{
 };
 use itertools::Itertools;
 use p3_air::{Air, AirBuilder, AirBuilderWithPublicValues, BaseAir, PairBuilder};
-use p3_field::AbstractField;
+use p3_field::PrimeCharacteristicRing;
 use p3_matrix::{dense::RowMajorMatrix, Matrix};
 
 use p3_field::PrimeField32;
@@ -96,9 +96,9 @@ impl<F: PrimeField32> MachineAir<F> for MemoryProgramChip {
                         if idx < nb_rows {
                             let (addr, word) = memory[idx];
                             let cols: &mut MemoryProgramPreprocessedCols<F> = row.borrow_mut();
-                            cols.addr = F::from_canonical_u32(*addr);
+                            cols.addr = F::from_u32(*addr);
                             cols.value = Word::from(*word);
-                            cols.is_real = F::one();
+                            cols.is_real = F::ONE;
                         }
                     },
                 );
@@ -145,7 +145,7 @@ impl<F: PrimeField32> MachineAir<F> for MemoryProgramChip {
         let mut rows = program_memory
             .iter()
             .map(|(&_, &_)| {
-                let mut row = [F::zero(); NUM_MEMORY_PROGRAM_MULT_COLS];
+                let mut row = [F::ZERO; NUM_MEMORY_PROGRAM_MULT_COLS];
                 let cols: &mut MemoryProgramMultCols<F> = row.as_mut_slice().borrow_mut();
                 cols.multiplicity = mult;
                 cols.is_first_shard.populate(input.public_values.shard - 1);
@@ -156,7 +156,7 @@ impl<F: PrimeField32> MachineAir<F> for MemoryProgramChip {
         // Pad the trace to a power of two depending on the proof shape in `input`.
         pad_rows_fixed(
             &mut rows,
-            || [F::zero(); NUM_MEMORY_PROGRAM_MULT_COLS],
+            || [F::ZERO; NUM_MEMORY_PROGRAM_MULT_COLS],
             input.fixed_log2_rows::<F, _>(self),
         );
 
@@ -190,10 +190,10 @@ where
         let preprocessed = builder.preprocessed();
         let main = builder.main();
 
-        let prep_local = preprocessed.row_slice(0);
+        let prep_local = preprocessed.row_slice(0).unwrap();
         let prep_local: &MemoryProgramPreprocessedCols<AB::Var> = (*prep_local).borrow();
 
-        let mult_local = main.row_slice(0);
+        let mult_local = main.row_slice(0).unwrap();
         let mult_local: &MemoryProgramMultCols<AB::Var> = (*mult_local).borrow();
 
         // Get shard from public values and evaluate whether it is the first shard.
@@ -205,7 +205,7 @@ where
         // Constrain `is_first_shard` to be 1 if and only if the shard is the first shard.
         IsZeroOperation::<AB::F>::eval(
             builder,
-            public_values.shard.clone() - AB::F::one(),
+            public_values.shard.clone() - AB::F::ONE,
             mult_local.is_first_shard,
             prep_local.is_real.into(),
         );
@@ -221,23 +221,23 @@ where
         // If it's not the first shard, then the multiplicity must be zero.
         builder.when_not(mult_local.is_first_shard.result).assert_zero(mult_local.multiplicity);
 
-        let mut values = vec![AB::Expr::zero(), AB::Expr::zero(), prep_local.addr.into()];
+        let mut values = vec![AB::Expr::ZERO, AB::Expr::ZERO, prep_local.addr.into()];
         values.extend(prep_local.value.map(Into::into));
 
         // Send the interaction to the global table.
         builder.send(
             AirInteraction::new(
                 vec![
-                    AB::Expr::zero(),
-                    AB::Expr::zero(),
+                    AB::Expr::ZERO,
+                    AB::Expr::ZERO,
                     prep_local.addr.into(),
                     prep_local.value[0].into(),
                     prep_local.value[1].into(),
                     prep_local.value[2].into(),
                     prep_local.value[3].into(),
-                    prep_local.is_real.into() * AB::Expr::zero(),
-                    prep_local.is_real.into() * AB::Expr::one(),
-                    AB::Expr::from_canonical_u8(InteractionKind::Memory as u8),
+                    prep_local.is_real.into() * AB::Expr::ZERO,
+                    prep_local.is_real.into() * AB::Expr::ONE,
+                    AB::Expr::from_u8(InteractionKind::Memory as u8),
                 ],
                 prep_local.is_real.into(),
                 InteractionKind::Global,

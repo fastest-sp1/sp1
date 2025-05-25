@@ -1,7 +1,7 @@
 use core::borrow::Borrow;
 
 use p3_air::{Air, BaseAir, PairBuilder};
-use p3_field::{AbstractField, Field};
+use p3_field::{PrimeCharacteristicRing, Field};
 use p3_matrix::Matrix;
 use sp1_core_executor::ByteOpcode;
 use sp1_stark::air::SP1AirBuilder;
@@ -20,11 +20,11 @@ impl<F: Field> BaseAir<F> for ByteChip<F> {
 impl<AB: SP1AirBuilder + PairBuilder> Air<AB> for ByteChip<AB::F> {
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
-        let local_mult = main.row_slice(0);
+        let local_mult = main.row_slice(0).unwrap();
         let local_mult: &ByteMultCols<AB::Var> = (*local_mult).borrow();
 
         let prep = builder.preprocessed();
-        let prep = prep.row_slice(0);
+        let prep = prep.row_slice(0).unwrap();
         let local: &BytePreprocessedCols<AB::Var> = (*prep).borrow();
 
         // Send all the lookups for each operation.
@@ -43,7 +43,7 @@ impl<AB: SP1AirBuilder + PairBuilder> Air<AB> for ByteChip<AB::F> {
                     builder.receive_byte(field_op, local.sll, local.b, local.c, mult)
                 }
                 ByteOpcode::U8Range => {
-                    builder.receive_byte(field_op, AB::F::zero(), local.b, local.c, mult)
+                    builder.receive_byte(field_op, AB::F::ZERO, local.b, local.c, mult)
                 }
                 ByteOpcode::ShrCarry => builder.receive_byte_pair(
                     field_op,
@@ -57,13 +57,13 @@ impl<AB: SP1AirBuilder + PairBuilder> Air<AB> for ByteChip<AB::F> {
                     builder.receive_byte(field_op, local.ltu, local.b, local.c, mult)
                 }
                 ByteOpcode::MSB => {
-                    builder.receive_byte(field_op, local.msb, local.b, AB::F::zero(), mult)
+                    builder.receive_byte(field_op, local.msb, local.b, AB::F::ZERO, mult)
                 }
                 ByteOpcode::U16Range => builder.receive_byte(
                     field_op,
                     local.value_u16,
-                    AB::F::zero(),
-                    AB::F::zero(),
+                    AB::F::ZERO,
+                    AB::F::ZERO,
                     mult,
                 ),
             }

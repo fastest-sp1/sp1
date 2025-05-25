@@ -6,7 +6,7 @@ use crate::{
 };
 use p3_air::{Air, AirBuilder, BaseAir, PairBuilder};
 use p3_baby_bear::BabyBear;
-use p3_field::{AbstractField, PrimeField32};
+use p3_field::{PrimeCharacteristicRing, PrimeField32};
 use p3_matrix::{dense::RowMajorMatrix, Matrix};
 use sp1_core_machine::utils::pad_rows_fixed;
 use sp1_derive::AlignedBorrow;
@@ -95,7 +95,7 @@ impl<F: PrimeField32> MachineAir<F> for PublicValuesChip {
         // values hash.
         for instr in commit_pv_hash_instrs.iter().take(1) {
             for i in 0..DIGEST_SIZE {
-                let mut row = [BabyBear::zero(); NUM_PUBLIC_VALUES_PREPROCESSED_COLS];
+                let mut row = [BabyBear::ZERO; NUM_PUBLIC_VALUES_PREPROCESSED_COLS];
                 let cols: &mut PublicValuesPreprocessedCols<BabyBear> =
                     row.as_mut_slice().borrow_mut();
                 unsafe {
@@ -109,7 +109,7 @@ impl<F: PrimeField32> MachineAir<F> for PublicValuesChip {
         // gpu code breaks for small traces
         pad_rows_fixed(
             &mut rows,
-            || [BabyBear::zero(); NUM_PUBLIC_VALUES_PREPROCESSED_COLS],
+            || [BabyBear::ZERO; NUM_PUBLIC_VALUES_PREPROCESSED_COLS],
             Some(PUB_VALUES_LOG_HEIGHT),
         );
 
@@ -150,7 +150,7 @@ impl<F: PrimeField32> MachineAir<F> for PublicValuesChip {
                 )
             };
             for i in 0..DIGEST_SIZE {
-                let mut row = [BabyBear::zero(); NUM_PUBLIC_VALUES_COLS];
+                let mut row = [BabyBear::ZERO; NUM_PUBLIC_VALUES_COLS];
                 let cols: &mut PublicValuesCols<BabyBear> = row.as_mut_slice().borrow_mut();
                 unsafe {
                     crate::sys::public_values_event_to_row_babybear(bb_event, i, cols);
@@ -162,7 +162,7 @@ impl<F: PrimeField32> MachineAir<F> for PublicValuesChip {
         // Pad the trace to 8 rows.
         pad_rows_fixed(
             &mut rows,
-            || [BabyBear::zero(); NUM_PUBLIC_VALUES_COLS],
+            || [BabyBear::ZERO; NUM_PUBLIC_VALUES_COLS],
             Some(PUB_VALUES_LOG_HEIGHT),
         );
 
@@ -188,10 +188,10 @@ where
 {
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
-        let local = main.row_slice(0);
+        let local = main.row_slice(0).unwrap();
         let local: &PublicValuesCols<AB::Var> = (*local).borrow();
         let prepr = builder.preprocessed();
-        let local_prepr = prepr.row_slice(0);
+        let local_prepr = prepr.row_slice(0).unwrap();
         let local_prepr: &PublicValuesPreprocessedCols<AB::Var> = (*local_prepr).borrow();
         let pv = builder.public_values();
         let pv_elms: [AB::Expr; RECURSIVE_PROOF_NUM_PV_ELTS] =
@@ -229,7 +229,7 @@ mod tests {
         Instruction, MemAccessKind, RecursionProgram, DIGEST_SIZE,
     };
     use p3_baby_bear::BabyBear;
-    use p3_field::AbstractField;
+    use p3_field::PrimeCharacteristicRing;
     use p3_matrix::{dense::RowMajorMatrix, Matrix};
     use rand::{rngs::StdRng, Rng, SeedableRng};
     use sp1_core_machine::utils::{pad_rows_fixed, setup_logger};
@@ -246,7 +246,7 @@ mod tests {
         type F = <SC as StarkGenericConfig>::Val;
 
         let mut rng = StdRng::seed_from_u64(0xDEADBEEF);
-        let mut random_felt = move || -> F { F::from_canonical_u32(rng.gen_range(0..1 << 16)) };
+        let mut random_felt = move || -> F { F::from_u32(rng.gen_range(0..1 << 16)) };
         let random_pv_elms: [F; RECURSIVE_PROOF_NUM_PV_ELTS] = array::from_fn(|_| random_felt());
         let public_values_a: [u32; RECURSIVE_PROOF_NUM_PV_ELTS] = array::from_fn(|i| i as u32);
 
@@ -294,7 +294,7 @@ mod tests {
         // values hash.
         for event in input.commit_pv_hash_events.iter().take(1) {
             for element in event.public_values.digest.iter() {
-                let mut row = [F::zero(); NUM_PUBLIC_VALUES_COLS];
+                let mut row = [F::ZERO; NUM_PUBLIC_VALUES_COLS];
                 let cols: &mut PublicValuesCols<F> = row.as_mut_slice().borrow_mut();
 
                 cols.pv_element = *element;
@@ -305,7 +305,7 @@ mod tests {
         // Pad the trace to 8 rows.
         pad_rows_fixed(
             &mut rows,
-            || [F::zero(); NUM_PUBLIC_VALUES_COLS],
+            || [F::ZERO; NUM_PUBLIC_VALUES_COLS],
             Some(PUB_VALUES_LOG_HEIGHT),
         );
 
@@ -346,10 +346,10 @@ mod tests {
         // We only take 1 commit pv hash instruction
         for instr in commit_pv_hash_instrs.iter().take(1) {
             for (i, addr) in instr.pv_addrs.digest.iter().enumerate() {
-                let mut row = [F::zero(); NUM_PUBLIC_VALUES_PREPROCESSED_COLS];
+                let mut row = [F::ZERO; NUM_PUBLIC_VALUES_PREPROCESSED_COLS];
                 let cols: &mut PublicValuesPreprocessedCols<F> = row.as_mut_slice().borrow_mut();
-                cols.pv_idx[i] = F::one();
-                cols.pv_mem = MemoryAccessCols { addr: *addr, mult: F::neg_one() };
+                cols.pv_idx[i] = F::ONE;
+                cols.pv_mem = MemoryAccessCols { addr: *addr, mult: F::NEG_ONE };
                 rows.push(row);
             }
         }
@@ -357,7 +357,7 @@ mod tests {
         // Pad the preprocessed rows to 8 rows
         pad_rows_fixed(
             &mut rows,
-            || [F::zero(); NUM_PUBLIC_VALUES_PREPROCESSED_COLS],
+            || [F::ZERO; NUM_PUBLIC_VALUES_PREPROCESSED_COLS],
             Some(PUB_VALUES_LOG_HEIGHT),
         );
 

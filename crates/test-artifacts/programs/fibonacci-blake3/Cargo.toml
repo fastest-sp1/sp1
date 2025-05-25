@@ -4,7 +4,7 @@
 [package]
 name = "fibonacci-blake3-test"
 version = "1.1.0"
-edition = "2021"
+edition = "2024"
 publish = false
 
 [dependencies]

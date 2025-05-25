@@ -1,7 +1,7 @@
 use std::array;
 
 use p3_air::AirBuilder;
-use p3_field::{AbstractField, Field};
+use p3_field::{PrimeCharacteristicRing, Field};
 use sp1_derive::AlignedBorrow;
 use sp1_stark::air::SP1AirBuilder;
 
@@ -23,7 +23,7 @@ pub struct BabyBearBitDecomposition<T> {
 
 impl<F: Field> BabyBearBitDecomposition<F> {
     pub fn populate(&mut self, value: u32) {
-        self.bits = array::from_fn(|i| F::from_canonical_u32((value >> i) & 1));
+        self.bits = array::from_fn(|i| F::from_u32((value >> i) & 1));
         let most_sig_byte_decomp = &self.bits[24..32];
         self.and_most_sig_byte_decomp_3_to_5 = most_sig_byte_decomp[3] * most_sig_byte_decomp[4];
         self.and_most_sig_byte_decomp_3_to_6 =
@@ -38,11 +38,11 @@ impl<F: Field> BabyBearBitDecomposition<F> {
         cols: BabyBearBitDecomposition<AB::Var>,
         is_real: AB::Expr,
     ) {
-        let mut reconstructed_value = AB::Expr::zero();
+        let mut reconstructed_value = AB::Expr::ZERO;
         for (i, bit) in cols.bits.iter().enumerate() {
             builder.when(is_real.clone()).assert_bool(*bit);
             reconstructed_value =
-                reconstructed_value.clone() + AB::Expr::from_wrapped_u32(1 << i) * *bit;
+                reconstructed_value.clone() + AB::Expr::from_u32(1 << i) * *bit;
         }
 
         // Assert that bits2num(bits) == value.
@@ -73,7 +73,7 @@ impl<F: Field> BabyBearBitDecomposition<F> {
         );
 
         // If the top bits are all 0, then the lower bits must all be 0.
-        let mut lower_bits_sum: AB::Expr = AB::Expr::zero();
+        let mut lower_bits_sum: AB::Expr = AB::Expr::ZERO;
         for bit in cols.bits[0..27].iter() {
             lower_bits_sum = lower_bits_sum + *bit;
         }

@@ -1,13 +1,13 @@
 use std::marker::PhantomData;
 
-use p3_baby_bear::{MONTY_INVERSE, POSEIDON2_INTERNAL_MATRIX_DIAG_16_BABYBEAR_MONTY};
-use p3_field::{AbstractField, PrimeField32};
+use p3_baby_bear::INTERNAL_DIAG_MONTY_16;
+use p3_field::{PrimeCharacteristicRing, PrimeField32};
 
 pub mod air;
 pub mod columns;
 pub mod trace;
 
-use p3_poseidon2::matmul_internal;
+use p3_poseidon2::matmul_internal_sp1;
 
 /// The width of the permutation.
 pub const WIDTH: usize = 16;
@@ -30,7 +30,7 @@ impl<const DEGREE: usize> Default for Poseidon2SkinnyChip<DEGREE> {
 }
 pub fn apply_m_4<AF>(x: &mut [AF])
 where
-    AF: AbstractField,
+    AF: PrimeCharacteristicRing,
 {
     let t01 = x[0].clone() + x[1].clone();
     let t23 = x[2].clone() + x[3].clone();
@@ -44,7 +44,7 @@ where
     x[2] = t01233 + t23; // x[0] + x[1] + 2*x[2] + 3*x[3]
 }
 
-pub(crate) fn external_linear_layer<AF: AbstractField>(state: &mut [AF; WIDTH]) {
+pub(crate) fn external_linear_layer<AF: PrimeCharacteristicRing>(state: &mut [AF; WIDTH]) {
     for j in (0..WIDTH).step_by(4) {
         apply_m_4(&mut state[j..j + 4]);
     }
@@ -56,18 +56,19 @@ pub(crate) fn external_linear_layer<AF: AbstractField>(state: &mut [AF; WIDTH]) 
     }
 }
 
-pub(crate) fn internal_linear_layer<F: AbstractField>(state: &mut [F; WIDTH]) {
-    let matmul_constants: [<F as AbstractField>::F; WIDTH] =
-        POSEIDON2_INTERNAL_MATRIX_DIAG_16_BABYBEAR_MONTY
+pub(crate) fn internal_linear_layer<F: PrimeCharacteristicRing>(state: &mut [F; WIDTH]) {
+    let matmul_constants: [F; WIDTH] =
+        INTERNAL_DIAG_MONTY_16
             .iter()
-            .map(|x| <F as AbstractField>::F::from_wrapped_u32(x.as_canonical_u32()))
+            .map(|x| F::from_u32(x.as_canonical_u32()))
             .collect::<Vec<_>>()
             .try_into()
             .unwrap();
-    matmul_internal(state, matmul_constants);
-    let monty_inverse = F::from_wrapped_u32(MONTY_INVERSE.as_canonical_u32());
-    state.iter_mut().for_each(|i| *i = i.clone() * monty_inverse.clone());
+    matmul_internal_sp1(state, matmul_constants);
+    //let monty_inverse = F::from_u32(MONTY_INVERSE.as_canonical_u32());
+    //state.iter_mut().for_each(|i| *i = i.clone() * monty_inverse.clone());
 }
+
 
 #[cfg(test)]
 pub(crate) mod tests {
@@ -78,8 +79,8 @@ pub(crate) mod tests {
         linear_program, machine::RecursionAir, runtime::instruction as instr, MemAccessKind,
         Runtime,
     };
-    use p3_baby_bear::{BabyBear, DiffusionMatrixBabyBear};
-    use p3_field::{AbstractField, PrimeField32};
+    use p3_baby_bear::BabyBear;
+    use p3_field::{PrimeCharacteristicRing, PrimeField32};
     use p3_symmetric::Permutation;
 
     use crate::stark::BabyBearPoseidon2Outer;
@@ -99,7 +100,7 @@ pub(crate) mod tests {
 
         let input = [1; WIDTH];
         let output = inner_perm()
-            .permute(input.map(BabyBear::from_canonical_u32))
+            .permute(input.map(BabyBear::from_u32))
             .map(|x| BabyBear::as_canonical_u32(&x));
 
         let rng = &mut rand::thread_rng();
@@ -133,7 +134,7 @@ pub(crate) mod tests {
                 .collect::<Vec<_>>();
 
         let program = Arc::new(linear_program(instructions).unwrap());
-        let mut runtime = Runtime::<F, EF, DiffusionMatrixBabyBear>::new(
+        let mut runtime = Runtime::<F, EF>::new(
             program.clone(),
             BabyBearPoseidon2::new().perm,
         );

@@ -1,7 +1,7 @@
 pub mod opcodes;
 
 use core::fmt::Debug;
-use p3_field::{AbstractExtensionField, PrimeField};
+use p3_field::{BasedVectorSpace, PrimeField};
 use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
 
@@ -58,7 +58,7 @@ impl<C: Config + Debug> ConstraintCompiler<C> {
             args: vec![
                 vec![tmp_id.clone()],
                 value
-                    .as_base_slice()
+                    .as_basis_coefficients_slice()
                     .iter()
                     .map(|x| x.as_canonical_biguint().to_string())
                     .collect(),
@@ -82,7 +82,7 @@ impl<C: Config + Debug> ConstraintCompiler<C> {
                     opcode: ConstraintOpcode::ImmE,
                     args: vec![
                         vec![a.id()],
-                        b.as_base_slice()
+                        b.as_basis_coefficients_slice()
                             .iter()
                             .map(|x| x.as_canonical_biguint().to_string())
                             .collect(),

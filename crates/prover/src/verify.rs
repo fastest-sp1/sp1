@@ -3,7 +3,7 @@ use std::{borrow::Borrow, path::Path, str::FromStr};
 use anyhow::Result;
 use num_bigint::BigUint;
 use p3_baby_bear::BabyBear;
-use p3_field::{AbstractField, PrimeField};
+use p3_field::{PrimeCharacteristicRing, PrimeField};
 use sp1_core_executor::{subproof::SubproofVerifier, SP1ReduceProof};
 use sp1_core_machine::cpu::MAX_CPU_LOG_DEGREE;
 use sp1_primitives::{
@@ -89,11 +89,11 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
         //
         // Transition:
         // - Shard should increment by one for each shard.
-        let mut current_shard = BabyBear::zero();
+        let mut current_shard = BabyBear::ZERO;
         for shard_proof in proof.0.iter() {
             let public_values: &PublicValues<Word<_>, _> =
                 shard_proof.public_values.as_slice().borrow();
-            current_shard += BabyBear::one();
+            current_shard += BabyBear::ONE;
             if public_values.shard != current_shard {
                 return Err(MachineVerificationError::InvalidPublicValues(
                     "shard index should be the previous shard index + 1 and start at 1",
@@ -110,12 +110,12 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
         // - Execution shard should increment by one for each shard with "CPU".
         // - Execution shard should stay the same for non-CPU shards.
         // - For the other shards, execution shard does not matter.
-        let mut current_execution_shard = BabyBear::zero();
+        let mut current_execution_shard = BabyBear::ZERO;
         for shard_proof in proof.0.iter() {
             let public_values: &PublicValues<Word<_>, _> =
                 shard_proof.public_values.as_slice().borrow();
             if shard_proof.contains_cpu() {
-                current_execution_shard += BabyBear::one();
+                current_execution_shard += BabyBear::ONE;
                 if public_values.execution_shard != current_execution_shard {
                     return Err(MachineVerificationError::InvalidPublicValues(
                         "execution shard index should be the previous execution shard index + 1 if cpu exists and start at 1",
@@ -136,7 +136,7 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
         //
         // Finalization:
         // - `next_pc` should equal zero.
-        let mut prev_next_pc = BabyBear::zero();
+        let mut prev_next_pc = BabyBear::ZERO;
         for (i, shard_proof) in proof.0.iter().enumerate() {
             let public_values: &PublicValues<Word<_>, _> =
                 shard_proof.public_values.as_slice().borrow();
@@ -153,11 +153,11 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
                 return Err(MachineVerificationError::InvalidPublicValues(
                     "start_pc != next_pc: start_pc should equal next_pc for non-cpu shards",
                 ));
-            } else if shard_proof.contains_cpu() && public_values.start_pc == BabyBear::zero() {
+            } else if shard_proof.contains_cpu() && public_values.start_pc == BabyBear::ZERO {
                 return Err(MachineVerificationError::InvalidPublicValues(
                     "start_pc == 0: execution should never start at halted state",
                 ));
-            } else if i == proof.0.len() - 1 && public_values.next_pc != BabyBear::zero() {
+            } else if i == proof.0.len() - 1 && public_values.next_pc != BabyBear::ZERO {
                 return Err(MachineVerificationError::InvalidPublicValues(
                     "next_pc != 0: execution should have halted",
                 ));
@@ -171,7 +171,7 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
         for shard_proof in proof.0.iter() {
             let public_values: &PublicValues<Word<_>, _> =
                 shard_proof.public_values.as_slice().borrow();
-            if public_values.exit_code != BabyBear::zero() {
+            if public_values.exit_code != BabyBear::ZERO {
                 return Err(MachineVerificationError::InvalidPublicValues(
                     "exit_code != 0: exit code should be zero for all shards",
                 ));
@@ -193,8 +193,8 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
         //   `last_init_addr_bits`.
         // - For shards without "MemoryFinalize", `previous_finalize_addr_bits` should equal
         //   `last_finalize_addr_bits`.
-        let mut last_init_addr_bits_prev = [BabyBear::zero(); 32];
-        let mut last_finalize_addr_bits_prev = [BabyBear::zero(); 32];
+        let mut last_init_addr_bits_prev = [BabyBear::ZERO; 32];
+        let mut last_finalize_addr_bits_prev = [BabyBear::ZERO; 32];
         for shard_proof in proof.0.iter() {
             let public_values: &PublicValues<Word<_>, _> =
                 shard_proof.public_values.as_slice().borrow();
@@ -244,8 +244,8 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
         //   the
         //  previous shard.
         let zero_committed_value_digest =
-            [Word([BabyBear::zero(); WORD_SIZE]); PV_DIGEST_NUM_WORDS];
-        let zero_deferred_proofs_digest = [BabyBear::zero(); POSEIDON_NUM_WORDS];
+            [Word([BabyBear::ZERO; WORD_SIZE]); PV_DIGEST_NUM_WORDS];
+        let zero_deferred_proofs_digest = [BabyBear::ZERO; POSEIDON_NUM_WORDS];
         let mut committed_value_digest_prev = zero_committed_value_digest;
         let mut deferred_proofs_digest_prev = zero_deferred_proofs_digest;
         for shard_proof in proof.0.iter() {
@@ -286,7 +286,7 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
         }
 
         // Verify the shard proof.
-        let mut challenger = self.core_prover.config().challenger();
+        let mut challenger = self.core_prover.config().initialise_challenger();
         let machine_proof = MachineProof { shard_proofs: proof.0.to_vec() };
         self.core_prover.machine().verify(&vk.vk, &machine_proof, &mut challenger)?;
 
@@ -300,7 +300,7 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
         vk: &SP1VerifyingKey,
     ) -> Result<(), MachineVerificationError<CoreSC>> {
         let SP1ReduceProof { vk: compress_vk, proof } = proof;
-        let mut challenger = self.compress_prover.config().challenger();
+        let mut challenger = self.compress_prover.config().initialise_challenger();
         let machine_proof = MachineProof { shard_proofs: vec![proof.clone()] };
         self.compress_prover.machine().verify(compress_vk, &machine_proof, &mut challenger)?;
 
@@ -318,7 +318,7 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
 
         // `is_complete` should be 1. In the reduce program, this ensures that the proof is fully
         // reduced.
-        if public_values.is_complete != BabyBear::one() {
+        if public_values.is_complete != BabyBear::ONE {
             return Err(MachineVerificationError::InvalidPublicValues("is_complete is not 1"));
         }
 
@@ -337,7 +337,7 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
         proof: &SP1ReduceProof<BabyBearPoseidon2>,
         vk: &SP1VerifyingKey,
     ) -> Result<(), MachineVerificationError<CoreSC>> {
-        let mut challenger = self.shrink_prover.config().challenger();
+        let mut challenger = self.shrink_prover.config().initialise_challenger();
         let machine_proof = MachineProof { shard_proofs: vec![proof.proof.clone()] };
         self.shrink_prover.machine().verify(&proof.vk, &machine_proof, &mut challenger)?;
 
@@ -355,7 +355,7 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
 
         // `is_complete` should be 1. In the reduce program, this ensures that the proof is fully
         // reduced.
-        if public_values.is_complete != BabyBear::one() {
+        if public_values.is_complete != BabyBear::ONE {
             return Err(MachineVerificationError::InvalidPublicValues("is_complete is not 1"));
         }
 
@@ -374,7 +374,7 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
         proof: &SP1ReduceProof<BabyBearPoseidon2Outer>,
         vk: &SP1VerifyingKey,
     ) -> Result<(), MachineVerificationError<OuterSC>> {
-        let mut challenger = self.wrap_prover.config().challenger();
+        let mut challenger = self.wrap_prover.config().initialise_challenger();
         let machine_proof = MachineProof { shard_proofs: vec![proof.proof.clone()] };
 
         let wrap_vk = self.wrap_vk.get().expect("Wrap verifier key not set");

@@ -4,7 +4,7 @@ use crate::air::SP1AirBuilder;
 use arrayref::array_ref;
 use itertools::Itertools;
 use p3_air::AirBuilder;
-use p3_field::{AbstractField, Field};
+use p3_field::{PrimeCharacteristicRing, Field};
 use serde::{Deserialize, Serialize};
 use sp1_derive::AlignedBorrow;
 use sp1_primitives::consts::WORD_SIZE;
@@ -31,20 +31,20 @@ impl<T> Word<T> {
 
     /// Extends a variable to a word.
     pub fn extend_var<AB: SP1AirBuilder<Var = T>>(var: T) -> Word<AB::Expr> {
-        Word([AB::Expr::zero() + var, AB::Expr::zero(), AB::Expr::zero(), AB::Expr::zero()])
+        Word([AB::Expr::ZERO + var, AB::Expr::ZERO, AB::Expr::ZERO, AB::Expr::ZERO])
     }
 }
 
-impl<T: AbstractField> Word<T> {
+impl<T: PrimeCharacteristicRing> Word<T> {
     /// Extends a variable to a word.
     pub fn extend_expr<AB: SP1AirBuilder<Expr = T>>(expr: T) -> Word<AB::Expr> {
-        Word([AB::Expr::zero() + expr, AB::Expr::zero(), AB::Expr::zero(), AB::Expr::zero()])
+        Word([AB::Expr::ZERO + expr, AB::Expr::ZERO, AB::Expr::ZERO, AB::Expr::ZERO])
     }
 
     /// Returns a word with all zero expressions.
     #[must_use]
     pub fn zero<AB: SP1AirBuilder<Expr = T>>() -> Word<T> {
-        Word([AB::Expr::zero(), AB::Expr::zero(), AB::Expr::zero(), AB::Expr::zero()])
+        Word([AB::Expr::ZERO, AB::Expr::ZERO, AB::Expr::ZERO, AB::Expr::ZERO])
     }
 }
 
@@ -58,7 +58,7 @@ impl<F: Field> Word<F> {
 impl<V: Copy> Word<V> {
     /// Reduces a word to a single variable.
     pub fn reduce<AB: AirBuilder<Var = V>>(&self) -> AB::Expr {
-        let base = [1, 1 << 8, 1 << 16, 1 << 24].map(AB::Expr::from_canonical_u32);
+        let base = [1, 1 << 8, 1 << 16, 1 << 24].map(AB::Expr::from_u32);
         self.0.iter().enumerate().map(|(i, x)| base[i].clone() * *x).sum()
     }
 }
@@ -77,9 +77,9 @@ impl<T> IndexMut<usize> for Word<T> {
     }
 }
 
-impl<F: AbstractField> From<u32> for Word<F> {
+impl<F: PrimeCharacteristicRing> From<u32> for Word<F> {
     fn from(value: u32) -> Self {
-        Word(value.to_le_bytes().map(F::from_canonical_u8))
+        Word(value.to_le_bytes().map(F::from_u8))
     }
 }
 

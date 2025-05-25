@@ -8,7 +8,7 @@ use core::borrow::Borrow;
 use itertools::Itertools;
 use p3_air::{Air, AirBuilder, BaseAir, PairBuilder};
 use p3_baby_bear::BabyBear;
-use p3_field::{AbstractField, PrimeField32};
+use p3_field::{PrimeCharacteristicRing, PrimeField32};
 use p3_matrix::{dense::RowMajorMatrix, Matrix};
 use sp1_core_machine::utils::{next_power_of_two, pad_rows_fixed};
 use sp1_derive::AlignedBorrow;
@@ -93,8 +93,8 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for BatchFRIChip<DEGREE
             let BatchFRIInstr { base_vec_addrs: _, ext_single_addrs: _, ext_vec_addrs, acc_mult } =
                 instruction.as_ref();
             let len: usize = ext_vec_addrs.p_at_z.len();
-            let mut row_add = vec![[BabyBear::zero(); NUM_BATCH_FRI_PREPROCESSED_COLS]; len];
-            debug_assert_eq!(*acc_mult, BabyBear::one());
+            let mut row_add = vec![[BabyBear::ZERO; NUM_BATCH_FRI_PREPROCESSED_COLS]; len];
+            debug_assert_eq!(*acc_mult, BabyBear::ONE);
 
             row_add.iter_mut().enumerate().for_each(|(i, row)| {
                 let cols: &mut BatchFRIPreprocessedCols<BabyBear> = row.as_mut_slice().borrow_mut();
@@ -108,7 +108,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for BatchFRIChip<DEGREE
         // Pad the trace to a power of two.
         pad_rows_fixed(
             &mut rows,
-            || [BabyBear::zero(); NUM_BATCH_FRI_PREPROCESSED_COLS],
+            || [BabyBear::ZERO; NUM_BATCH_FRI_PREPROCESSED_COLS],
             program.fixed_log2_rows(self),
         );
 
@@ -147,7 +147,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for BatchFRIChip<DEGREE
                 let bb_event = unsafe {
                     std::mem::transmute::<&BatchFRIEvent<F>, &BatchFRIEvent<BabyBear>>(event)
                 };
-                let mut row = [BabyBear::zero(); NUM_BATCH_FRI_COLS];
+                let mut row = [BabyBear::ZERO; NUM_BATCH_FRI_COLS];
                 let cols: &mut BatchFRICols<BabyBear> = row.as_mut_slice().borrow_mut();
                 cols.acc = bb_event.ext_single.acc;
                 cols.alpha_pow = bb_event.ext_vec.alpha_pow;
@@ -158,7 +158,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for BatchFRIChip<DEGREE
             .collect_vec();
 
         // Pad the trace to a power of two.
-        rows.resize(self.num_rows(input).unwrap(), [BabyBear::zero(); NUM_BATCH_FRI_COLS]);
+        rows.resize(self.num_rows(input).unwrap(), [BabyBear::ZERO; NUM_BATCH_FRI_COLS]);
 
         // Convert the trace to a row major matrix.
         let trace = RowMajorMatrix::new(
@@ -240,11 +240,11 @@ where
 {
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
-        let (local, next) = (main.row_slice(0), main.row_slice(1));
+        let (local, next) = (main.row_slice(0).unwrap(), main.row_slice(1).unwrap());
         let local: &BatchFRICols<AB::Var> = (*local).borrow();
         let next: &BatchFRICols<AB::Var> = (*next).borrow();
         let prepr = builder.preprocessed();
-        let (prepr_local, prepr_next) = (prepr.row_slice(0), prepr.row_slice(1));
+        let (prepr_local, prepr_next) = (prepr.row_slice(0).unwrap(), prepr.row_slice(1).unwrap());
         let prepr_local: &BatchFRIPreprocessedCols<AB::Var> = (*prepr_local).borrow();
         let prepr_next: &BatchFRIPreprocessedCols<AB::Var> = (*prepr_next).borrow();
 
@@ -261,7 +261,7 @@ where
 mod tests {
     use crate::{chips::test_fixtures, Instruction, RecursionProgram};
     use p3_baby_bear::BabyBear;
-    use p3_field::AbstractField;
+    use p3_field::PrimeCharacteristicRing;
     use p3_matrix::dense::RowMajorMatrix;
 
     use super::*;
@@ -278,7 +278,7 @@ mod tests {
             .batch_fri_events
             .iter()
             .map(|event| {
-                let mut row = [F::zero(); NUM_BATCH_FRI_COLS];
+                let mut row = [F::ZERO; NUM_BATCH_FRI_COLS];
                 let cols: &mut BatchFRICols<F> = row.as_mut_slice().borrow_mut();
                 cols.acc = event.ext_single.acc;
                 cols.alpha_pow = event.ext_vec.alpha_pow;
@@ -290,7 +290,7 @@ mod tests {
 
         rows.resize(
             BatchFRIChip::<DEGREE>.num_rows(input).unwrap(),
-            [F::zero(); NUM_BATCH_FRI_COLS],
+            [F::ZERO; NUM_BATCH_FRI_COLS],
         );
 
         RowMajorMatrix::new(rows.into_iter().flatten().collect(), NUM_BATCH_FRI_COLS)
@@ -323,12 +323,12 @@ mod tests {
                 let BatchFRIInstr { base_vec_addrs, ext_single_addrs, ext_vec_addrs, acc_mult } =
                     instruction.as_ref();
                 let len = ext_vec_addrs.p_at_z.len();
-                let mut row_add = vec![[F::zero(); NUM_BATCH_FRI_PREPROCESSED_COLS]; len];
-                debug_assert_eq!(*acc_mult, F::one());
+                let mut row_add = vec![[F::ZERO; NUM_BATCH_FRI_PREPROCESSED_COLS]; len];
+                debug_assert_eq!(*acc_mult, F::ONE);
 
                 row_add.iter_mut().enumerate().for_each(|(_i, row)| {
                     let row: &mut BatchFRIPreprocessedCols<F> = row.as_mut_slice().borrow_mut();
-                    row.is_real = F::one();
+                    row.is_real = F::ONE;
                     row.is_end = F::from_bool(_i == len - 1);
                     row.acc_addr = ext_single_addrs.acc;
                     row.alpha_pow_addr = ext_vec_addrs.alpha_pow[_i];
@@ -340,7 +340,7 @@ mod tests {
 
         pad_rows_fixed(
             &mut rows,
-            || [F::zero(); NUM_BATCH_FRI_PREPROCESSED_COLS],
+            || [F::ZERO; NUM_BATCH_FRI_PREPROCESSED_COLS],
             program.fixed_log2_rows(&BatchFRIChip::<DEGREE>),
         );
 

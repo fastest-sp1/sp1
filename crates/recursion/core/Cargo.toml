@@ -65,6 +65,7 @@ smallvec = { version = "1.13.2", features = [
 sp1-stark = { workspace = true }
 sp1-primitives = { workspace = true }
 p3-baby-bear = { workspace = true }
+p3-monty-31 =  { path = "../../../../Plonky3/monty-31" }
 cbindgen = "0.27.0"
 cc = "1.1"
 pathdiff = "0.2.1"

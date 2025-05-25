@@ -3,7 +3,7 @@ use std::{borrow::Borrow, marker::PhantomData};
 use p3_air::Air;
 use p3_baby_bear::BabyBear;
 use p3_commit::Mmcs;
-use p3_field::AbstractField;
+use p3_field::PrimeCharacteristicRing;
 use p3_matrix::dense::RowMajorMatrix;
 use sp1_recursion_compiler::ir::{Builder, Felt};
 use sp1_stark::{air::MachineAir, StarkMachine};
@@ -65,7 +65,7 @@ where
         challenger.observe_slice(builder, vk.initial_global_cumulative_sum.0.x.0);
         challenger.observe_slice(builder, vk.initial_global_cumulative_sum.0.y.0);
         // Observe the padding.
-        let zero: Felt<_> = builder.eval(C::F::zero());
+        let zero: Felt<_> = builder.eval(C::F::ZERO);
         challenger.observe(builder, zero);
 
         // Observe the public values.
@@ -80,7 +80,7 @@ where
 
         // Assert the public values are of a complete proof.
         assert_complete(builder, &public_values.inner, is_complete);
-        builder.assert_felt_eq(is_complete, C::F::one());
+        builder.assert_felt_eq(is_complete, C::F::ONE);
 
         // Reflect the public values to the next level.
         SC::commit_recursion_public_values(builder, public_values.inner);

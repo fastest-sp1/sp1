@@ -103,8 +103,9 @@ mod sys {
                 "sp1-core-machine",
                 "p3-baby-bear",
                 "sp1-core-executor",
+                "p3-monty-31",
             ])
-            .with_parse_extra_bindings(&["sp1-stark", "sp1-primitives", "p3-baby-bear"])
+            .with_parse_extra_bindings(&["sp1-stark", "sp1-primitives", "p3-baby-bear", "p3-monty-31"])
             .rename_item("BabyBear", "BabyBearP3")
             .include_item("BaseAluEvent")
             .include_item("BaseAluValueCols")

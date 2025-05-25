@@ -49,7 +49,7 @@ pub trait FieldParameters:
     fn modulus_field_iter<F: Field>() -> impl Iterator<Item = F> {
         Self::MODULUS
             .iter()
-            .map(|x| F::from_canonical_u8(*x))
+            .map(|x| F::from_u8(*x))
             .take(Self::NB_LIMBS)
     }
 
@@ -64,7 +64,7 @@ pub trait FieldParameters:
     fn to_limbs_field_vec<E: From<F>, F: Field>(x: &BigUint) -> Vec<E> {
         Self::to_limbs(x)
             .into_iter()
-            .map(|x| F::from_canonical_u8(x).into())
+            .map(|x| F::from_u8(x).into())
             .collect::<Vec<_>>()
     }
 
@@ -77,7 +77,7 @@ pub trait FieldParameters:
 /// Convert a vec of F limbs to a Limbs of N length.
 pub fn limbs_from_vec<E: From<F>, N: ArrayLength, F: Field>(limbs: Vec<F>) -> Limbs<E, N> {
     debug_assert_eq!(limbs.len(), N::USIZE);
-    let mut result = GenericArray::<E, N>::generate(|_i| F::zero().into());
+    let mut result = GenericArray::<E, N>::generate(|_i| F::ZERO.into());
     for (i, limb) in limbs.into_iter().enumerate() {
         result[i] = limb.into();
     }

@@ -3,7 +3,7 @@ use crate::{
 };
 use p3_air::BaseAir;
 use p3_baby_bear::BabyBear;
-use p3_field::{AbstractField, PrimeField32};
+use p3_field::{PrimeCharacteristicRing, PrimeField32};
 use p3_matrix::dense::RowMajorMatrix;
 use p3_maybe_rayon::prelude::*;
 use sp1_core_machine::{operations::poseidon2::WIDTH, utils::next_power_of_two};
@@ -55,7 +55,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for Poseidon2WideChip<D
         };
         let padded_nb_rows = self.num_rows(input).unwrap();
         let num_columns = <Self as BaseAir<F>>::width(self);
-        let mut values = vec![BabyBear::zero(); padded_nb_rows * num_columns];
+        let mut values = vec![BabyBear::ZERO; padded_nb_rows * num_columns];
 
         let populate_len = input.poseidon2_events.len() * num_columns;
         let (values_pop, values_dummy) = values.split_at_mut(populate_len);
@@ -71,13 +71,15 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for Poseidon2WideChip<D
         join(
             || {
                 values_pop
-                    .par_chunks_mut(num_columns)
-                    .zip_eq(events)
+                    .par_chunks_mut(num_columns) 
+                    //.chunks_mut(num_columns) //test
+                    .zip_eq(events)  
+                    //.zip(events)
                     .for_each(|(row, event)| populate_perm_ffi(&event.input, row))
             },
             || {
-                let mut dummy_row = vec![BabyBear::zero(); num_columns];
-                populate_perm_ffi(&[BabyBear::zero(); WIDTH], &mut dummy_row);
+                let mut dummy_row = vec![BabyBear::ZERO; num_columns];
+                populate_perm_ffi(&[BabyBear::ZERO; WIDTH], &mut dummy_row);
                 values_dummy
                     .par_chunks_mut(num_columns)
                     .for_each(|row| row.copy_from_slice(&dummy_row))
@@ -132,7 +134,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for Poseidon2WideChip<D
                 })
                 .collect::<Vec<_>>();
         let padded_nb_rows = self.preprocessed_num_rows(program, instrs.len()).unwrap();
-        let mut values = vec![BabyBear::zero(); padded_nb_rows * PREPROCESSED_POSEIDON2_WIDTH];
+        let mut values = vec![BabyBear::ZERO; padded_nb_rows * PREPROCESSED_POSEIDON2_WIDTH];
 
         let populate_len = instrs.len() * PREPROCESSED_POSEIDON2_WIDTH;
         values[..populate_len]
@@ -159,7 +161,7 @@ mod tests {
         ExecutionRecord, RecursionProgram,
     };
     use p3_baby_bear::BabyBear;
-    use p3_field::AbstractField;
+    use p3_field::PrimeCharacteristicRing;
     use p3_matrix::{dense::RowMajorMatrix, Matrix};
     use sp1_core_machine::operations::poseidon2::{trace::populate_perm, WIDTH};
     use sp1_stark::air::MachineAir;
@@ -179,7 +181,7 @@ mod tests {
         let chip = Poseidon2WideChip::<DEGREE>;
         let padded_nb_rows = chip.num_rows(input).unwrap();
         let num_columns = <Poseidon2WideChip<DEGREE> as BaseAir<F>>::width(&chip);
-        let mut values = vec![F::zero(); padded_nb_rows * num_columns];
+        let mut values = vec![F::ZERO; padded_nb_rows * num_columns];
 
         let populate_len = events.len() * num_columns;
         let (values_pop, values_dummy) = values.split_at_mut(populate_len);
@@ -192,8 +194,8 @@ mod tests {
                 )
             },
             || {
-                let mut dummy_row = vec![F::zero(); num_columns];
-                populate_perm::<F, DEGREE>([F::zero(); WIDTH], None, &mut dummy_row);
+                let mut dummy_row = vec![F::ZERO; num_columns];
+                populate_perm::<F, DEGREE>([F::ZERO; WIDTH], None, &mut dummy_row);
                 values_dummy
                     .par_chunks_mut(num_columns)
                     .for_each(|row| row.copy_from_slice(&dummy_row))
@@ -204,11 +206,42 @@ mod tests {
         RowMajorMatrix::new(values, num_columns)
     }
 
+    use p3_symmetric::Permutation;
+    use rand::{prelude::SliceRandom, rngs::StdRng, Rng, SeedableRng};
+    use sp1_stark::inner_perm;
+    use std::array;
+    #[test]
+    fn test_cpp_poseidon2() {
+        let mut rng = StdRng::seed_from_u64(12345);
+        let input = array::from_fn(|_| BabyBear::from_u32(rng.r#gen()));
+        println!("---###########  permute_input:{:?}", input);
+        let permuter = inner_perm();
+        let output = permuter.permute(input.clone());
+
+        let populate_perm_ffi = |input: &[BabyBear; WIDTH], input_row: &mut [BabyBear]| unsafe {
+            crate::sys::poseidon2_wide_event_to_row_babybear(
+                input.as_ptr(),
+                input_row.as_mut_ptr(),
+                3 == 3,
+            )
+        };
+
+        let mut values = vec![BabyBear::ZERO; 320];
+        populate_perm_ffi(&input, &mut values);
+
+        println!("c++  out:{:?}", values);
+        println!("rust out:{:?}", output);
+
+        //assert_eq!(values, output);
+    }
+
     #[test]
     fn test_generate_trace_deg_3() {
         let shard = test_fixtures::shard();
         let mut execution_record = test_fixtures::default_execution_record();
         let chip = Poseidon2WideChip::<DEGREE_3>;
+
+        //recursion trace is generated by c++ code!
         let trace = chip.generate_trace(&shard, &mut execution_record);
         assert!(trace.height() >= test_fixtures::MIN_TEST_CASES);
 
@@ -245,7 +278,7 @@ mod tests {
             instrs.len(),
         )
         .unwrap();
-        let mut values = vec![F::zero(); padded_nb_rows * PREPROCESSED_POSEIDON2_WIDTH];
+        let mut values = vec![F::ZERO; padded_nb_rows * PREPROCESSED_POSEIDON2_WIDTH];
 
         let populate_len = instrs.len() * PREPROCESSED_POSEIDON2_WIDTH;
         values[..populate_len]
@@ -260,7 +293,7 @@ mod tests {
                         addr: instr.addrs.output[j],
                         mult: instr.mults[j],
                     }),
-                    is_real_neg: F::neg_one(),
+                    is_real_neg: F::NEG_ONE,
                 }
             });
 

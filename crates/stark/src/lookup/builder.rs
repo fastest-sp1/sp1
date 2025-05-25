@@ -46,7 +46,7 @@ impl<F: Field> InteractionBuilder<F> {
             main: RowMajorMatrix::new(main_values, main_width),
             sends: vec![],
             receives: vec![],
-            public_values: vec![F::zero(); PROOF_MAX_NUM_PVS],
+            public_values: vec![F::ZERO; PROOF_MAX_NUM_PVS],
         }
     }
 
@@ -139,9 +139,9 @@ fn eval_symbolic_to_virtual_pair<F: Field>(
         SymbolicExpression::Constant(c) => (vec![], *c),
         SymbolicExpression::Variable(v) => match v.entry {
             Entry::Preprocessed { offset: 0 } => {
-                (vec![(PairCol::Preprocessed(v.index), F::one())], F::zero())
+                (vec![(PairCol::Preprocessed(v.index), F::ONE)], F::ZERO)
             }
-            Entry::Main { offset: 0 } => (vec![(PairCol::Main(v.index), F::one())], F::zero()),
+            Entry::Main { offset: 0 } => (vec![(PairCol::Main(v.index), F::ONE)], F::ZERO),
             _ => panic!("not an affine expression in current row elements {:?}", v.entry),
         },
         SymbolicExpression::Add { x, y, .. } => {
@@ -193,7 +193,7 @@ mod tests {
 
     use p3_air::{Air, BaseAir};
     use p3_baby_bear::BabyBear;
-    use p3_field::AbstractField;
+    use p3_field::PrimeCharacteristicRing;
     use p3_matrix::Matrix;
 
     use super::*;
@@ -217,7 +217,7 @@ mod tests {
 
         let z = VirtualPairCol::new(column_weights, constant);
 
-        let expr: F = z.apply(&[], &[F::one(), F::one()]);
+        let expr: F = z.apply(&[], &[F::ONE, F::ONE]);
 
         println!("expr: {expr}");
     }
@@ -235,7 +235,7 @@ mod tests {
     impl<AB: SP1AirBuilder> Air<AB> for LookupTestAir {
         fn eval(&self, builder: &mut AB) {
             let main = builder.main();
-            let local = main.row_slice(0);
+            let local = main.row_slice(0).unwrap();
             let local: &[AB::Var] = (*local).borrow();
 
             let x = local[0];
@@ -245,7 +245,7 @@ mod tests {
             builder.send(
                 AirInteraction::new(
                     vec![x.into(), y.into()],
-                    AB::F::from_canonical_u32(3).into(),
+                    AB::F::from_u32(3).into(),
                     InteractionKind::Alu,
                 ),
                 InteractionScope::Local,
@@ -253,7 +253,7 @@ mod tests {
             builder.send(
                 AirInteraction::new(
                     vec![x + y, z.into()],
-                    AB::F::from_canonical_u32(5).into(),
+                    AB::F::from_u32(5).into(),
                     InteractionKind::Alu,
                 ),
                 InteractionScope::Local,

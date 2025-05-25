@@ -2,8 +2,10 @@
 use num_bigint::BigUint;
 use num_traits::One;
 use p3_field::{
-    AbstractExtensionField, AbstractField, ExtensionField, Field, Packable, PrimeField32,
+    BasedVectorSpace, PrimeCharacteristicRing, ExtensionField, Field, Packable, PrimeField32,
+    Algebra, field_to_array, PrimeField, RawDataSerializable,
 };
+use p3_util::{flatten_to_base, reconstitute_from_base};
 use serde::{Deserialize, Serialize};
 use std::{
     array,
@@ -13,7 +15,9 @@ use std::{
 };
 
 use crate::air::{SP1AirBuilder, SepticExtensionAirBuilder};
+use crate::packed_septic_extension::PackedSepticExtension;
 
+const D: usize = 7;
 /// A septic extension with an irreducible polynomial `z^7 - 2z - 5`.
 ///
 /// The field can be constructed as `F_{p^7} = F_p[z]/(z^7 - 2z - 5)`.
@@ -21,172 +25,128 @@ use crate::air::{SP1AirBuilder, SepticExtensionAirBuilder};
 #[repr(C)]
 pub struct SepticExtension<F>(pub [F; 7]);
 
-impl<F: AbstractField> AbstractField for SepticExtension<F> {
-    type F = SepticExtension<F::F>;
 
-    fn zero() -> Self {
-        SepticExtension([
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-        ])
+impl<F> SepticExtension<F> {
+    pub(crate) const fn new(value: [F; 7]) -> Self {
+        Self (value)
+    }
+}
+
+impl<F: PrimeCharacteristicRing> PrimeCharacteristicRing for SepticExtension<F>
+{
+    type PrimeSubfield = <F as PrimeCharacteristicRing>::PrimeSubfield;
+
+    const ZERO: Self = Self::new([F::ZERO; D]);
+
+    const ONE: Self = Self::new(field_to_array(F::ONE));
+
+    const TWO: Self = Self::new(field_to_array(F::TWO));
+
+    const NEG_ONE: Self = Self::new(field_to_array(F::NEG_ONE));
+
+    #[inline]
+    fn from_prime_subfield(f: Self::PrimeSubfield) -> Self {
+        //Self::PrimeSubfield::from_prime_subfield(f).into()
+        <F as PrimeCharacteristicRing>::from_prime_subfield(f).into()
     }
 
-    fn one() -> Self {
-        SepticExtension([
-            F::one(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-        ])
-    }
-
-    fn two() -> Self {
-        SepticExtension([
-            F::two(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-        ])
-    }
-
-    fn neg_one() -> Self {
-        SepticExtension([
-            F::neg_one(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-        ])
-    }
-
-    fn from_f(f: Self::F) -> Self {
-        SepticExtension([
-            F::from_f(f.0[0]),
-            F::from_f(f.0[1]),
-            F::from_f(f.0[2]),
-            F::from_f(f.0[3]),
-            F::from_f(f.0[4]),
-            F::from_f(f.0[5]),
-            F::from_f(f.0[6]),
-        ])
-    }
-
+    
+    #[must_use]
+    #[inline(always)]
     fn from_bool(b: bool) -> Self {
         SepticExtension([
             F::from_bool(b),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
+            F::ZERO,
+            F::ZERO,
+            F::ZERO,
+            F::ZERO,
+            F::ZERO,
+            F::ZERO,
         ])
     }
 
-    fn from_canonical_u8(n: u8) -> Self {
+    #[must_use]
+    #[inline(always)]
+    fn square(&self) -> Self {
+        self.clone() * self.clone()
+    }
+
+    
+    #[inline]
+    fn zero_vec(len: usize) -> Vec<Self> {
+        // SAFETY: this is a repr(transparent) wrapper around an array.
+        unsafe { reconstitute_from_base(F::zero_vec(len * D)) }
+    }
+
+    #[inline]
+    fn from_u8(int: u8) -> Self {
         SepticExtension([
-            F::from_canonical_u8(n),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
+            F::from_u8(int),
+            F::ZERO,
+            F::ZERO,
+            F::ZERO,
+            F::ZERO,
+            F::ZERO,
+            F::ZERO,
         ])
     }
 
-    fn from_canonical_u16(n: u16) -> Self {
+    #[inline]
+    fn from_u16(int: u16) -> Self {
         SepticExtension([
-            F::from_canonical_u16(n),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
+            F::from_u16(int),
+            F::ZERO,
+            F::ZERO,
+            F::ZERO,
+            F::ZERO,
+            F::ZERO,
+            F::ZERO,
         ])
     }
 
-    fn from_canonical_u32(n: u32) -> Self {
+    #[inline]
+    fn from_u32(int: u32) -> Self {
         SepticExtension([
-            F::from_canonical_u32(n),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
+            F::from_u32(int),
+            F::ZERO,
+            F::ZERO,
+            F::ZERO,
+            F::ZERO,
+            F::ZERO,
+            F::ZERO,
         ])
     }
 
-    fn from_canonical_u64(n: u64) -> Self {
+    #[inline]
+    fn from_u64(int: u64) -> Self {
         SepticExtension([
-            F::from_canonical_u64(n),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
+            F::from_u64(int),
+            F::ZERO,
+            F::ZERO,
+            F::ZERO,
+            F::ZERO,
+            F::ZERO,
+            F::ZERO,
         ])
     }
 
-    fn from_canonical_usize(n: usize) -> Self {
+    #[inline]
+    fn from_usize(int: usize) -> Self {
         SepticExtension([
-            F::from_canonical_usize(n),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
+            F::from_usize(int),
+            F::ZERO,
+            F::ZERO,
+            F::ZERO,
+            F::ZERO,
+            F::ZERO,
+            F::ZERO,
         ])
-    }
-
-    fn from_wrapped_u32(n: u32) -> Self {
-        SepticExtension([
-            F::from_wrapped_u32(n),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-        ])
-    }
-
-    fn from_wrapped_u64(n: u64) -> Self {
-        SepticExtension([
-            F::from_wrapped_u64(n),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-            F::zero(),
-        ])
-    }
-
-    fn generator() -> Self {
-        SepticExtension([F::two(), F::one(), F::zero(), F::zero(), F::zero(), F::zero(), F::zero()])
     }
 }
 
 impl<F: Field> Field for SepticExtension<F> {
     type Packing = Self;
+    const GENERATOR: Self = SepticExtension([F::TWO, F::ONE, F::ZERO, F::ZERO, F::ZERO, F::ZERO, F::ZERO]);
 
     fn try_inverse(&self) -> Option<Self> {
         if self.is_zero() {
@@ -198,45 +158,152 @@ impl<F: Field> Field for SepticExtension<F> {
     fn order() -> BigUint {
         F::order().pow(7)
     }
+
+    fn halve(&self) -> Self {
+        Self(self.0.map(|x| x.halve()))
+    }
 }
 
-impl<F: AbstractField> AbstractExtensionField<F> for SepticExtension<F> {
-    const D: usize = 7;
+//
+impl<F: PrimeCharacteristicRing> BasedVectorSpace<F> for SepticExtension<F> {
+    const DIMENSION: usize = 7;
 
-    fn from_base(b: F) -> Self {
-        SepticExtension([b, F::zero(), F::zero(), F::zero(), F::zero(), F::zero(), F::zero()])
+    #[inline]
+    fn as_basis_coefficients_slice(&self) -> &[F] {
+        &self.0
     }
 
-    fn from_base_slice(bs: &[F]) -> Self {
-        SepticExtension([
-            bs[0].clone(),
-            bs[1].clone(),
-            bs[2].clone(),
-            bs[3].clone(),
-            bs[4].clone(),
-            bs[5].clone(),
-            bs[6].clone(),
-        ])
+   #[must_use]
+    #[inline]
+    fn from_basis_coefficients_slice(slice: &[F]) -> Option<Self> {
+        Some(SepticExtension([
+            slice[0].clone(),
+            slice[1].clone(),
+            slice[2].clone(),
+            slice[3].clone(),
+            slice[4].clone(),
+            slice[5].clone(),
+            slice[6].clone(),
+        ]))
     }
 
-    fn from_base_fn<G: FnMut(usize) -> F>(f: G) -> Self {
+    #[inline]
+    fn from_basis_coefficients_fn<Fn: FnMut(usize) -> F>(f: Fn) -> Self {
         Self(array::from_fn(f))
     }
 
-    fn as_base_slice(&self) -> &[F] {
-        self.0.as_slice()
+    #[inline]
+    fn from_basis_coefficients_iter<I: Iterator<Item = F>>(iter: I) -> Option<Self> {
+        let mut res = Self::default();
+        for (i, b) in iter.enumerate() {
+            res.0[i] = b;
+        }
+        Some(res)
+    }
+
+
+    #[inline]
+    fn flatten_to_base(vec: Vec<Self>) -> Vec<F> {
+        unsafe {
+            // Safety:
+            // As `Self` is a `repr(transparent)`, it is stored identically in memory to `[A; D]`
+            flatten_to_base::<F, Self>(vec)
+        }
+    }
+
+    #[inline]
+    fn reconstitute_from_base(vec: Vec<F>) -> Vec<Self> {
+        unsafe {
+            // Safety:
+            // As `Self` is a `repr(transparent)`, it is stored identically in memory to `[A; D]`
+            reconstitute_from_base::<F, Self>(vec)
+        }
     }
 }
 
-impl<F: Field> ExtensionField<F> for SepticExtension<F> {
-    type ExtensionPacking = SepticExtension<F::Packing>;
+impl<F: PrimeField + Field> ExtensionField<F> for SepticExtension<F>
+{
+    type ExtensionPacking = PackedSepticExtension<F, F::Packing>;
+
+    #[inline]
+    fn is_in_basefield(&self) -> bool {
+        self.0[1..].iter().all(F::is_zero)
+    }
+
+    #[inline]
+    fn as_base(&self) -> Option<F> {
+        <Self as ExtensionField<F>>::is_in_basefield(self).then(|| self.0[0])
+    }
 }
+
+
+impl<F: PrimeCharacteristicRing> Algebra<F> for SepticExtension<F> {}
+
+impl<F: Field> RawDataSerializable for SepticExtension<F>
+{
+    const NUM_BYTES: usize = F::NUM_BYTES * D;
+
+    #[inline]
+    fn into_bytes(self) -> impl IntoIterator<Item = u8> {
+        self.0.into_iter().flat_map(|x| x.into_bytes())
+    }
+
+    #[inline]
+    fn into_byte_stream(input: impl IntoIterator<Item = Self>) -> impl IntoIterator<Item = u8> {
+        F::into_byte_stream(input.into_iter().flat_map(|x| x.0))
+    }
+
+    #[inline]
+    fn into_u32_stream(input: impl IntoIterator<Item = Self>) -> impl IntoIterator<Item = u32> {
+        F::into_u32_stream(input.into_iter().flat_map(|x| x.0))
+    }
+
+    #[inline]
+    fn into_u64_stream(input: impl IntoIterator<Item = Self>) -> impl IntoIterator<Item = u64> {
+        F::into_u64_stream(input.into_iter().flat_map(|x| x.0))
+    }
+
+    #[inline]
+    fn into_parallel_byte_streams<const N: usize>(
+        input: impl IntoIterator<Item = [Self; N]>,
+    ) -> impl IntoIterator<Item = [u8; N]> {
+        F::into_parallel_byte_streams(
+            input
+                .into_iter()
+                .flat_map(|x| (0..D).map(move |i| array::from_fn(|j| x[j].0[i]))),
+        )
+    }
+
+    #[inline]
+    fn into_parallel_u32_streams<const N: usize>(
+        input: impl IntoIterator<Item = [Self; N]>,
+    ) -> impl IntoIterator<Item = [u32; N]> {
+        F::into_parallel_u32_streams(
+            input
+                .into_iter()
+                .flat_map(|x| (0..D).map(move |i| array::from_fn(|j| x[j].0[i]))),
+        )
+    }
+
+    #[inline]
+    fn into_parallel_u64_streams<const N: usize>(
+        input: impl IntoIterator<Item = [Self; N]>,
+    ) -> impl IntoIterator<Item = [u64; N]> {
+        F::into_parallel_u64_streams(
+            input
+                .into_iter()
+                .flat_map(|x| (0..D).map(move |i| array::from_fn(|j| x[j].0[i]))),
+        )
+    }
+}
+
 
 impl<F: Field> Packable for SepticExtension<F> {}
 
-impl<F: AbstractField> Add for SepticExtension<F> {
+impl<F: PrimeCharacteristicRing> Add for SepticExtension<F> {
     type Output = Self;
 
+   #[inline]
     fn add(self, rhs: Self) -> Self::Output {
         let mut res = self.0;
         for (r, rhs_val) in res.iter_mut().zip(rhs.0) {
@@ -246,7 +313,8 @@ impl<F: AbstractField> Add for SepticExtension<F> {
     }
 }
 
-impl<F: AbstractField> AddAssign for SepticExtension<F> {
+impl<F: PrimeCharacteristicRing> AddAssign for SepticExtension<F> {
+    #[inline]
     fn add_assign(&mut self, rhs: Self) {
         self.0[0] += rhs.0[0].clone();
         self.0[1] += rhs.0[1].clone();
@@ -258,9 +326,10 @@ impl<F: AbstractField> AddAssign for SepticExtension<F> {
     }
 }
 
-impl<F: AbstractField> Sub for SepticExtension<F> {
+impl<F: PrimeCharacteristicRing> Sub for SepticExtension<F> {
     type Output = Self;
 
+   #[inline]
     fn sub(self, rhs: Self) -> Self::Output {
         let mut res = self.0;
         for (r, rhs_val) in res.iter_mut().zip(rhs.0) {
@@ -270,22 +339,20 @@ impl<F: AbstractField> Sub for SepticExtension<F> {
     }
 }
 
-impl<F: AbstractField> SubAssign for SepticExtension<F> {
+impl<F: PrimeCharacteristicRing> SubAssign for SepticExtension<F> {
+    #[inline]
     fn sub_assign(&mut self, rhs: Self) {
-        self.0[0] -= rhs.0[0].clone();
-        self.0[1] -= rhs.0[1].clone();
-        self.0[2] -= rhs.0[2].clone();
-        self.0[3] -= rhs.0[3].clone();
-        self.0[4] -= rhs.0[4].clone();
-        self.0[5] -= rhs.0[5].clone();
-        self.0[6] -= rhs.0[6].clone();
+        for i in 0..D {
+            self.0[i] -= rhs.0[i].clone();
+        }
     }
 }
 
-impl<F: AbstractField> Neg for SepticExtension<F> {
+impl<F: PrimeCharacteristicRing> Neg for SepticExtension<F> {
     type Output = Self;
 
-    fn neg(self) -> Self::Output {
+    #[inline]
+    fn neg(self) -> Self {
         let mut res = self.0;
         for r in res.iter_mut() {
             *r = -r.clone();
@@ -294,11 +361,12 @@ impl<F: AbstractField> Neg for SepticExtension<F> {
     }
 }
 
-impl<F: AbstractField> Mul for SepticExtension<F> {
+impl<F: PrimeCharacteristicRing> Mul for SepticExtension<F> {
     type Output = Self;
 
+	#[inline]
     fn mul(self, rhs: Self) -> Self::Output {
-        let mut res: [F; 13] = core::array::from_fn(|_| F::zero());
+        let mut res: [F; 13] = core::array::from_fn(|_| F::ZERO);
         for i in 0..7 {
             for j in 0..7 {
                 res[i + j] = res[i + j].clone() + self.0[i].clone() * rhs.0[j].clone();
@@ -306,43 +374,44 @@ impl<F: AbstractField> Mul for SepticExtension<F> {
         }
         let mut ret: [F; 7] = core::array::from_fn(|i| res[i].clone());
         for i in 7..13 {
-            ret[i - 7] = ret[i - 7].clone() + res[i].clone() * F::from_canonical_u32(5);
-            ret[i - 6] = ret[i - 6].clone() + res[i].clone() * F::from_canonical_u32(2);
+            ret[i - 7] = ret[i - 7].clone() + res[i].clone() * F::from_u32(5);
+            ret[i - 6] = ret[i - 6].clone() + res[i].clone() * F::from_u32(2);
         }
         Self(ret)
     }
 }
 
-impl<F: AbstractField> MulAssign for SepticExtension<F> {
+impl<F: PrimeCharacteristicRing> MulAssign for SepticExtension<F> {
+	#[inline]
     fn mul_assign(&mut self, rhs: Self) {
         let res = self.clone() * rhs;
         *self = res;
     }
 }
 
-impl<F: AbstractField> Product for SepticExtension<F> {
+impl<F: PrimeCharacteristicRing> Product for SepticExtension<F> {
     fn product<I: Iterator<Item = Self>>(iter: I) -> Self {
-        let one = Self::one();
+        let one = Self::ONE;
         iter.fold(one, |acc, x| acc * x)
     }
 }
 
-impl<F: AbstractField> Sum for SepticExtension<F> {
+impl<F: PrimeCharacteristicRing> Sum for SepticExtension<F> {
     fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
-        let zero = Self::zero();
+        let zero = Self::ZERO;
         iter.fold(zero, |acc, x| acc + x)
     }
 }
 
-impl<F: AbstractField> From<F> for SepticExtension<F> {
+impl<F: PrimeCharacteristicRing> From<F> for SepticExtension<F> {
     fn from(f: F) -> Self {
-        SepticExtension([f, F::zero(), F::zero(), F::zero(), F::zero(), F::zero(), F::zero()])
+        SepticExtension([f, F::ZERO, F::ZERO, F::ZERO, F::ZERO, F::ZERO, F::ZERO])
     }
 }
 
-impl<F: AbstractField> Add<F> for SepticExtension<F> {
+impl<F: PrimeCharacteristicRing> Add<F> for SepticExtension<F> {
     type Output = Self;
-
+	#[inline]
     fn add(self, rhs: F) -> Self::Output {
         SepticExtension([
             self.0[0].clone() + rhs,
@@ -356,29 +425,32 @@ impl<F: AbstractField> Add<F> for SepticExtension<F> {
     }
 }
 
-impl<F: AbstractField> AddAssign<F> for SepticExtension<F> {
+impl<F: PrimeCharacteristicRing> AddAssign<F> for SepticExtension<F> {
+	#[inline]
     fn add_assign(&mut self, rhs: F) {
         self.0[0] += rhs;
     }
 }
 
-impl<F: AbstractField> Sub<F> for SepticExtension<F> {
+impl<F: PrimeCharacteristicRing> Sub<F> for SepticExtension<F> {
     type Output = Self;
 
+	#[inline]
     fn sub(self, rhs: F) -> Self::Output {
         self + (-rhs)
     }
 }
 
-impl<F: AbstractField> SubAssign<F> for SepticExtension<F> {
+impl<F: PrimeCharacteristicRing> SubAssign<F> for SepticExtension<F> {
+	#[inline]
     fn sub_assign(&mut self, rhs: F) {
         self.0[0] -= rhs;
     }
 }
 
-impl<F: AbstractField> Mul<F> for SepticExtension<F> {
+impl<F: PrimeCharacteristicRing> Mul<F> for SepticExtension<F> {
     type Output = Self;
-
+	#[inline]
     fn mul(self, rhs: F) -> Self::Output {
         SepticExtension([
             self.0[0].clone() * rhs.clone(),
@@ -392,7 +464,8 @@ impl<F: AbstractField> Mul<F> for SepticExtension<F> {
     }
 }
 
-impl<F: AbstractField> MulAssign<F> for SepticExtension<F> {
+impl<F: PrimeCharacteristicRing> MulAssign<F> for SepticExtension<F> {
+	#[inline]
     fn mul_assign(&mut self, rhs: F) {
         for i in 0..7 {
             self.0[i] *= rhs.clone();
@@ -400,7 +473,7 @@ impl<F: AbstractField> MulAssign<F> for SepticExtension<F> {
     }
 }
 
-impl<F: Field> Div for SepticExtension<F> {
+impl<F: PrimeCharacteristicRing + Field> Div for SepticExtension<F> {
     type Output = Self;
 
     #[allow(clippy::suspicious_arithmetic_impl)]
@@ -409,84 +482,84 @@ impl<F: Field> Div for SepticExtension<F> {
     }
 }
 
-impl<F: AbstractField> Display for SepticExtension<F> {
+impl<F: PrimeCharacteristicRing> Display for SepticExtension<F> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self.0)
     }
 }
 
-impl<F: Field> SepticExtension<F> {
+impl<F: PrimeCharacteristicRing + Field> SepticExtension<F> {
     /// Returns the value of z^{index * p} in the [`SepticExtension`] field.
     fn z_pow_p(index: u32) -> Self {
         // The constants written below are specifically for the BabyBear field.
         debug_assert_eq!(F::order(), BigUint::from(2013265921u32));
         if index == 0 {
-            return Self::one();
+            return Self::ONE;
         }
         if index == 1 {
             return SepticExtension([
-                F::from_canonical_u32(954599710),
-                F::from_canonical_u32(1359279693),
-                F::from_canonical_u32(566669999),
-                F::from_canonical_u32(1982781815),
-                F::from_canonical_u32(1735718361),
-                F::from_canonical_u32(1174868538),
-                F::from_canonical_u32(1120871770),
+                F::from_u32(954599710),
+                F::from_u32(1359279693),
+                F::from_u32(566669999),
+                F::from_u32(1982781815),
+                F::from_u32(1735718361),
+                F::from_u32(1174868538),
+                F::from_u32(1120871770),
             ]);
         }
         if index == 2 {
             return SepticExtension([
-                F::from_canonical_u32(862825265),
-                F::from_canonical_u32(597046311),
-                F::from_canonical_u32(978840770),
-                F::from_canonical_u32(1790138282),
-                F::from_canonical_u32(1044777201),
-                F::from_canonical_u32(835869808),
-                F::from_canonical_u32(1342179023),
+                F::from_u32(862825265),
+                F::from_u32(597046311),
+                F::from_u32(978840770),
+                F::from_u32(1790138282),
+                F::from_u32(1044777201),
+                F::from_u32(835869808),
+                F::from_u32(1342179023),
             ]);
         }
         if index == 3 {
             return SepticExtension([
-                F::from_canonical_u32(596273169),
-                F::from_canonical_u32(658837454),
-                F::from_canonical_u32(1515468261),
-                F::from_canonical_u32(367059247),
-                F::from_canonical_u32(781278880),
-                F::from_canonical_u32(1544222616),
-                F::from_canonical_u32(155490465),
+                F::from_u32(596273169),
+                F::from_u32(658837454),
+                F::from_u32(1515468261),
+                F::from_u32(367059247),
+                F::from_u32(781278880),
+                F::from_u32(1544222616),
+                F::from_u32(155490465),
             ]);
         }
         if index == 4 {
             return SepticExtension([
-                F::from_canonical_u32(557608863),
-                F::from_canonical_u32(1173670028),
-                F::from_canonical_u32(1749546888),
-                F::from_canonical_u32(1086464137),
-                F::from_canonical_u32(803900099),
-                F::from_canonical_u32(1288818584),
-                F::from_canonical_u32(1184677604),
+                F::from_u32(557608863),
+                F::from_u32(1173670028),
+                F::from_u32(1749546888),
+                F::from_u32(1086464137),
+                F::from_u32(803900099),
+                F::from_u32(1288818584),
+                F::from_u32(1184677604),
             ]);
         }
         if index == 5 {
             return SepticExtension([
-                F::from_canonical_u32(763416381),
-                F::from_canonical_u32(1252567168),
-                F::from_canonical_u32(628856225),
-                F::from_canonical_u32(1771903394),
-                F::from_canonical_u32(650712211),
-                F::from_canonical_u32(19417363),
-                F::from_canonical_u32(57990258),
+                F::from_u32(763416381),
+                F::from_u32(1252567168),
+                F::from_u32(628856225),
+                F::from_u32(1771903394),
+                F::from_u32(650712211),
+                F::from_u32(19417363),
+                F::from_u32(57990258),
             ]);
         }
         if index == 6 {
             return SepticExtension([
-                F::from_canonical_u32(1734711039),
-                F::from_canonical_u32(1749813853),
-                F::from_canonical_u32(1227235221),
-                F::from_canonical_u32(1707730636),
-                F::from_canonical_u32(424560395),
-                F::from_canonical_u32(1007029514),
-                F::from_canonical_u32(498034669),
+                F::from_u32(1734711039),
+                F::from_u32(1749813853),
+                F::from_u32(1227235221),
+                F::from_u32(1707730636),
+                F::from_u32(424560395),
+                F::from_u32(1007029514),
+                F::from_u32(498034669),
             ]);
         }
         unreachable!();
@@ -497,72 +570,72 @@ impl<F: Field> SepticExtension<F> {
         // The constants written below are specifically for the BabyBear field.
         debug_assert_eq!(F::order(), BigUint::from(2013265921u32));
         if index == 0 {
-            return Self::one();
+            return Self::ONE;
         }
         if index == 1 {
             return SepticExtension([
-                F::from_canonical_u32(1013489358),
-                F::from_canonical_u32(1619071628),
-                F::from_canonical_u32(304593143),
-                F::from_canonical_u32(1949397349),
-                F::from_canonical_u32(1564307636),
-                F::from_canonical_u32(327761151),
-                F::from_canonical_u32(415430835),
+                F::from_u32(1013489358),
+                F::from_u32(1619071628),
+                F::from_u32(304593143),
+                F::from_u32(1949397349),
+                F::from_u32(1564307636),
+                F::from_u32(327761151),
+                F::from_u32(415430835),
             ]);
         }
         if index == 2 {
             return SepticExtension([
-                F::from_canonical_u32(209824426),
-                F::from_canonical_u32(1313900768),
-                F::from_canonical_u32(38410482),
-                F::from_canonical_u32(256593180),
-                F::from_canonical_u32(1708830551),
-                F::from_canonical_u32(1244995038),
-                F::from_canonical_u32(1555324019),
+                F::from_u32(209824426),
+                F::from_u32(1313900768),
+                F::from_u32(38410482),
+                F::from_u32(256593180),
+                F::from_u32(1708830551),
+                F::from_u32(1244995038),
+                F::from_u32(1555324019),
             ]);
         }
         if index == 3 {
             return SepticExtension([
-                F::from_canonical_u32(1475628651),
-                F::from_canonical_u32(777565847),
-                F::from_canonical_u32(704492386),
-                F::from_canonical_u32(1218528120),
-                F::from_canonical_u32(1245363405),
-                F::from_canonical_u32(475884575),
-                F::from_canonical_u32(649166061),
+                F::from_u32(1475628651),
+                F::from_u32(777565847),
+                F::from_u32(704492386),
+                F::from_u32(1218528120),
+                F::from_u32(1245363405),
+                F::from_u32(475884575),
+                F::from_u32(649166061),
             ]);
         }
         if index == 4 {
             return SepticExtension([
-                F::from_canonical_u32(550038364),
-                F::from_canonical_u32(948935655),
-                F::from_canonical_u32(68722023),
-                F::from_canonical_u32(1251345762),
-                F::from_canonical_u32(1692456177),
-                F::from_canonical_u32(1177958698),
-                F::from_canonical_u32(350232928),
+                F::from_u32(550038364),
+                F::from_u32(948935655),
+                F::from_u32(68722023),
+                F::from_u32(1251345762),
+                F::from_u32(1692456177),
+                F::from_u32(1177958698),
+                F::from_u32(350232928),
             ]);
         }
         if index == 5 {
             return SepticExtension([
-                F::from_canonical_u32(882720258),
-                F::from_canonical_u32(821925756),
-                F::from_canonical_u32(199955840),
-                F::from_canonical_u32(812002876),
-                F::from_canonical_u32(1484951277),
-                F::from_canonical_u32(1063138035),
-                F::from_canonical_u32(491712810),
+                F::from_u32(882720258),
+                F::from_u32(821925756),
+                F::from_u32(199955840),
+                F::from_u32(812002876),
+                F::from_u32(1484951277),
+                F::from_u32(1063138035),
+                F::from_u32(491712810),
             ]);
         }
         if index == 6 {
             return SepticExtension([
-                F::from_canonical_u32(738287111),
-                F::from_canonical_u32(1955364991),
-                F::from_canonical_u32(552724293),
-                F::from_canonical_u32(1175775744),
-                F::from_canonical_u32(341623997),
-                F::from_canonical_u32(1454022463),
-                F::from_canonical_u32(408193320),
+                F::from_u32(738287111),
+                F::from_u32(1955364991),
+                F::from_u32(552724293),
+                F::from_u32(1175775744),
+                F::from_u32(341623997),
+                F::from_u32(1454022463),
+                F::from_u32(408193320),
             ]);
         }
         unreachable!();
@@ -570,7 +643,7 @@ impl<F: Field> SepticExtension<F> {
 
     #[must_use]
     fn frobenius(&self) -> Self {
-        let mut result = Self::zero();
+        let mut result = Self::ZERO;
         result += self.0[0];
         result += Self::z_pow_p(1) * self.0[1];
         result += Self::z_pow_p(2) * self.0[2];
@@ -583,7 +656,7 @@ impl<F: Field> SepticExtension<F> {
 
     #[must_use]
     fn double_frobenius(&self) -> Self {
-        let mut result = Self::zero();
+        let mut result = Self::ZERO;
         result += self.0[0];
         result += Self::z_pow_p2(1) * self.0[1];
         result += Self::z_pow_p2(2) * self.0[2];
@@ -615,7 +688,7 @@ impl<F: Field> SepticExtension<F> {
         let exp = (F::order() - BigUint::one()) / BigUint::from(2u8);
         let exp = exp.to_u64_digits()[0];
 
-        (pow_r.0[0], pow_r.0[0].exp_u64(exp) == F::one())
+        (pow_r.0[0], pow_r.0[0].exp_u64(exp) == F::ONE)
     }
 
     /// Computes the square root of the septic field extension element.
@@ -623,7 +696,7 @@ impl<F: Field> SepticExtension<F> {
     pub fn sqrt(&self) -> Option<Self> {
         let n = *self;
 
-        if n == Self::zero() || n == Self::one() {
+        if n == Self::ZERO || n == Self::ONE {
             return Some(n);
         }
 
@@ -652,26 +725,26 @@ impl<F: Field> SepticExtension<F> {
         denominator *= n;
 
         let base = numerator.inverse();
-        let g = F::generator();
-        let mut a = F::one();
-        let mut nonresidue = F::one() - base;
+        let g = F::GENERATOR;
+        let mut a = F::ONE;
+        let mut nonresidue = F::ONE - base;
         let legendre_exp = (F::order() - BigUint::one()) / BigUint::from(2u8);
 
-        while nonresidue.exp_u64(legendre_exp.to_u64_digits()[0]) == F::one() {
+        while nonresidue.exp_u64(legendre_exp.to_u64_digits()[0]) == F::ONE {
             a *= g;
             nonresidue = a.square() - base;
         }
 
         let order = F::order();
         let cipolla_pow = (&order + BigUint::one()) / BigUint::from(2u8);
-        let mut x = CipollaExtension::new(a, F::one());
+        let mut x = CipollaExtension::new(a, F::ONE);
         x = x.pow(&cipolla_pow, nonresidue);
 
         Some(denominator * x.real)
     }
 }
 
-impl<F: PrimeField32> SepticExtension<F> {
+impl<F: PrimeCharacteristicRing + PrimeField32> SepticExtension<F> {
     /// Returns whether the extension field element viewed as an y-coordinate of a digest represents
     /// a receive interaction.
     pub fn is_receive(&self) -> bool {
@@ -693,6 +766,37 @@ impl<F: PrimeField32> SepticExtension<F> {
     }
 }
 
+
+/// Multiply two vectors representing elements in a SepticExtension :z^7 - 2z - 5.
+#[inline]
+pub(super) fn septic_mul<
+    F: PrimeCharacteristicRing,
+    R: Algebra<F> + Mul<R2, Output = R> ,
+   R2: Add<Output = R2> + Clone,
+>(
+    a: &[R; 7],
+    b: &[R2; 7],
+    ret: &mut [R; 7],
+
+) {
+        let mut res: [R; 13] = core::array::from_fn(|_| R::ZERO);
+        for i in 0..7 {
+            for j in 0..7 {
+                res[i + j] = res[i + j].clone() + a[i].clone() * b[j].clone();
+            }
+        }
+        //let mut ret: [F; 7] = core::array::from_fn(|i| res[i].clone());
+        for i in 0..7 {
+            ret[i] = res[i].clone();
+        }
+
+        for i in 7..13 {
+            ret[i - 7] = ret[i - 7].clone() + res[i].clone() * F::from_u32(5);
+            ret[i - 6] = ret[i - 6].clone() + res[i].clone() * F::from_u32(2);
+        }
+
+}
+
 /// Extension field for Cipolla's algorithm, taken from <https://github.com/Plonky3/Plonky3/pull/439/files>.
 #[derive(Clone, Copy, Debug)]
 struct CipollaExtension<F: Field> {
@@ -701,12 +805,11 @@ struct CipollaExtension<F: Field> {
 }
 
 impl<F: Field> CipollaExtension<F> {
+    const ONE: Self = Self{ real: F::ONE, 
+                            imag: F::ZERO};
+
     fn new(real: F, imag: F) -> Self {
         Self { real, imag }
-    }
-
-    fn one() -> Self {
-        Self::new(F::one(), F::zero())
     }
 
     fn mul_ext(&self, other: Self, nonresidue: F) -> Self {
@@ -717,7 +820,7 @@ impl<F: Field> CipollaExtension<F> {
     }
 
     fn pow(&self, exp: &BigUint, nonresidue: F) -> Self {
-        let mut result = Self::one();
+        let mut result = Self::ONE;
         let mut base = *self;
         let bits = exp.bits();
 
@@ -746,7 +849,7 @@ impl<T> SepticBlock<T> {
     }
 
     /// A function similar to `core:array::from_fn`.
-    pub fn from_base_fn<G: FnMut(usize) -> T>(f: G) -> Self {
+    pub fn from_basis_coefficients_fn<G: FnMut(usize) -> T>(f: G) -> Self {
         Self(array::from_fn(f))
     }
 }
@@ -756,7 +859,7 @@ impl<T: Clone> SepticBlock<T> {
     pub fn as_extension<AB: SepticExtensionAirBuilder<Var = T>>(
         &self,
     ) -> SepticExtension<AB::Expr> {
-        let arr: [AB::Expr; 7] = self.0.clone().map(|x| AB::Expr::zero() + x);
+        let arr: [AB::Expr; 7] = self.0.clone().map(|x| AB::Expr::ZERO + x);
         SepticExtension(arr)
     }
 
@@ -765,7 +868,7 @@ impl<T: Clone> SepticBlock<T> {
         &self,
         base: AB::Expr,
     ) -> SepticExtension<AB::Expr> {
-        let mut arr: [AB::Expr; 7] = self.0.clone().map(|_| AB::Expr::zero());
+        let mut arr: [AB::Expr; 7] = self.0.clone().map(|_| AB::Expr::ZERO);
         arr[0] = base;
 
         SepticExtension(arr)
@@ -778,9 +881,9 @@ impl<T> From<[T; 7]> for SepticBlock<T> {
     }
 }
 
-impl<T: AbstractField> From<T> for SepticBlock<T> {
+impl<T: PrimeCharacteristicRing> From<T> for SepticBlock<T> {
     fn from(value: T) -> Self {
-        Self([value, T::zero(), T::zero(), T::zero(), T::zero(), T::zero(), T::zero()])
+        Self([value, T::ZERO, T::ZERO, T::ZERO, T::ZERO, T::ZERO, T::ZERO])
     }
 }
 
@@ -822,6 +925,34 @@ impl<T> IntoIterator for SepticBlock<T> {
     }
 }
 
+/// Add two vectors element wise.
+#[inline]
+pub(crate) fn vector_add<
+    R: PrimeCharacteristicRing + Add<R2, Output = R>,
+    R2: Clone,
+    const L: usize,
+>(
+    a: &[R; L],
+    b: &[R2; L],
+) -> [R; L] {
+    array::from_fn(|i| a[i].clone() + b[i].clone())
+}
+
+/// Subtract two vectors element wise.
+#[inline]
+pub(crate) fn vector_sub<
+    R: PrimeCharacteristicRing + Sub<R2, Output = R>,
+    R2: Clone,
+    const L: usize,
+>(
+    a: &[R; L],
+    b: &[R2; L],
+) -> [R; L] {
+    array::from_fn(|i| a[i].clone() - b[i].clone())
+}
+
+
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::print_stdout)]
@@ -832,8 +963,8 @@ mod tests {
 
     #[test]
     fn test_mul() {
-        let a: SepticExtension<BabyBear> = SepticExtension::from_canonical_u32(1);
-        let b: SepticExtension<BabyBear> = SepticExtension::from_canonical_u32(2);
+        let a: SepticExtension<BabyBear> = SepticExtension::from_u32(1);
+        let b: SepticExtension<BabyBear> = SepticExtension::from_u32(2);
         let c = a * b;
         println!("{c}");
     }
@@ -842,23 +973,23 @@ mod tests {
     fn test_inv() {
         for i in 0..256 {
             let a: SepticExtension<BabyBear> = SepticExtension([
-                BabyBear::from_canonical_u32(i + 3),
-                BabyBear::from_canonical_u32(2 * i + 6),
-                BabyBear::from_canonical_u32(5 * i + 17),
-                BabyBear::from_canonical_u32(6 * i + 91),
-                BabyBear::from_canonical_u32(8 * i + 37),
-                BabyBear::from_canonical_u32(11 * i + 35),
-                BabyBear::from_canonical_u32(14 * i + 33),
+                BabyBear::from_u32(i + 3),
+                BabyBear::from_u32(2 * i + 6),
+                BabyBear::from_u32(5 * i + 17),
+                BabyBear::from_u32(6 * i + 91),
+                BabyBear::from_u32(8 * i + 37),
+                BabyBear::from_u32(11 * i + 35),
+                BabyBear::from_u32(14 * i + 33),
             ]);
             let b = a.inv();
-            assert_eq!(a * b, SepticExtension::<BabyBear>::one());
+            assert_eq!(a * b, SepticExtension::<BabyBear>::ONE);
         }
     }
 
     #[test]
     fn test_legendre() {
-        let a: SepticExtension<BabyBear> = SepticExtension::generator();
-        let mut b = SepticExtension::<BabyBear>::one();
+        let a: SepticExtension<BabyBear> = SepticExtension::GENERATOR;
+        let mut b = SepticExtension::<BabyBear>::ONE;
         for i in 1..256 {
             b *= a;
             let (_, c) = b.is_square();
@@ -870,21 +1001,21 @@ mod tests {
     fn test_sqrt() {
         for i in 0..256 {
             let a: SepticExtension<BabyBear> = SepticExtension([
-                BabyBear::from_canonical_u32(i + 3),
-                BabyBear::from_canonical_u32(2 * i + 6),
-                BabyBear::from_canonical_u32(5 * i + 17),
-                BabyBear::from_canonical_u32(6 * i + 91),
-                BabyBear::from_canonical_u32(8 * i + 37),
-                BabyBear::from_canonical_u32(11 * i + 35),
-                BabyBear::from_canonical_u32(14 * i + 33),
+                BabyBear::from_u32(i + 3),
+                BabyBear::from_u32(2 * i + 6),
+                BabyBear::from_u32(5 * i + 17),
+                BabyBear::from_u32(6 * i + 91),
+                BabyBear::from_u32(8 * i + 37),
+                BabyBear::from_u32(11 * i + 35),
+                BabyBear::from_u32(14 * i + 33),
             ]);
             let b = a * a;
             let recovered_a = b.sqrt().unwrap();
             assert_eq!(recovered_a * recovered_a, b);
         }
-        let mut b = SepticExtension::<BabyBear>::one();
+        let mut b = SepticExtension::<BabyBear>::ONE;
         for i in 1..256 {
-            let a: SepticExtension<BabyBear> = SepticExtension::generator();
+            let a: SepticExtension<BabyBear> = SepticExtension::GENERATOR;
             b *= a;
             let c = b.sqrt();
             if i % 2 == 1 {

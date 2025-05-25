@@ -7,7 +7,7 @@ use challenger::{
 use hash::{FieldHasherVariable, Posedion2BabyBearHasherVariable};
 use itertools::izip;
 use p3_bn254_fr::Bn254Fr;
-use p3_field::AbstractField;
+use p3_field::PrimeCharacteristicRing;
 use p3_matrix::dense::RowMajorMatrix;
 use sp1_recursion_compiler::{
     circuit::CircuitV2Builder,
@@ -69,7 +69,7 @@ pub trait BabyBearFriConfig:
     Challenger = Self::FriChallenger,
     Pcs = TwoAdicFriPcs<
         BabyBear,
-        Radix2DitParallel,
+        Radix2DitParallel<BabyBear>,
         Self::ValMmcs,
         ExtensionMmcs<BabyBear, EF, Self::ValMmcs>,
     >,
@@ -183,11 +183,11 @@ impl CircuitConfig for InnerConfig {
     type Bit = Felt<<Self as Config>::F>;
 
     fn assert_bit_zero(builder: &mut Builder<Self>, bit: Self::Bit) {
-        builder.assert_felt_eq(bit, Self::F::zero());
+        builder.assert_felt_eq(bit, Self::F::ZERO);
     }
 
     fn assert_bit_one(builder: &mut Builder<Self>, bit: Self::Bit) {
-        builder.assert_felt_eq(bit, Self::F::one());
+        builder.assert_felt_eq(bit, Self::F::ONE);
     }
 
     fn read_bit(builder: &mut Builder<Self>) -> Self::Bit {
@@ -247,7 +247,7 @@ impl CircuitConfig for InnerConfig {
         first: impl IntoIterator<Item = Felt<<Self as Config>::F>> + Clone,
         second: impl IntoIterator<Item = Felt<<Self as Config>::F>> + Clone,
     ) -> Vec<Felt<<Self as Config>::F>> {
-        let one: Felt<_> = builder.constant(Self::F::one());
+        let one: Felt<_> = builder.constant(Self::F::ONE);
         let shouldnt_swap: Felt<_> = builder.eval(one - should_swap);
 
         let id_branch = first.clone().into_iter().chain(second.clone());
@@ -263,7 +263,7 @@ impl CircuitConfig for InnerConfig {
         first: impl IntoIterator<Item = Ext<<Self as Config>::F, <Self as Config>::EF>> + Clone,
         second: impl IntoIterator<Item = Ext<<Self as Config>::F, <Self as Config>::EF>> + Clone,
     ) -> Vec<Ext<<Self as Config>::F, <Self as Config>::EF>> {
-        let one: Felt<_> = builder.constant(Self::F::one());
+        let one: Felt<_> = builder.constant(Self::F::ONE);
         let shouldnt_swap: Felt<_> = builder.eval(one - should_swap);
 
         let id_branch = first.clone().into_iter().chain(second.clone());
@@ -299,11 +299,11 @@ impl CircuitConfig for WrapConfig {
     type Bit = <InnerConfig as CircuitConfig>::Bit;
 
     fn assert_bit_zero(builder: &mut Builder<Self>, bit: Self::Bit) {
-        builder.assert_felt_eq(bit, Self::F::zero());
+        builder.assert_felt_eq(bit, Self::F::ZERO);
     }
 
     fn assert_bit_one(builder: &mut Builder<Self>, bit: Self::Bit) {
-        builder.assert_felt_eq(bit, Self::F::one());
+        builder.assert_felt_eq(bit, Self::F::ONE);
     }
 
     fn read_bit(builder: &mut Builder<Self>) -> Self::Bit {
@@ -331,7 +331,7 @@ impl CircuitConfig for WrapConfig {
         power_bits: Vec<Felt<<Self as Config>::F>>,
     ) -> Felt<<Self as Config>::F> {
         // builder.exp_reverse_bits_v2(input, power_bits)
-        let mut result = builder.constant(Self::F::one());
+        let mut result = builder.constant(Self::F::ONE);
         let mut power_f = input;
         let bit_len = power_bits.len();
 
@@ -339,7 +339,7 @@ impl CircuitConfig for WrapConfig {
             let index = bit_len - i;
             let bit = power_bits[index];
             let prod: Felt<_> = builder.eval(result * power_f);
-            result = builder.eval(bit * prod + (SymbolicFelt::one() - bit) * result);
+            result = builder.eval(bit * prod + (SymbolicFelt::ONE - bit) * result);
             power_f = builder.eval(power_f * power_f);
         }
         result
@@ -354,7 +354,7 @@ impl CircuitConfig for WrapConfig {
         // builder.batch_fri_v2(alpha_pows, p_at_zs, p_at_xs)
         // Initialize the `acc` to zero.
         let mut acc: Ext<_, _> = builder.uninit();
-        builder.push_op(DslIr::ImmE(acc, <Self as Config>::EF::zero()));
+        builder.push_op(DslIr::ImmE(acc, <Self as Config>::EF::ZERO));
         for (alpha_pow, p_at_z, p_at_x) in izip!(alpha_pows, p_at_zs, p_at_xs) {
             // Set `temp_1 = p_at_z - p_at_x`
             let temp_1: Ext<_, _> = builder.uninit();
@@ -391,7 +391,7 @@ impl CircuitConfig for WrapConfig {
         first: impl IntoIterator<Item = Felt<<Self as Config>::F>> + Clone,
         second: impl IntoIterator<Item = Felt<<Self as Config>::F>> + Clone,
     ) -> Vec<Felt<<Self as Config>::F>> {
-        let one: Felt<_> = builder.constant(Self::F::one());
+        let one: Felt<_> = builder.constant(Self::F::ONE);
         let shouldnt_swap: Felt<_> = builder.eval(one - should_swap);
 
         let id_branch = first.clone().into_iter().chain(second.clone());
@@ -407,7 +407,7 @@ impl CircuitConfig for WrapConfig {
         first: impl IntoIterator<Item = Ext<<Self as Config>::F, <Self as Config>::EF>> + Clone,
         second: impl IntoIterator<Item = Ext<<Self as Config>::F, <Self as Config>::EF>> + Clone,
     ) -> Vec<Ext<<Self as Config>::F, <Self as Config>::EF>> {
-        let one: Felt<_> = builder.constant(Self::F::one());
+        let one: Felt<_> = builder.constant(Self::F::ONE);
         let shouldnt_swap: Felt<_> = builder.eval(one - should_swap);
 
         let id_branch = first.clone().into_iter().chain(second.clone());
@@ -434,11 +434,11 @@ impl CircuitConfig for OuterConfig {
     type Bit = Var<<Self as Config>::N>;
 
     fn assert_bit_zero(builder: &mut Builder<Self>, bit: Self::Bit) {
-        builder.assert_var_eq(bit, Self::N::zero());
+        builder.assert_var_eq(bit, Self::N::ZERO);
     }
 
     fn assert_bit_one(builder: &mut Builder<Self>, bit: Self::Bit) {
-        builder.assert_var_eq(bit, Self::N::one());
+        builder.assert_var_eq(bit, Self::N::ONE);
     }
 
     fn read_bit(builder: &mut Builder<Self>) -> Self::Bit {
@@ -467,7 +467,7 @@ impl CircuitConfig for OuterConfig {
         input: Felt<<Self as Config>::F>,
         power_bits: Vec<Var<<Self as Config>::N>>,
     ) -> Felt<<Self as Config>::F> {
-        let mut result = builder.constant(Self::F::one());
+        let mut result = builder.constant(Self::F::ONE);
         let power_f = input;
         let bit_len = power_bits.len();
 
@@ -489,7 +489,7 @@ impl CircuitConfig for OuterConfig {
     ) -> Ext<<Self as Config>::F, <Self as Config>::EF> {
         // Initialize the `acc` to zero.
         let mut acc: Ext<_, _> = builder.uninit();
-        builder.push_op(DslIr::ImmE(acc, <Self as Config>::EF::zero()));
+        builder.push_op(DslIr::ImmE(acc, <Self as Config>::EF::ZERO));
         for (alpha_pow, p_at_z, p_at_x) in izip!(alpha_pows, p_at_zs, p_at_xs) {
             // Set `temp_1 = p_at_z - p_at_x`
             let temp_1: Ext<_, _> = builder.uninit();
@@ -517,11 +517,11 @@ impl CircuitConfig for OuterConfig {
         builder: &mut Builder<Self>,
         bits: impl IntoIterator<Item = Var<<Self as Config>::N>>,
     ) -> Felt<<Self as Config>::F> {
-        let result = builder.eval(Self::F::zero());
+        let result = builder.eval(Self::F::ZERO);
         for (i, bit) in bits.into_iter().enumerate() {
             let to_add: Felt<_> = builder.uninit();
-            let pow2 = builder.constant(Self::F::from_canonical_u32(1 << i));
-            let zero = builder.constant(Self::F::zero());
+            let pow2 = builder.constant(Self::F::from_u32(1 << i));
+            let zero = builder.constant(Self::F::ZERO);
             builder.push_op(DslIr::CircuitSelectF(bit, pow2, zero, to_add));
             builder.assign(result, result + to_add);
         }
@@ -567,8 +567,8 @@ impl CircuitConfig for OuterConfig {
         power_bits: &[Self::Bit],
         two_adic_powers_of_x: &[Felt<Self::F>],
     ) -> Felt<Self::F> {
-        let mut result: Felt<_> = builder.eval(Self::F::one());
-        let one = builder.constant(Self::F::one());
+        let mut result: Felt<_> = builder.eval(Self::F::ONE);
+        let one = builder.constant(Self::F::ONE);
         for (&bit, &power) in power_bits.iter().zip(two_adic_powers_of_x) {
             let multiplier = builder.select_f(bit, power, one);
             result = builder.eval(multiplier * result);

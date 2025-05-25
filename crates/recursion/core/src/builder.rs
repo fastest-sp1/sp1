@@ -1,7 +1,7 @@
 use std::iter::once;
 
 use p3_air::AirBuilderWithPublicValues;
-use p3_field::AbstractField;
+use p3_field::PrimeCharacteristicRing;
 use sp1_stark::{
     air::{AirInteraction, BaseAirBuilder, InteractionScope, MachineAirBuilder},
     InteractionKind,
@@ -22,7 +22,7 @@ pub trait RecursionAirBuilder: BaseAirBuilder {
         val: E,
         mult: impl Into<Self::Expr>,
     ) {
-        let mut padded_value = core::array::from_fn(|_| Self::Expr::zero());
+        let mut padded_value = core::array::from_fn(|_| Self::Expr::ZERO);
         padded_value[0] = val.into();
         self.send_block(Address(addr.0.into()), Block(padded_value), mult)
     }
@@ -49,7 +49,7 @@ pub trait RecursionAirBuilder: BaseAirBuilder {
         val: E,
         mult: impl Into<Self::Expr>,
     ) {
-        let mut padded_value = core::array::from_fn(|_| Self::Expr::zero());
+        let mut padded_value = core::array::from_fn(|_| Self::Expr::ZERO);
         padded_value[0] = val.into();
         self.receive_block(Address(addr.0.into()), Block(padded_value), mult)
     }

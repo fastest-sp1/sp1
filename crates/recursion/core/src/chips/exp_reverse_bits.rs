@@ -7,7 +7,7 @@ use crate::{
 use core::borrow::Borrow;
 use p3_air::{Air, AirBuilder, BaseAir, PairBuilder};
 use p3_baby_bear::BabyBear;
-use p3_field::{AbstractField, PrimeField32};
+use p3_field::{PrimeCharacteristicRing, PrimeField32};
 use p3_matrix::{dense::RowMajorMatrix, Matrix};
 use sp1_core_machine::utils::pad_rows_fixed;
 use sp1_derive::AlignedBorrow;
@@ -105,21 +105,21 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for ExpReverseBitsLenCh
             .for_each(|instruction: &ExpReverseBitsInstr<BabyBear>| {
                 let ExpReverseBitsInstr { addrs, mult } = instruction;
                 let mut row_add = vec![
-                    [BabyBear::zero();
+                    [BabyBear::ZERO;
                         NUM_EXP_REVERSE_BITS_LEN_PREPROCESSED_COLS];
                     addrs.exp.len()
                 ];
                 row_add.iter_mut().enumerate().for_each(|(i, row)| {
                     let row: &mut ExpReverseBitsLenPreprocessedCols<BabyBear> =
                         row.as_mut_slice().borrow_mut();
-                    row.iteration_num = BabyBear::from_canonical_u32(i as u32);
+                    row.iteration_num = BabyBear::from_u32(i as u32);
                     row.is_first = BabyBear::from_bool(i == 0);
                     row.is_last = BabyBear::from_bool(i == addrs.exp.len() - 1);
-                    row.is_real = BabyBear::one();
+                    row.is_real = BabyBear::ONE;
                     row.x_mem =
                         MemoryAccessCols { addr: addrs.base, mult: -BabyBear::from_bool(i == 0) };
                     row.exponent_mem =
-                        MemoryAccessCols { addr: addrs.exp[i], mult: BabyBear::neg_one() };
+                        MemoryAccessCols { addr: addrs.exp[i], mult: BabyBear::NEG_ONE };
                     row.result_mem = MemoryAccessCols {
                         addr: addrs.result,
                         mult: *mult * BabyBear::from_bool(i == addrs.exp.len() - 1),
@@ -131,7 +131,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for ExpReverseBitsLenCh
         // Pad the trace to a power of two.
         pad_rows_fixed(
             &mut rows,
-            || [BabyBear::zero(); NUM_EXP_REVERSE_BITS_LEN_PREPROCESSED_COLS],
+            || [BabyBear::ZERO; NUM_EXP_REVERSE_BITS_LEN_PREPROCESSED_COLS],
             program.fixed_log2_rows(self),
         );
 
@@ -166,8 +166,8 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for ExpReverseBitsLenCh
 
         events.iter().for_each(|event| {
             let mut rows =
-                vec![vec![BabyBear::zero(); NUM_EXP_REVERSE_BITS_LEN_COLS]; event.exp.len()];
-            let mut accum = BabyBear::one();
+                vec![vec![BabyBear::ZERO; NUM_EXP_REVERSE_BITS_LEN_COLS]; event.exp.len()];
+            let mut accum = BabyBear::ONE;
 
             rows.iter_mut().enumerate().for_each(|(i, row)| {
                 let cols: &mut ExpReverseBitsLenCols<BabyBear> = row.as_mut_slice().borrow_mut();
@@ -190,7 +190,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for ExpReverseBitsLenCh
         // Pad the trace to a power of two.
         pad_rows_fixed(
             &mut overall_rows,
-            || [BabyBear::zero(); NUM_EXP_REVERSE_BITS_LEN_COLS].to_vec(),
+            || [BabyBear::ZERO; NUM_EXP_REVERSE_BITS_LEN_COLS].to_vec(),
             input.fixed_log2_rows(self),
         );
 
@@ -266,7 +266,7 @@ impl<const DEGREE: usize> ExpReverseBitsLenChip<DEGREE> {
         builder
             .when(local_prepr.is_real)
             .when_not(local.current_bit)
-            .assert_eq(local.multiplier, AB::Expr::one());
+            .assert_eq(local.multiplier, AB::Expr::ONE);
 
         // To get `next.accum`, we multiply `local.prev_accum_squared` by `local.multiplier` when
         // not `is_last`.
@@ -306,11 +306,11 @@ where
 {
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
-        let (local, next) = (main.row_slice(0), main.row_slice(1));
+        let (local, next) = (main.row_slice(0).unwrap(), main.row_slice(1).unwrap());
         let local: &ExpReverseBitsLenCols<AB::Var> = (*local).borrow();
         let next: &ExpReverseBitsLenCols<AB::Var> = (*next).borrow();
         let prep = builder.preprocessed();
-        let (prep_local, prep_next) = (prep.row_slice(0), prep.row_slice(1));
+        let (prep_local, prep_next) = (prep.row_slice(0).unwrap(), prep.row_slice(1).unwrap());
         let prep_local: &ExpReverseBitsLenPreprocessedCols<_> = (*prep_local).borrow();
         let prep_next: &ExpReverseBitsLenPreprocessedCols<_> = (*prep_next).borrow();
         self.eval_exp_reverse_bits_len::<AB>(builder, local, prep_local, next, prep_next);
@@ -332,7 +332,7 @@ mod tests {
     };
     use itertools::Itertools;
     use p3_baby_bear::BabyBear;
-    use p3_field::{AbstractField, PrimeField32};
+    use p3_field::{PrimeCharacteristicRing, PrimeField32};
     use p3_matrix::dense::RowMajorMatrix;
     use p3_util::reverse_bits_len;
     use rand::{rngs::StdRng, Rng, SeedableRng};
@@ -351,7 +351,7 @@ mod tests {
         type F = <SC as StarkGenericConfig>::Val;
 
         let mut rng = StdRng::seed_from_u64(0xDEADBEEF);
-        let mut random_felt = move || -> F { F::from_canonical_u32(rng.gen_range(0..1 << 16)) };
+        let mut random_felt = move || -> F { F::from_u32(rng.gen_range(0..1 << 16)) };
         let mut rng = StdRng::seed_from_u64(0xDEADBEEF);
         let mut random_bit = move || rng.gen_range(0..2);
         let mut addr = 0;
@@ -360,7 +360,7 @@ mod tests {
             .flat_map(|i| {
                 let base = random_felt();
                 let exponent_bits = vec![random_bit(); i];
-                let exponent = F::from_canonical_u32(
+                let exponent = F::from_u32(
                     exponent_bits.iter().enumerate().fold(0, |acc, (i, x)| acc + x * (1 << i)),
                 );
                 let result =
@@ -377,19 +377,19 @@ mod tests {
                         MemAccessKind::Write,
                         1,
                         exp_a_clone[j] as u32,
-                        F::from_canonical_u32(exponent_bits[j]),
+                        F::from_u32(exponent_bits[j]),
                     )
                 });
                 once(instr::mem_single(MemAccessKind::Write, 1, x_a as u32, base))
                     .chain(exp_bit_instructions)
                     .chain(once(instr::exp_reverse_bits_len(
                         1,
-                        F::from_canonical_u32(x_a as u32),
+                        F::from_u32(x_a as u32),
                         exp_a
                             .into_iter()
-                            .map(|bit| F::from_canonical_u32(bit as u32))
+                            .map(|bit| F::from_u32(bit as u32))
                             .collect_vec(),
-                        F::from_canonical_u32(result_a as u32),
+                        F::from_u32(result_a as u32),
                     )))
                     .chain(once(instr::mem_single(MemAccessKind::Read, 1, result_a as u32, result)))
             })
@@ -404,9 +404,9 @@ mod tests {
 
         let shard = ExecutionRecord {
             exp_reverse_bits_len_events: vec![ExpReverseBitsEvent {
-                base: F::two(),
-                exp: vec![F::zero(), F::one(), F::one()],
-                result: F::two().exp_u64(0b110),
+                base: F::TWO,
+                exp: vec![F::ZERO, F::ONE, F::ONE],
+                result: F::TWO.exp_u64(0b110),
             }],
             ..Default::default()
         };
@@ -424,11 +424,11 @@ mod tests {
             instr::mem(MemAccessKind::Write, 2, 1, 0),
             Instruction::ExpReverseBitsLen(ExpReverseBitsInstr {
                 addrs: ExpReverseBitsIo {
-                    base: Address(F::zero()),
-                    exp: vec![Address(F::one()), Address(F::zero()), Address(F::one())],
-                    result: Address(F::from_canonical_u32(4)),
+                    base: Address(F::ZERO),
+                    exp: vec![Address(F::ONE), Address(F::ZERO), Address(F::ONE)],
+                    result: Address(F::from_u32(4)),
                 },
-                mult: F::one(),
+                mult: F::ONE,
             }),
             instr::mem(MemAccessKind::Read, 1, 4, 0),
         ])
@@ -447,9 +447,9 @@ mod tests {
 
         let mut overall_rows = Vec::new();
         input.exp_reverse_bits_len_events.iter().for_each(|event| {
-            let mut rows = vec![vec![F::zero(); NUM_EXP_REVERSE_BITS_LEN_COLS]; event.exp.len()];
+            let mut rows = vec![vec![F::ZERO; NUM_EXP_REVERSE_BITS_LEN_COLS]; event.exp.len()];
 
-            let mut accum = F::one();
+            let mut accum = F::ONE;
 
             rows.iter_mut().enumerate().for_each(|(i, row)| {
                 let cols: &mut ExpReverseBitsLenCols<F> = row.as_mut_slice().borrow_mut();
@@ -457,14 +457,14 @@ mod tests {
                 let prev_accum = accum;
                 accum = prev_accum *
                     prev_accum *
-                    if event.exp[i] == F::one() { event.base } else { F::one() };
+                    if event.exp[i] == F::ONE { event.base } else { F::ONE };
 
                 cols.x = event.base;
                 cols.current_bit = event.exp[i];
                 cols.accum = accum;
                 cols.accum_squared = accum * accum;
                 cols.prev_accum_squared = prev_accum * prev_accum;
-                cols.multiplier = if event.exp[i] == F::one() { event.base } else { F::one() };
+                cols.multiplier = if event.exp[i] == F::ONE { event.base } else { F::ONE };
                 cols.prev_accum_squared_times_multiplier =
                     cols.prev_accum_squared * cols.multiplier;
                 if i == event.exp.len() {
@@ -477,7 +477,7 @@ mod tests {
 
         pad_rows_fixed(
             &mut overall_rows,
-            || [F::zero(); NUM_EXP_REVERSE_BITS_LEN_COLS].to_vec(),
+            || [F::ZERO; NUM_EXP_REVERSE_BITS_LEN_COLS].to_vec(),
             input.fixed_log2_rows(&ExpReverseBitsLenChip::<DEGREE>),
         );
 
@@ -513,16 +513,16 @@ mod tests {
             .for_each(|instruction| {
                 let ExpReverseBitsInstr { addrs, mult } = instruction;
                 let mut row_add =
-                    vec![[F::zero(); NUM_EXP_REVERSE_BITS_LEN_PREPROCESSED_COLS]; addrs.exp.len()];
+                    vec![[F::ZERO; NUM_EXP_REVERSE_BITS_LEN_PREPROCESSED_COLS]; addrs.exp.len()];
                 row_add.iter_mut().enumerate().for_each(|(i, row)| {
                     let row: &mut ExpReverseBitsLenPreprocessedCols<F> =
                         row.as_mut_slice().borrow_mut();
-                    row.iteration_num = F::from_canonical_u32(i as u32);
+                    row.iteration_num = F::from_u32(i as u32);
                     row.is_first = F::from_bool(i == 0);
                     row.is_last = F::from_bool(i == addrs.exp.len() - 1);
-                    row.is_real = F::one();
+                    row.is_real = F::ONE;
                     row.x_mem = MemoryAccessCols { addr: addrs.base, mult: -F::from_bool(i == 0) };
-                    row.exponent_mem = MemoryAccessCols { addr: addrs.exp[i], mult: F::neg_one() };
+                    row.exponent_mem = MemoryAccessCols { addr: addrs.exp[i], mult: F::NEG_ONE };
                     row.result_mem = MemoryAccessCols {
                         addr: addrs.result,
                         mult: *mult * F::from_bool(i == addrs.exp.len() - 1),
@@ -533,7 +533,7 @@ mod tests {
 
         pad_rows_fixed(
             &mut rows,
-            || [F::zero(); NUM_EXP_REVERSE_BITS_LEN_PREPROCESSED_COLS],
+            || [F::ZERO; NUM_EXP_REVERSE_BITS_LEN_PREPROCESSED_COLS],
             program.fixed_log2_rows(&ExpReverseBitsLenChip::<3>),
         );
 

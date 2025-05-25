@@ -1060,41 +1060,43 @@ constexpr const uint32_t RC_16_30_U32[30][16] = {
 #ifdef __CUDA_ARCH__
 __constant__ constexpr const bb31_t
     POSEIDON2_INTERNAL_MATRIX_DIAG_16_BABYBEAR_MONTY[16] = {
-        bb31_t(bb31_t::to_monty(0x78000001u - 2)),  // BabyBear::ORDER_U32 - 2
-        bb31_t(bb31_t::to_monty(1)),                // 1
-        bb31_t(bb31_t::to_monty(1 << 1)),           // 1 << 1
-        bb31_t(bb31_t::to_monty(1 << 2)),           // 1 << 2
-        bb31_t(bb31_t::to_monty(1 << 3)),           // 1 << 3
-        bb31_t(bb31_t::to_monty(1 << 4)),           // 1 << 4
-        bb31_t(bb31_t::to_monty(1 << 5)),           // 1 << 5
-        bb31_t(bb31_t::to_monty(1 << 6)),           // 1 << 6
-        bb31_t(bb31_t::to_monty(1 << 7)),           // 1 << 7
-        bb31_t(bb31_t::to_monty(1 << 8)),           // 1 << 8
-        bb31_t(bb31_t::to_monty(1 << 9)),           // 1 << 9
-        bb31_t(bb31_t::to_monty(1 << 10)),          // 1 << 10
-        bb31_t(bb31_t::to_monty(1 << 11)),          // 1 << 11
-        bb31_t(bb31_t::to_monty(1 << 12)),          // 1 << 12
-        bb31_t(bb31_t::to_monty(1 << 13)),          // 1 << 13
-        bb31_t(bb31_t::to_monty(1 << 15)),          // 1 << 15
+        //according latest p3
+        bb31_t(bb31_t::to_monty(0x78000001u - 2)),            // BabyBear::ORDER_U32 - 2
+        bb31_t(bb31_t::to_monty(1)),                          // 1
+        bb31_t(bb31_t::to_monty(2)),                          // 2
+        bb31_t(bb31_t::to_monty(0x78000001u + 1) >> 1),       // (BabyBear::ORDER_U32 + 1) >> 1,
+        bb31_t(bb31_t::to_monty(3)),                          // 3
+        bb31_t(bb31_t::to_monty(4)),                          // 4
+        bb31_t(bb31_t::to_monty(1006632960)),                 // (BabyBear::ORDER_U32 - 1) >> 1,
+        bb31_t(bb31_t::to_monty(0x78000001u - 3)),            // BabyBear::ORDER_U32 - 3,
+        bb31_t(bb31_t::to_monty(0x78000001u - 4)),            // BabyBear::ORDER_U32 - 4,
+        bb31_t(bb31_t::to_monty(2005401601)),                 // BabyBear::ORDER_U32 - ((BabyBear::ORDER_U32 - 1) >> 8),
+        bb31_t(bb31_t::to_monty(1509949441)),                 // BabyBear::ORDER_U32 - ((BabyBear::ORDER_U32 - 1) >> 2),
+        bb31_t(bb31_t::to_monty(1761607681)),                 // BabyBear::ORDER_U32 - ((BabyBear::ORDER_U32 - 1) >> 3),
+        bb31_t(bb31_t::to_monty(0x78000001u - 15)),           // BabyBear::ORDER_U32 - 15,
+        bb31_t(bb31_t::to_monty(7864320)),                    // (BabyBear::ORDER_U32 - 1) >> 8,
+        bb31_t(bb31_t::to_monty(125829120)),                  // (BabyBear::ORDER_U32 - 1) >> 4,
+        bb31_t(bb31_t::to_monty(15)),                         // 15
 };
 #else
 constexpr const bb31_t POSEIDON2_INTERNAL_MATRIX_DIAG_16_BABYBEAR_MONTY[16] = {
-    bb31_t(bb31_t::to_monty(0x78000001u - 2)),  // BabyBear::ORDER_U32 - 2
-    bb31_t(bb31_t::to_monty(1)),                // 1
-    bb31_t(bb31_t::to_monty(1 << 1)),           // 1 << 1
-    bb31_t(bb31_t::to_monty(1 << 2)),           // 1 << 2
-    bb31_t(bb31_t::to_monty(1 << 3)),           // 1 << 3
-    bb31_t(bb31_t::to_monty(1 << 4)),           // 1 << 4
-    bb31_t(bb31_t::to_monty(1 << 5)),           // 1 << 5
-    bb31_t(bb31_t::to_monty(1 << 6)),           // 1 << 6
-    bb31_t(bb31_t::to_monty(1 << 7)),           // 1 << 7
-    bb31_t(bb31_t::to_monty(1 << 8)),           // 1 << 8
-    bb31_t(bb31_t::to_monty(1 << 9)),           // 1 << 9
-    bb31_t(bb31_t::to_monty(1 << 10)),          // 1 << 10
-    bb31_t(bb31_t::to_monty(1 << 11)),          // 1 << 11
-    bb31_t(bb31_t::to_monty(1 << 12)),          // 1 << 12
-    bb31_t(bb31_t::to_monty(1 << 13)),          // 1 << 13
-    bb31_t(bb31_t::to_monty(1 << 15)),          // 1 << 15
+    //according latest p3
+    bb31_t(bb31_t::to_monty(0x78000001u - 2)),            // BabyBear::ORDER_U32 - 2
+    bb31_t(bb31_t::to_monty(1)),                          // 1
+    bb31_t(bb31_t::to_monty(2)),                          // 2
+    bb31_t(bb31_t::to_monty(0x78000001u + 1) >> 1),       // (BabyBear::ORDER_U32 + 1) >> 1,
+    bb31_t(bb31_t::to_monty(3)),                          // 3
+    bb31_t(bb31_t::to_monty(4)),                          // 4
+    bb31_t(bb31_t::to_monty(1006632960)),                 // (BabyBear::ORDER_U32 - 1) >> 1,
+    bb31_t(bb31_t::to_monty(0x78000001u - 3)),            // BabyBear::ORDER_U32 - 3,
+    bb31_t(bb31_t::to_monty(0x78000001u - 4)),            // BabyBear::ORDER_U32 - 4,
+    bb31_t(bb31_t::to_monty(2005401601)),                 // BabyBear::ORDER_U32 - ((BabyBear::ORDER_U32 - 1) >> 8),
+    bb31_t(bb31_t::to_monty(1509949441)),                 // BabyBear::ORDER_U32 - ((BabyBear::ORDER_U32 - 1) >> 2),
+    bb31_t(bb31_t::to_monty(1761607681)),                 // BabyBear::ORDER_U32 - ((BabyBear::ORDER_U32 - 1) >> 3),
+    bb31_t(bb31_t::to_monty(0x78000001u - 15)),           // BabyBear::ORDER_U32 - 15,
+    bb31_t(bb31_t::to_monty(7864320)),                    // (BabyBear::ORDER_U32 - 1) >> 8,
+    bb31_t(bb31_t::to_monty(125829120)),                  // (BabyBear::ORDER_U32 - 1) >> 4,
+    bb31_t(bb31_t::to_monty(15)),                         // 15
 };
 #endif
 }  // namespace sp1_recursion_core_sys::constants

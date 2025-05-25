@@ -43,7 +43,8 @@ impl Debug for VcsError {
 }
 
 impl<F: Field, HV: FieldHasher<F>> MerkleTree<F, HV> {
-    pub fn commit(leaves: Vec<HV::Digest>) -> (HV::Digest, Self) {
+    pub fn commit(leaves: Vec<HV::Digest>) -> (HV::Digest, Self) 
+    where <HV as FieldHasher<F>>::Digest: Serialize {
         assert!(!leaves.is_empty());
         let new_len = leaves.len().next_power_of_two();
         let height = log2_strict_usize(new_len);
@@ -153,7 +154,7 @@ pub fn verify<C: CircuitConfig, HV: FieldHasherVariable<C>>(
 mod tests {
     use itertools::Itertools;
     use p3_baby_bear::BabyBear;
-    use p3_field::AbstractField;
+    use p3_field::PrimeCharacteristicRing;
     use p3_util::log2_ceil_usize;
     use rand::rngs::OsRng;
     use sp1_recursion_compiler::{
@@ -197,7 +198,7 @@ mod tests {
                             .collect_vec(),
                     );
 
-                    let index_var = builder.constant(BabyBear::from_canonical_usize(i));
+                    let index_var = builder.constant(BabyBear::from_usize(i));
                     let index_bits = C::num2bits(&mut builder, index_var, log2_ceil_usize(j));
                     let root_variable: [Felt<_>; 8] =
                         root.iter().map(|x| builder.constant(*x)).collect_vec().try_into().unwrap();

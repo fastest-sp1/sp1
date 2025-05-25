@@ -43,8 +43,8 @@ mod tests {
         let lo_ts = 1u32;
         let hi_ts = lo_ts + 1;
 
-        let a: Vec<u32> = (0..8).map(|_| rng.gen()).collect();
-        let b: Vec<u32> = (0..64).map(|_| rng.gen()).collect();
+        let a: Vec<u32> = (0..8).map(|_| rng.r#gen()).collect();
+        let b: Vec<u32> = (0..64).map(|_| rng.r#gen()).collect();
 
         let uint256_a = BigUint::from_bytes_le(&words_to_bytes_le_vec(&a));
         let uint2048_b = BigUint::from_bytes_le(&words_to_bytes_le_vec(&b));
@@ -100,8 +100,8 @@ mod tests {
             let hi_words = bytes_to_words_le::<8>(&hi_bytes);
             (lo_words.to_vec(), hi_words.to_vec())
         } else {
-            let lo: Vec<u32> = (0..64).map(|_| rng.gen()).collect();
-            let hi: Vec<u32> = (0..8).map(|_| rng.gen()).collect();
+            let lo: Vec<u32> = (0..64).map(|_| rng.r#gen()).collect();
+            let hi: Vec<u32> = (0..8).map(|_| rng.r#gen()).collect();
             (lo, hi)
         };
         let mut lo_memory_records = Vec::new();
@@ -184,10 +184,9 @@ mod tests {
         let proof = uni_stark_prove::<BabyBearPoseidon2, _>(
             &config,
             &chip,
-            &mut config.challenger(),
             trace,
         );
-        uni_stark_verify(&config, &chip, &mut config.challenger(), &proof).unwrap();
+        uni_stark_verify(&config, &chip, &proof).unwrap();
     }
 
     #[test]
@@ -202,10 +201,9 @@ mod tests {
             let proof = uni_stark_prove::<BabyBearPoseidon2, _>(
                 &config,
                 &chip,
-                &mut config.challenger(),
                 trace,
             );
-            let result = uni_stark_verify(&config, &chip, &mut config.challenger(), &proof);
+            let result = uni_stark_verify(&config, &chip, &proof);
             assert!(result.is_ok());
         }
     }

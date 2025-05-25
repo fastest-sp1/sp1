@@ -1,4 +1,3 @@
-use ff::PrimeField as FFPrimeField;
 use p3_bn254_fr::{Bn254Fr, FFBn254Fr};
 use zkhash::{
     ark_ff::{BigInteger, PrimeField},
@@ -7,18 +6,15 @@ use zkhash::{
 };
 
 fn bn254_from_ark_ff(input: ark_FpBN256) -> Bn254Fr {
+    let mut full_bytes = [0; 32];
     let bytes = input.into_bigint().to_bytes_le();
-
-    let mut res = <FFBn254Fr as ff::PrimeField>::Repr::default();
-
-    for (i, digit) in res.0.as_mut().iter_mut().enumerate() {
-        *digit = bytes[i];
-    }
-
-    let value = FFBn254Fr::from_repr(res);
+    full_bytes[..bytes.len()].copy_from_slice(&bytes);
+    let value = FFBn254Fr::from_bytes(&full_bytes);
 
     if value.is_some().into() {
-        Bn254Fr { value: value.unwrap() }
+        Bn254Fr {
+            value: value.unwrap(),
+        }
     } else {
         panic!("Invalid field element")
     }

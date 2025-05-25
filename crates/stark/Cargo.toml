@@ -36,6 +36,7 @@ hashbrown = { version = "0.14.5", features = ["serde", "inline-more"] }
 itertools = { workspace = true }
 tracing = { workspace = true }
 rayon-scan = "0.1.1"
+rayon = "1.10.0"
 arrayref = "0.3.8"
 num-bigint = { version = "0.4.3", default-features = false }
 

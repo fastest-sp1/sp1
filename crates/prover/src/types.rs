@@ -4,8 +4,8 @@ use anyhow::Result;
 use clap::ValueEnum;
 use p3_baby_bear::BabyBear;
 use p3_bn254_fr::Bn254Fr;
-use p3_commit::{Pcs, TwoAdicMultiplicativeCoset};
-use p3_field::{AbstractField, PrimeField, PrimeField32, TwoAdicField};
+use p3_commit::{Pcs};
+use p3_field::{PrimeCharacteristicRing, PrimeField, PrimeField32, TwoAdicField, coset::TwoAdicMultiplicativeCoset};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sp1_core_machine::{io::SP1Stdin, reduce::SP1ReduceProof};
 use sp1_primitives::{io::SP1PublicValues, poseidon2_hash};
@@ -101,11 +101,11 @@ where
         inputs.extend(self.initial_global_cumulative_sum.0.x.0);
         inputs.extend(self.initial_global_cumulative_sum.0.y.0);
         for domain in prep_domains {
-            inputs.push(BabyBear::from_canonical_usize(domain.log_n));
-            let size = 1 << domain.log_n;
-            inputs.push(BabyBear::from_canonical_usize(size));
-            let g = BabyBear::two_adic_generator(domain.log_n);
-            inputs.push(domain.shift);
+            inputs.push(BabyBear::from_usize(domain.log_size()));
+            let size = 1 << domain.log_size();
+            inputs.push(BabyBear::from_usize(size));
+            let g = BabyBear::two_adic_generator(domain.log_size());
+            inputs.push(domain.shift());
             inputs.push(g);
         }
 

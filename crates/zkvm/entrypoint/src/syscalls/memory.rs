@@ -24,10 +24,10 @@ static mut HEAP_POS: usize = 0;
 ///
 /// Only available when the `bump` feature is enabled.
 #[allow(clippy::missing_safety_doc)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[cfg(feature = "bump")]
 pub unsafe extern "C" fn sys_alloc_aligned(bytes: usize, align: usize) -> *mut u8 {
-    extern "C" {
+   unsafe extern "C" {
         // https://lld.llvm.org/ELF/linker_script.html#sections-command
         static _end: u8;
     }

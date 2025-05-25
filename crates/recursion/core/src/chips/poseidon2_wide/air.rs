@@ -35,8 +35,8 @@ where
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
         let prepr = builder.preprocessed();
-        let local_row = Self::convert::<AB::Var>(main.row_slice(0));
-        let prep_local = prepr.row_slice(0);
+        let local_row = Self::convert::<AB::Var>(main.row_slice(0).unwrap());
+        let prep_local = prepr.row_slice(0).unwrap();
         let prep_local: &Poseidon2PreprocessedColsWide<_> = (*prep_local).borrow();
 
         // Dummy constraints to normalize to DEGREE.

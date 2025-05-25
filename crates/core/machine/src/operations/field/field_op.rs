@@ -64,7 +64,7 @@ impl<F: PrimeField32, P: FieldParameters> FieldOpCols<F, P> {
         debug_assert_eq!(&carry * modulus, a * b + c - &result);
 
         let p_modulus_limbs =
-            modulus.to_bytes_le().iter().map(|x| F::from_canonical_u8(*x)).collect::<Vec<F>>();
+            modulus.to_bytes_le().iter().map(|x| F::from_u8(*x)).collect::<Vec<F>>();
         let p_modulus: Polynomial<F> = p_modulus_limbs.iter().into();
         let p_result: Polynomial<F> = P::to_limbs_field::<F, _>(&result).into();
         let p_carry: Polynomial<F> = P::to_limbs_field::<F, _>(&carry).into();
@@ -84,8 +84,8 @@ impl<F: PrimeField32, P: FieldParameters> FieldOpCols<F, P> {
         self.result = p_result.into();
         self.carry = p_carry.into();
 
-        p_witness_low.resize(P::Witness::USIZE, F::zero());
-        p_witness_high.resize(P::Witness::USIZE, F::zero());
+        p_witness_low.resize(P::Witness::USIZE, F::ZERO);
+        p_witness_high.resize(P::Witness::USIZE, F::ZERO);
         self.witness_low = Limbs(p_witness_low.try_into().unwrap());
         self.witness_high = Limbs(p_witness_high.try_into().unwrap());
 
@@ -123,7 +123,7 @@ impl<F: PrimeField32, P: FieldParameters> FieldOpCols<F, P> {
         // the field, but modulus can == the field modulus so it can have 1 extra limb (ex.
         // uint256).
         let p_modulus_limbs =
-            modulus.to_bytes_le().iter().map(|x| F::from_canonical_u8(*x)).collect::<Vec<F>>();
+            modulus.to_bytes_le().iter().map(|x| F::from_u8(*x)).collect::<Vec<F>>();
         let p_modulus: Polynomial<F> = p_modulus_limbs.iter().into();
         let p_result: Polynomial<F> = P::to_limbs_field::<F, _>(&result).into();
         let p_carry: Polynomial<F> = P::to_limbs_field::<F, _>(&carry).into();
@@ -147,8 +147,8 @@ impl<F: PrimeField32, P: FieldParameters> FieldOpCols<F, P> {
         self.result = p_result.into();
         self.carry = p_carry.into();
 
-        p_witness_low.resize(P::Witness::USIZE, F::zero());
-        p_witness_high.resize(P::Witness::USIZE, F::zero());
+        p_witness_low.resize(P::Witness::USIZE, F::ZERO);
+        p_witness_high.resize(P::Witness::USIZE, F::ZERO);
         self.witness_low = Limbs(p_witness_low.try_into().unwrap());
         self.witness_high = Limbs(p_witness_high.try_into().unwrap());
 
@@ -397,7 +397,7 @@ mod tests {
     use num::bigint::RandBigInt;
     use p3_air::Air;
     use p3_baby_bear::BabyBear;
-    use p3_field::AbstractField;
+    use p3_field::PrimeCharacteristicRing;
     use p3_matrix::{dense::RowMajorMatrix, Matrix};
     use rand::thread_rng;
     use sp1_core_executor::events::ByteRecord;
@@ -464,7 +464,7 @@ mod tests {
                 .iter()
                 .map(|(a, b)| {
                     let mut blu_events = Vec::new();
-                    let mut row = [F::zero(); NUM_TEST_COLS];
+                    let mut row = [F::ZERO; NUM_TEST_COLS];
                     let cols: &mut TestCols<F, P> = row.as_mut_slice().borrow_mut();
                     cols.a = P::to_limbs_field::<F, _>(a);
                     cols.b = P::to_limbs_field::<F, _>(b);
@@ -501,9 +501,9 @@ mod tests {
     {
         fn eval(&self, builder: &mut AB) {
             let main = builder.main();
-            let local = main.row_slice(0);
+            let local = main.row_slice(0).unwrap();
             let local: &TestCols<AB::Var, P> = (*local).borrow();
-            local.a_op_b.eval(builder, &local.a, &local.b, self.operation, AB::F::one());
+            local.a_op_b.eval(builder, &local.a, &local.b, self.operation, AB::F::ONE);
         }
     }
 
@@ -529,17 +529,14 @@ mod tests {
         {
             println!("op: {:?}", op);
 
-            let mut challenger = config.challenger();
-
             let chip: FieldOpChip<Ed25519BaseField> = FieldOpChip::new(*op);
             let shard = ExecutionRecord::default();
             let trace: RowMajorMatrix<BabyBear> =
                 chip.generate_trace(&shard, &mut ExecutionRecord::default());
             let proof =
-                uni_stark_prove::<BabyBearPoseidon2, _>(&config, &chip, &mut challenger, trace);
+                uni_stark_prove::<BabyBearPoseidon2, _>(&config, &chip, trace);
 
-            let mut challenger = config.challenger();
-            uni_stark_verify(&config, &chip, &mut challenger, &proof).unwrap();
+            uni_stark_verify(&config, &chip, &proof).unwrap();
         }
     }
 }

@@ -5,7 +5,7 @@ use super::poseidon2::{
     Poseidon2Operation, NUM_EXTERNAL_ROUNDS,
 };
 use p3_air::AirBuilder;
-use p3_field::{AbstractExtensionField, AbstractField, Field, PrimeField32};
+use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, Field, PrimeField32};
 use sp1_core_executor::ByteOpcode;
 use sp1_derive::AlignedBorrow;
 use sp1_stark::{
@@ -32,8 +32,8 @@ impl<F: PrimeField32> GlobalInteractionOperation<F> {
         is_receive: bool,
         kind: u8,
     ) -> (SepticCurve<F>, u8, [F; 16], [F; 16]) {
-        let x_start = SepticExtension::<F>::from_base_fn(|i| F::from_canonical_u32(values.0[i])) +
-            SepticExtension::from_base(F::from_canonical_u32((kind as u32) << 16));
+        let x_start = SepticExtension::<F>::from_basis_coefficients_fn(|i| F::from_u32(values.0[i])) +
+            SepticExtension::from(F::from_u32((kind as u32) << 16));
         let (point, offset, m_trial, m_hash) = SepticCurve::<F>::lift_x(x_start);
         if !is_receive {
             return (point.neg(), offset, m_trial, m_hash);
@@ -51,7 +51,7 @@ impl<F: PrimeField32> GlobalInteractionOperation<F> {
         if is_real {
             let (point, offset, m_trial, m_hash) = Self::get_digest(values, is_receive, kind);
             for i in 0..8 {
-                self.offset_bits[i] = F::from_canonical_u8((offset >> i) & 1);
+                self.offset_bits[i] = F::from_u8((offset >> i) & 1);
             }
             self.x_coordinate = SepticBlock::<F>::from(point.x.0);
             self.y_coordinate = SepticBlock::<F>::from(point.y.0);
@@ -60,14 +60,14 @@ impl<F: PrimeField32> GlobalInteractionOperation<F> {
             } else {
                 point.y.0[6].as_canonical_u32() - F::ORDER_U32.div_ceil(2)
             };
-            let mut top_4_bits = F::zero();
+            let mut top_4_bits = F::ZERO;
             for i in 0..30 {
-                self.y6_bit_decomp[i] = F::from_canonical_u32((range_check_value >> i) & 1);
+                self.y6_bit_decomp[i] = F::from_u32((range_check_value >> i) & 1);
                 if i >= 26 {
                     top_4_bits += self.y6_bit_decomp[i];
                 }
             }
-            top_4_bits -= F::from_canonical_u32(4);
+            top_4_bits -= F::from_u32(4);
             self.range_check_witness = top_4_bits.inverse();
             self.permutation = populate_perm_deg3(m_trial, Some(m_hash));
 
@@ -80,19 +80,19 @@ impl<F: PrimeField32> GlobalInteractionOperation<F> {
 
     pub fn populate_dummy(&mut self) {
         for i in 0..8 {
-            self.offset_bits[i] = F::zero();
+            self.offset_bits[i] = F::ZERO;
         }
-        self.x_coordinate = SepticBlock::<F>::from_base_fn(|i| {
-            F::from_canonical_u32(CURVE_WITNESS_DUMMY_POINT_X[i])
+        self.x_coordinate = SepticBlock::<F>::from_basis_coefficients_fn(|i| {
+            F::from_u32(CURVE_WITNESS_DUMMY_POINT_X[i])
         });
-        self.y_coordinate = SepticBlock::<F>::from_base_fn(|i| {
-            F::from_canonical_u32(CURVE_WITNESS_DUMMY_POINT_Y[i])
+        self.y_coordinate = SepticBlock::<F>::from_basis_coefficients_fn(|i| {
+            F::from_u32(CURVE_WITNESS_DUMMY_POINT_Y[i])
         });
         for i in 0..30 {
-            self.y6_bit_decomp[i] = F::zero();
+            self.y6_bit_decomp[i] = F::ZERO;
         }
-        self.range_check_witness = F::zero();
-        self.permutation = populate_perm_deg3([F::zero(); 16], None);
+        self.range_check_witness = F::ZERO;
+        self.permutation = populate_perm_deg3([F::ZERO; 16], None);
     }
 }
 
@@ -111,19 +111,19 @@ impl<F: Field> GlobalInteractionOperation<F> {
         builder.assert_bool(is_real);
 
         // Compute the offset and range check each bits, ensuring that the offset is a byte.
-        let mut offset = AB::Expr::zero();
+        let mut offset = AB::Expr::ZERO;
         for i in 0..8 {
             builder.assert_bool(cols.offset_bits[i]);
-            offset = offset.clone() + cols.offset_bits[i] * AB::F::from_canonical_u32(1 << i);
+            offset = offset.clone() + cols.offset_bits[i] * AB::F::from_u32(1 << i);
         }
 
         // Range check the first element in the message to be a u16 so that we can encode the
         // interaction kind in the upper 8 bits.
         builder.send_byte(
-            AB::Expr::from_canonical_u8(ByteOpcode::U16Range as u8),
+            AB::Expr::from_u8(ByteOpcode::U16Range as u8),
             values[0].clone(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
             is_real,
         );
 
@@ -131,7 +131,7 @@ impl<F: Field> GlobalInteractionOperation<F> {
         // of the Poseidon2 hash is 8. Combining `values[0]` with `kind` is safe, as
         // `values[0]` is range checked to be u16, and `kind` is known to be u8.
         let m_trial = [
-            values[0].clone() + AB::Expr::from_canonical_u32(1 << 16) * kind,
+            values[0].clone() + AB::Expr::from_u32(1 << 16) * kind,
             values[1].clone(),
             values[2].clone(),
             values[3].clone(),
@@ -139,14 +139,14 @@ impl<F: Field> GlobalInteractionOperation<F> {
             values[5].clone(),
             values[6].clone(),
             offset.clone(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
         ];
 
         // Constrain the input of the permutation to be the message.
@@ -168,8 +168,8 @@ impl<F: Field> GlobalInteractionOperation<F> {
         for i in 0..7 {
             builder.when(is_real).assert_eq(cols.x_coordinate[i].into(), m_hash[i]);
         }
-        let x = SepticExtension::<AB::Expr>::from_base_fn(|i| cols.x_coordinate[i].into());
-        let y = SepticExtension::<AB::Expr>::from_base_fn(|i| cols.y_coordinate[i].into());
+        let x = SepticExtension::<AB::Expr>::from_basis_coefficients_fn(|i| cols.x_coordinate[i].into());
+        let y = SepticExtension::<AB::Expr>::from_basis_coefficients_fn(|i| cols.y_coordinate[i].into());
 
         // Constrain that `(x, y)` is a valid point on the curve.
         let y2 = y.square();
@@ -180,11 +180,11 @@ impl<F: Field> GlobalInteractionOperation<F> {
         // Decompose `y6_value` into 30 bits, and then constrain that the top 4 bits cannot be all
         // 1. To do this, check that the sum of the top 4 bits is not equal to 4, which can
         // be done by providing an inverse.
-        let mut y6_value = AB::Expr::zero();
-        let mut top_4_bits = AB::Expr::zero();
+        let mut y6_value = AB::Expr::ZERO;
+        let mut top_4_bits = AB::Expr::ZERO;
         for i in 0..30 {
             builder.assert_bool(cols.y6_bit_decomp[i]);
-            y6_value = y6_value.clone() + cols.y6_bit_decomp[i] * AB::F::from_canonical_u32(1 << i);
+            y6_value = y6_value.clone() + cols.y6_bit_decomp[i] * AB::F::from_u32(1 << i);
             if i >= 26 {
                 top_4_bits = top_4_bits.clone() + cols.y6_bit_decomp[i];
             }
@@ -192,18 +192,18 @@ impl<F: Field> GlobalInteractionOperation<F> {
         // If `is_real` is true, check that `top_4_bits - 4` is non-zero, by checking
         // `range_check_witness` is an inverse of it.
         builder.when(is_real).assert_eq(
-            cols.range_check_witness * (top_4_bits - AB::Expr::from_canonical_u8(4)),
-            AB::Expr::one(),
+            cols.range_check_witness * (top_4_bits - AB::Expr::from_u8(4)),
+            AB::Expr::ONE,
         );
 
         // Constrain that y has correct sign.
         // If it's a receive: `1 <= y_6 <= (p - 1) / 2`, so `0 <= y_6 - 1 = y6_value < (p - 1) / 2`.
         // If it's a send: `(p + 1) / 2 <= y_6 <= p - 1`, so `0 <= y_6 - (p + 1) / 2 = y6_value < (p
         // - 1) / 2`.
-        builder.when(is_receive).assert_eq(y.0[6].clone(), AB::Expr::one() + y6_value.clone());
+        builder.when(is_receive).assert_eq(y.0[6].clone(), AB::Expr::ONE + y6_value.clone());
         builder.when(is_send).assert_eq(
             y.0[6].clone(),
-            AB::Expr::from_canonical_u32((1 << 30) - (1 << 26) + 1) + y6_value.clone(),
+            AB::Expr::from_u32((1 << 30) - (1 << 26) + 1) + y6_value.clone(),
         );
     }
 }

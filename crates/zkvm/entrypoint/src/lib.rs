@@ -1,3 +1,4 @@
+#![allow(static_mut_refs)]
 #[cfg(all(target_os = "zkvm", feature = "embedded"))]
 use syscalls::MAX_MEMORY;
 
@@ -65,7 +66,7 @@ pub struct ReadVecResult {
 /// If the input stream is exhausted, the failed flag will be returned as true. In this case, the
 /// other outputs from the function are likely incorrect, which is fine as `sp1-lib` always panics
 /// in the case that the input stream is exhausted.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn read_vec_raw() -> ReadVecResult {
     #[cfg(not(target_os = "zkvm"))]
     unreachable!("read_vec_raw should only be called on the zkvm target.");
@@ -142,7 +143,7 @@ mod zkvm {
     cfg_if! {
         if #[cfg(feature = "verify")] {
             use p3_baby_bear::BabyBear;
-            use p3_field::AbstractField;
+            use p3_field::PrimeCharacteristicRing;
 
             pub static mut DEFERRED_PROOFS_DIGEST: Option<[BabyBear; 8]> = None;
         }
@@ -157,30 +158,30 @@ mod zkvm {
         }
     }
 
-    #[no_mangle]
-    unsafe extern "C" fn __start() {
+    #[unsafe(no_mangle)]
+    extern "C" fn __start() {
         {
             #[cfg(all(target_os = "zkvm", feature = "embedded"))]
             crate::allocators::init();
 
             cfg_if::cfg_if! {
                 if #[cfg(feature = "blake3")] {
-                    PUBLIC_VALUES_HASHER = Some(blake3::Hasher::new());
+                    unsafe { PUBLIC_VALUES_HASHER = Some(blake3::Hasher::new());}
                 }
                 else {
-                    PUBLIC_VALUES_HASHER = Some(Sha256::new());
+                    unsafe { PUBLIC_VALUES_HASHER = Some(Sha256::new());}
                 }
             }
 
             #[cfg(feature = "verify")]
             {
-                DEFERRED_PROOFS_DIGEST = Some([BabyBear::zero(); 8]);
+                unsafe { DEFERRED_PROOFS_DIGEST = Some([BabyBear::ZERO; 8]);}
             }
 
-            extern "C" {
+         unsafe   extern "C" {
                 fn main();
             }
-            main()
+            unsafe { main() }
         }
 
         syscall_halt(0);
@@ -208,9 +209,7 @@ mod zkvm {
     );
 
     pub fn zkvm_getrandom(s: &mut [u8]) -> Result<(), getrandom::Error> {
-        unsafe {
-            crate::syscalls::sys_rand(s.as_mut_ptr(), s.len());
-        }
+        crate::syscalls::sys_rand(s.as_mut_ptr(), s.len());
 
         Ok(())
     }
@@ -225,7 +224,7 @@ macro_rules! entrypoint {
 
         mod zkvm_generated_main {
 
-            #[no_mangle]
+            #[unsafe(no_mangle)]
             fn main() {
                 // Link to the actual entrypoint only when compiling for zkVM, otherwise run a
                 // simple noop. Doing this avoids compilation errors when building for the host

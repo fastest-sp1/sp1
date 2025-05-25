@@ -4,7 +4,7 @@
 use std::{array, borrow::Borrow};
 
 use p3_air::{Air, AirBuilder, BaseAir, PairBuilder};
-use p3_field::AbstractField;
+use p3_field::PrimeCharacteristicRing;
 use p3_matrix::Matrix;
 
 use crate::{builder::SP1RecursionAirBuilder, chips::poseidon2_skinny::columns::Poseidon2};
@@ -32,11 +32,11 @@ where
         assert!(DEGREE >= 9);
 
         let main = builder.main();
-        let (local_row, next_row) = (main.row_slice(0), main.row_slice(1));
+        let (local_row, next_row) = (main.row_slice(0).unwrap(), main.row_slice(1).unwrap());
         let local_row: &Poseidon2<_> = (*local_row).borrow();
         let next_row: &Poseidon2<_> = (*next_row).borrow();
         let prepr = builder.preprocessed();
-        let prep_local = prepr.row_slice(0);
+        let prep_local = prepr.row_slice(0).unwrap();
         let prep_local: &Poseidon2PreprocessedCols<_> = (*prep_local).borrow();
 
         // Dummy constraints to normalize to DEGREE.
@@ -105,7 +105,7 @@ impl<const DEGREE: usize> Poseidon2SkinnyChip<DEGREE> {
 
         // Apply the sboxes.
         // See `populate_external_round` for why we don't have columns for the sbox output here.
-        let mut sbox_deg_7: [AB::Expr; WIDTH] = core::array::from_fn(|_| AB::Expr::zero());
+        let mut sbox_deg_7: [AB::Expr; WIDTH] = core::array::from_fn(|_| AB::Expr::ZERO);
         for i in 0..WIDTH {
             let sbox_deg_3 = add_rc[i].clone() * add_rc[i].clone() * add_rc[i].clone();
             sbox_deg_7[i] = sbox_deg_3.clone() * sbox_deg_3.clone() * add_rc[i].clone();

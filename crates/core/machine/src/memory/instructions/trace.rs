@@ -86,10 +86,10 @@ impl MemoryInstructionsChip {
         cols: &mut MemoryInstructionsColumns<F>,
         blu: &mut HashMap<ByteLookupEvent, usize>,
     ) {
-        cols.shard = F::from_canonical_u32(event.shard);
-        assert!(cols.shard != F::zero());
-        cols.clk = F::from_canonical_u32(event.clk);
-        cols.pc = F::from_canonical_u32(event.pc);
+        cols.shard = F::from_u32(event.shard);
+        assert!(cols.shard != F::ZERO);
+        cols.clk = F::from_u32(event.clk);
+        cols.pc = F::from_u32(event.pc);
         cols.op_a_value = event.a.into();
         cols.op_b_value = event.b.into();
         cols.op_c_value = event.c.into();
@@ -103,13 +103,13 @@ impl MemoryInstructionsChip {
         let aligned_addr = memory_addr - memory_addr % WORD_SIZE as u32;
         cols.addr_word = memory_addr.into();
         cols.addr_word_range_checker.populate(cols.addr_word, blu);
-        cols.addr_aligned = F::from_canonical_u32(aligned_addr);
+        cols.addr_aligned = F::from_u32(aligned_addr);
 
         // Populate the aa_least_sig_byte_decomp columns.
         assert!(aligned_addr % 4 == 0);
         // Populate memory offsets.
         let addr_ls_two_bits = (memory_addr % WORD_SIZE as u32) as u8;
-        cols.addr_ls_two_bits = F::from_canonical_u8(addr_ls_two_bits);
+        cols.addr_ls_two_bits = F::from_u8(addr_ls_two_bits);
         cols.ls_bits_is_one = F::from_bool(addr_ls_two_bits == 1);
         cols.ls_bits_is_two = F::from_bool(addr_ls_two_bits == 2);
         cols.ls_bits_is_three = F::from_bool(addr_ls_two_bits == 3);
@@ -159,8 +159,8 @@ impl MemoryInstructionsChip {
                     cols.mem_value_is_neg_not_x0 = F::from_bool(!event.op_a_0);
                 }
 
-                cols.most_sig_byte = F::from_canonical_u8(most_sig_mem_value_byte);
-                cols.most_sig_bit = F::from_canonical_u8(most_sig_mem_value_bit);
+                cols.most_sig_byte = F::from_u8(most_sig_mem_value_byte);
+                cols.most_sig_bit = F::from_u8(most_sig_mem_value_bit);
 
                 blu.add_byte_lookup_event(ByteLookupEvent {
                     opcode: ByteOpcode::MSB,
@@ -174,7 +174,7 @@ impl MemoryInstructionsChip {
             // Set the `mem_value_is_pos_not_x0` composite flag.
             cols.mem_value_is_pos_not_x0 = F::from_bool(
                 ((matches!(event.opcode, Opcode::LB | Opcode::LH) &&
-                    (cols.most_sig_bit == F::zero())) ||
+                    (cols.most_sig_bit == F::ZERO)) ||
                     matches!(event.opcode, Opcode::LBU | Opcode::LHU | Opcode::LW)) &&
                     !event.op_a_0,
             )
@@ -202,7 +202,7 @@ impl MemoryInstructionsChip {
         cols.most_sig_bytes_zero
             .populate_from_field_element(cols.addr_word[1] + cols.addr_word[2] + cols.addr_word[3]);
 
-        if cols.most_sig_bytes_zero.result == F::one() {
+        if cols.most_sig_bytes_zero.result == F::ONE {
             blu.add_byte_lookup_event(ByteLookupEvent {
                 opcode: ByteOpcode::LTU,
                 a1: 1,

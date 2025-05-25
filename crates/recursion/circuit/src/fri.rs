@@ -1,9 +1,9 @@
 use itertools::{izip, Itertools};
 use p3_baby_bear::BabyBear;
-use p3_commit::PolynomialSpace;
-use p3_field::{AbstractField, TwoAdicField};
+use p3_commit::{BatchOpening, PolynomialSpace};
+use p3_field::{PrimeCharacteristicRing, TwoAdicField};
 use p3_fri::{
-    BatchOpening, CommitPhaseProofStep, FriConfig, FriProof, QueryProof, TwoAdicFriPcsProof,
+    CommitPhaseProofStep, FriConfig, FriProof, QueryProof, TwoAdicFriPcsProof,
 };
 use p3_symmetric::Hash;
 use p3_util::log2_strict_usize;
@@ -109,7 +109,7 @@ pub fn verify_two_adic_pcs<C: CircuitConfig<F = SC::Val>, SC: BabyBearFriConfigV
 
     // The powers of alpha, where the ith element is alpha^i.
     let mut alpha_pows: Vec<Ext<C::F, C::EF>> =
-        vec![builder.eval(SymbolicExt::from_f(C::EF::one()))];
+        vec![builder.eval(SymbolicExt::from_ext(C::EF::ONE))];
 
     // Hack to "pre-insert" powers of alpha. It's sort of like CPS.
     let mut pre_loop_ops = mem::take(builder.get_mut_operations());
@@ -122,7 +122,7 @@ pub fn verify_two_adic_pcs<C: CircuitConfig<F = SC::Val>, SC: BabyBearFriConfigV
             // The powers of alpha, where the ith element is alpha^i.
             let mut log_height_pow = [0usize; 32];
             let mut ro: [Ext<C::F, C::EF>; 32] =
-                [builder.eval(SymbolicExt::from_f(C::EF::zero())); 32];
+                [builder.eval(SymbolicExt::from_ext(C::EF::ZERO)); 32];
 
             for (batch_opening, round) in zip(query_opening, rounds.iter().cloned()) {
                 let batch_commit = round.batch_commit;
@@ -277,7 +277,7 @@ pub fn verify_query<C: CircuitConfig<F = SC::Val>, SC: BabyBearFriConfigVariable
     reduced_openings: [Ext<C::F, C::EF>; 32],
     log_max_height: usize,
 ) -> Ext<C::F, C::EF> {
-    let mut folded_eval: Ext<_, _> = builder.constant(C::EF::zero());
+    let mut folded_eval: Ext<_, _> = builder.constant(C::EF::ZERO);
     let two_adic_generator: Felt<_> = builder.constant(C::F::two_adic_generator(log_max_height));
 
     // TODO: fix expreversebits address bug to avoid needing to allocate a new variable.
@@ -407,7 +407,7 @@ pub fn verify_batch<C: CircuitConfig<F = SC::Val>, SC: BabyBearFriConfigVariable
 }
 
 pub fn dummy_hash() -> Hash<BabyBear, BabyBear, DIGEST_SIZE> {
-    [BabyBear::zero(); DIGEST_SIZE].into()
+    [BabyBear::ZERO; DIGEST_SIZE].into()
 }
 
 pub fn dummy_query_proof(
@@ -417,7 +417,7 @@ pub fn dummy_query_proof(
     QueryProof {
         commit_phase_openings: (0..height)
             .map(|i| CommitPhaseProofStep {
-                sibling_value: InnerChallenge::zero(),
+                sibling_value: InnerChallenge::ZERO,
                 opening_proof: vec![dummy_hash().into(); height - i + log_blowup - 1],
             })
             .collect(),
@@ -441,8 +441,8 @@ pub fn dummy_pcs_proof(
     let fri_proof = FriProof {
         commit_phase_commits: vec![dummy_hash(); max_height],
         query_proofs: vec![dummy_query_proof(max_height, log_blowup); fri_queries],
-        final_poly: InnerChallenge::zero(),
-        pow_witness: InnerVal::zero(),
+        final_poly: InnerChallenge::ZERO,
+        pow_witness: InnerVal::ZERO,
     };
 
     // For each query, create a dummy batch opening for each matrix in the batch. `batch_shapes`
@@ -458,7 +458,7 @@ pub fn dummy_pcs_proof(
                         opened_values: shapes
                             .shapes
                             .iter()
-                            .map(|shape| vec![BabyBear::zero(); shape.width])
+                            .map(|shape| vec![BabyBear::ZERO; shape.width])
                             .collect(),
                         opening_proof: vec![dummy_hash().into(); batch_max_height + log_blowup],
                     }
@@ -481,7 +481,7 @@ mod tests {
     };
     use p3_challenger::{CanObserve, CanSample, FieldChallenger};
     use p3_commit::Pcs;
-    use p3_field::{extension::BinomialExtensionField, AbstractField};
+    use p3_field::{extension::BinomialExtensionField, PrimeCharacteristicRing};
     use p3_fri::verifier;
     use p3_matrix::dense::RowMajorMatrix;
     use rand::{
@@ -530,7 +530,7 @@ mod tests {
                     .iter()
                     .map(|commit_phase_opening| {
                         let sibling_value =
-                            builder.eval(SymbolicExt::from_f(commit_phase_opening.sibling_value));
+                            builder.eval(SymbolicExt::from_ext(commit_phase_opening.sibling_value));//old: from_f
                         let opening_proof = commit_phase_opening
                             .opening_proof
                             .iter()
@@ -547,7 +547,7 @@ mod tests {
         FriProofVariable {
             commit_phase_commits,
             query_proofs,
-            final_poly: builder.eval(SymbolicExt::from_f(fri_proof.final_poly)),
+            final_poly: builder.eval(SymbolicExt::from_ext(fri_proof.final_poly)),
             pow_witness: builder.eval(fri_proof.pow_witness),
         }
     }
@@ -586,7 +586,7 @@ mod tests {
             .into_iter()
             .map(|x| x.into_iter().map(|y| vec![builder.eval::<Felt<_>, _>(y)]).collect())
             .collect();
-        let index = builder.eval(F::from_canonical_u32(6));
+        let index = builder.eval(F::from_u32(6));
         let index_bits = C::num2bits(&mut builder, index, 31);
         let proof = proof.into_iter().map(|p| p.map(|x| builder.eval(x))).collect();
         verify_batch::<_, SC>(
@@ -608,7 +608,7 @@ mod tests {
         let hash = InnerHash::new(perm.clone());
         let compress = InnerCompress::new(perm.clone());
         let val_mmcs = InnerValMmcs::new(hash, compress);
-        let dft = InnerDft {};
+        let dft = InnerDft::default();
         let pcs: InnerPcs =
             InnerPcs::new(log_degrees.iter().copied().max().unwrap(), dft, val_mmcs, fri_config);
 
@@ -631,7 +631,7 @@ mod tests {
         );
         let mut challenger = InnerChallenger::new(perm.clone());
         challenger.observe(commit);
-        let zeta = challenger.sample_ext_element::<InnerChallenge>();
+        let zeta = challenger.sample_algebra_element::<InnerChallenge>();
         let points = repeat_with(|| vec![zeta]).take(domains_and_polys.len()).collect::<Vec<_>>();
         let (all_opened_values, proof) = pcs.open(vec![(&data, points)], &mut challenger);
 
@@ -646,9 +646,9 @@ mod tests {
             .flat_map(|v| v.into_iter())
             .collect();
         for ext_element in flattened_opened_values.iter() {
-            challenger.observe_ext_element(*ext_element);
+            challenger.observe_algebra_element(*ext_element);
         }
-        let _: BinomialExtensionField<BabyBear, 4> = challenger.sample_ext_element();
+        let _: BinomialExtensionField<BabyBear, 4> = challenger.sample_algebra_element();
 
         let fri_challenges_gt = verifier::verify_shape_and_sample_challenges(
             &inner_fri_config(),
@@ -668,7 +668,8 @@ mod tests {
         challenger.observe_slice(&mut builder, commit);
         let _ = challenger.sample_ext(&mut builder);
         for ext_element in flattened_opened_values.iter() {
-            let ext_variable: Ext<_, _> = builder.eval(SymbolicExt::from_f(*ext_element));
+            //let ext_variable: Ext<_, _> = builder.eval(SymbolicExt::from_prime_subfield(*ext_element));
+            let ext_variable: Ext<_, _> = builder.eval(SymbolicExt::from_ext(*ext_element));
             let point_felts = InnerConfig::ext2felt(&mut builder, ext_variable);
             point_felts.iter().for_each(|felt| {
                 challenger.observe(&mut builder, *felt);
@@ -684,7 +685,7 @@ mod tests {
 
         for i in 0..fri_challenges_gt.betas.len() {
             builder.assert_ext_eq(
-                SymbolicExt::from_f(fri_challenges_gt.betas[i]),
+                SymbolicExt::from_ext(fri_challenges_gt.betas[i]),
                 fri_challenges.betas[i],
             );
         }
@@ -693,7 +694,7 @@ mod tests {
             let query_indices =
                 C::bits2num(&mut builder, fri_challenges.query_indices[i].iter().cloned());
             builder.assert_felt_eq(
-                F::from_canonical_usize(fri_challenges_gt.query_indices[i]),
+                F::from_usize(fri_challenges_gt.query_indices[i]),
                 query_indices,
             );
         }
@@ -710,7 +711,7 @@ mod tests {
         let hash = InnerHash::new(perm.clone());
         let compress = InnerCompress::new(perm.clone());
         let val_mmcs = InnerValMmcs::new(hash, compress);
-        let dft = InnerDft {};
+        let dft = InnerDft::default();
         let pcs: InnerPcs =
             InnerPcs::new(log_degrees.iter().copied().max().unwrap(), dft, val_mmcs, fri_config);
 
@@ -733,14 +734,14 @@ mod tests {
         );
         let mut challenger = InnerChallenger::new(perm.clone());
         challenger.observe(commit);
-        let zeta = challenger.sample_ext_element::<InnerChallenge>();
+        let zeta = challenger.sample_algebra_element::<InnerChallenge>();
         let points = domains_and_polys.iter().map(|_| vec![zeta]).collect::<Vec<_>>();
         let (opening, proof) = pcs.open(vec![(&data, points)], &mut challenger);
 
         // Verify proof.
         let mut challenger = InnerChallenger::new(perm.clone());
         challenger.observe(commit);
-        let x1 = challenger.sample_ext_element::<InnerChallenge>();
+        let x1 = challenger.sample_algebra_element::<InnerChallenge>();
         let os = domains_and_polys
             .iter()
             .zip(&opening[0])
@@ -772,8 +773,8 @@ mod tests {
                         .iter()
                         .map(|(_, row)| {
                             (
-                                InnerChallenge::zero(),
-                                row.iter().map(|_| InnerChallenge::zero()).collect_vec(),
+                                InnerChallenge::ZERO,
+                                row.iter().map(|_| InnerChallenge::ZERO).collect_vec(),
                             )
                         })
                         .collect_vec(),

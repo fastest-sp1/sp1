@@ -20,7 +20,7 @@ unsafe impl critical_section::Impl for CriticalSection {
 }
 
 pub fn init() {
-    extern "C" {
+    unsafe extern "C" {
         // https://lld.llvm.org/ELF/linker_script.html#sections-command
         static _end: u8;
     }
@@ -35,7 +35,7 @@ struct EmbeddedAlloc;
 
 unsafe impl GlobalAlloc for EmbeddedAlloc {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        INNER_HEAP.alloc(layout)
+        unsafe { INNER_HEAP.alloc(layout) }
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
@@ -44,6 +44,6 @@ unsafe impl GlobalAlloc for EmbeddedAlloc {
             return;
         }
         // Deallocating other memory is allowed.
-        INNER_HEAP.dealloc(ptr, layout)
+        unsafe { INNER_HEAP.dealloc(ptr, layout)}
     }
 }

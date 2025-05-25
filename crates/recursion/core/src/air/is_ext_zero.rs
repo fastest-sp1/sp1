@@ -8,7 +8,7 @@ use crate::air::Block;
 use p3_air::AirBuilder;
 use p3_field::{
     extension::{BinomialExtensionField, BinomiallyExtendable},
-    AbstractField, Field,
+    PrimeCharacteristicRing, Field,
 };
 use sp1_derive::AlignedBorrow;
 use sp1_stark::air::{BinomialExtension, SP1AirBuilder};
@@ -33,16 +33,16 @@ impl<F: Field + BinomiallyExtendable<D>> IsExtZeroOperation<F> {
         let a = BinomialExtensionField::<F, D>::from_block(a);
 
         let (inverse, result) = if a.is_zero() {
-            (BinomialExtensionField::zero(), F::one())
+            (BinomialExtensionField::ZERO, F::ONE)
         } else {
-            (a.inverse(), F::zero())
+            (a.inverse(), F::ZERO)
         };
 
         self.inverse = inverse.as_block();
         self.result = result;
 
         let prod = inverse * a;
-        debug_assert!(prod == BinomialExtensionField::<F, D>::one() || prod.is_zero());
+        debug_assert!(prod == BinomialExtensionField::<F, D>::ONE || prod.is_zero());
 
         result
     }
@@ -70,7 +70,7 @@ impl<F: Field> IsExtZeroOperation<F> {
 
         // If the input is 0, then any product involving it is 0. If it is nonzero and its inverse
         // is correctly set, then the product is 1.
-        let one_ext = BinomialExtension::<AB::Expr>::from_base(AB::Expr::one());
+        let one_ext = BinomialExtension::<AB::Expr>::from_base(AB::Expr::ONE);
 
         let inverse = cols.inverse.as_extension::<AB>();
 

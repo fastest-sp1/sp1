@@ -1,7 +1,7 @@
 use hashbrown::HashMap;
 use itertools::Itertools;
 use p3_air::{Air, AirBuilder, BaseAir};
-use p3_field::{AbstractField, PrimeField32};
+use p3_field::{PrimeCharacteristicRing, PrimeField32};
 use p3_matrix::{dense::RowMajorMatrix, Matrix};
 use rayon::iter::{ParallelBridge, ParallelIterator};
 use sp1_core_executor::{
@@ -72,7 +72,7 @@ where
     #[inline(never)]
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
-        let local = main.row_slice(0);
+        let local = main.row_slice(0).unwrap();
         let local: &AuipcColumns<AB::Var> = (*local).borrow();
 
         // SAFETY: All selectors `is_auipc`, `is_unimp`, `is_ebreak` are checked to be boolean.
@@ -84,9 +84,9 @@ where
         let is_real = local.is_auipc + local.is_unimp + local.is_ebreak;
         builder.assert_bool(is_real.clone());
 
-        let opcode = AB::Expr::from_canonical_u32(Opcode::AUIPC as u32) * local.is_auipc +
-            AB::Expr::from_canonical_u32(Opcode::UNIMP as u32) * local.is_unimp +
-            AB::Expr::from_canonical_u32(Opcode::EBREAK as u32) * local.is_ebreak;
+        let opcode = AB::Expr::from_u32(Opcode::AUIPC as u32) * local.is_auipc +
+            AB::Expr::from_u32(Opcode::UNIMP as u32) * local.is_unimp +
+            AB::Expr::from_u32(Opcode::EBREAK as u32) * local.is_ebreak;
 
         // SAFETY: This checks the following.
         // - `next_pc = pc + 4`
@@ -98,20 +98,20 @@ where
         // - `is_syscall = 0`
         // - `is_halt = 0`
         builder.receive_instruction(
-            AB::Expr::zero(),
-            AB::Expr::zero(),
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
             local.pc.reduce::<AB>(),
-            local.pc.reduce::<AB>() + AB::Expr::from_canonical_u32(DEFAULT_PC_INC),
-            AB::Expr::zero(),
+            local.pc.reduce::<AB>() + AB::Expr::from_u32(DEFAULT_PC_INC),
+            AB::Expr::ZERO,
             opcode,
             local.op_a_value,
             local.op_b_value,
             local.op_c_value,
-            AB::Expr::one() - local.op_a_not_0,
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
+            AB::Expr::ONE - local.op_a_not_0,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
             is_real.clone(),
         );
 
@@ -133,20 +133,20 @@ where
 
         // Verify that op_a == pc + op_b, when `op_a_not_0 == 1`.
         builder.send_instruction(
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::from_canonical_u32(UNUSED_PC),
-            AB::Expr::from_canonical_u32(UNUSED_PC + DEFAULT_PC_INC),
-            AB::Expr::zero(),
-            AB::Expr::from_canonical_u32(Opcode::ADD as u32),
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::from_u32(UNUSED_PC),
+            AB::Expr::from_u32(UNUSED_PC + DEFAULT_PC_INC),
+            AB::Expr::ZERO,
+            AB::Expr::from_u32(Opcode::ADD as u32),
             local.op_a_value,
             local.pc,
             local.op_b_value,
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
             local.op_a_not_0,
         );
 
@@ -229,7 +229,7 @@ mod tests {
     use std::borrow::BorrowMut;
 
     use p3_baby_bear::BabyBear;
-    use p3_field::AbstractField;
+    use p3_field::PrimeCharacteristicRing;
     use p3_matrix::dense::RowMajorMatrix;
     use sp1_core_executor::{
         ExecutionError, ExecutionRecord, Executor, Instruction, Opcode, Program,
@@ -294,8 +294,8 @@ mod tests {
                     if *chip_name == auipc_chip_name {
                         let first_row: &mut [BabyBear] = trace.row_mut(0);
                         let first_row: &mut AuipcColumns<BabyBear> = first_row.borrow_mut();
-                        assert!(first_row.is_auipc == BabyBear::one());
-                        first_row.is_unimp = BabyBear::one();
+                        assert!(first_row.is_auipc == BabyBear::ONE);
+                        first_row.is_unimp = BabyBear::ONE;
                     }
                 }
                 traces

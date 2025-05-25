@@ -14,7 +14,7 @@ use sp1_stark::air::SP1AirBuilder;
 
 use super::{field_op::FieldOpCols, range::FieldLtCols};
 use crate::air::WordAirBuilder;
-use p3_field::AbstractField;
+use p3_field::PrimeCharacteristicRing;
 
 /// A set of columns to compute the square root in emulated arithmetic.
 ///
@@ -63,7 +63,7 @@ impl<F: PrimeField32, P: FieldParameters> FieldSqrtCols<F, P> {
         self.range.populate(record, &sqrt, &modulus);
 
         let sqrt_bytes = P::to_limbs(&sqrt);
-        self.lsb = F::from_canonical_u8(sqrt_bytes[0] & 1);
+        self.lsb = F::from_u8(sqrt_bytes[0] & 1);
 
         let and_event = ByteLookupEvent {
             opcode: ByteOpcode::AND,
@@ -133,7 +133,7 @@ where
             ByteOpcode::AND.as_field::<AB::F>(),
             self.lsb,
             sqrt[0],
-            AB::F::one(),
+            AB::F::ONE,
             is_real,
         );
     }
@@ -159,7 +159,7 @@ mod tests {
     use num::bigint::RandBigInt;
     use p3_air::Air;
     use p3_baby_bear::BabyBear;
-    use p3_field::AbstractField;
+    use p3_field::PrimeCharacteristicRing;
     use p3_matrix::{dense::RowMajorMatrix, Matrix};
     use rand::thread_rng;
     use sp1_core_executor::events::ByteRecord;
@@ -220,7 +220,7 @@ mod tests {
                 .iter()
                 .map(|a| {
                     let mut blu_events = Vec::new();
-                    let mut row = [F::zero(); NUM_TEST_COLS];
+                    let mut row = [F::ZERO; NUM_TEST_COLS];
                     let cols: &mut TestCols<F, P> = row.as_mut_slice().borrow_mut();
                     cols.a = P::to_limbs_field::<F, _>(a);
                     cols.sqrt.populate(&mut blu_events, a, |v| ed25519_sqrt(v).unwrap());
@@ -256,11 +256,11 @@ mod tests {
     {
         fn eval(&self, builder: &mut AB) {
             let main = builder.main();
-            let local = main.row_slice(0);
+            let local = main.row_slice(0).unwrap();
             let local: &TestCols<AB::Var, P> = (*local).borrow();
 
             // eval verifies that local.sqrt.result is indeed the square root of local.a.
-            local.sqrt.eval(builder, &local.a, AB::F::zero(), AB::F::one());
+            local.sqrt.eval(builder, &local.a, AB::F::ZERO, AB::F::ONE);
         }
     }
 
@@ -276,15 +276,13 @@ mod tests {
     #[test]
     fn prove_babybear() {
         let config = BabyBearPoseidon2::new();
-        let mut challenger = config.challenger();
 
         let chip: EdSqrtChip<Ed25519BaseField> = EdSqrtChip::new();
         let shard = ExecutionRecord::default();
         let trace: RowMajorMatrix<BabyBear> =
             chip.generate_trace(&shard, &mut ExecutionRecord::default());
-        let proof = uni_stark_prove::<BabyBearPoseidon2, _>(&config, &chip, &mut challenger, trace);
+        let proof = uni_stark_prove::<BabyBearPoseidon2, _>(&config, &chip, trace);
 
-        let mut challenger = config.challenger();
-        uni_stark_verify(&config, &chip, &mut challenger, &proof).unwrap();
+        uni_stark_verify(&config, &chip,  &proof).unwrap();
     }
 }

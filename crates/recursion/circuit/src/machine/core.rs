@@ -8,7 +8,7 @@ use std::{
 use itertools::Itertools;
 use p3_baby_bear::BabyBear;
 use p3_commit::Mmcs;
-use p3_field::AbstractField;
+use p3_field::PrimeCharacteristicRing;
 use p3_matrix::dense::RowMajorMatrix;
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -244,20 +244,20 @@ where
 
                 // First, we assert that the `is_first_shard` flag is boolean.
                 builder
-                    .assert_felt_eq(is_first_shard * (is_first_shard - C::F::one()), C::F::zero());
+                    .assert_felt_eq(is_first_shard * (is_first_shard - C::F::ONE), C::F::ZERO);
                 // Assert that if `is_first_shard == 1`, then `initial_shard == 1`.
                 builder
-                    .assert_felt_eq(is_first_shard * (initial_shard - C::F::one()), C::F::zero());
+                    .assert_felt_eq(is_first_shard * (initial_shard - C::F::ONE), C::F::ZERO);
                 // Assert that if `is_first_shard == 0`, then `initial_shard != 1`.
                 // This asserts that if `initial_shard == 1`, then `is_first_shard == 1`.
                 builder.assert_felt_ne(
-                    (SymbolicFelt::one() - is_first_shard) * initial_shard,
-                    C::F::one(),
+                    (SymbolicFelt::ONE - is_first_shard) * initial_shard,
+                    C::F::ONE,
                 );
 
                 // If it's the first shard (which is the first execution shard), then the `start_pc`
                 // should be vk.pc_start.
-                builder.assert_felt_eq(is_first_shard * (start_pc - vk.pc_start), C::F::zero());
+                builder.assert_felt_eq(is_first_shard * (start_pc - vk.pc_start), C::F::ZERO);
                 // If it's the first shard, we add the vk's `initial_global_cumulative_sum` to the
                 // digest. If it's not the first shard, we add the zero digest to
                 // the digest.
@@ -268,10 +268,10 @@ where
 
                 // Assert that `init_addr_bits` and `finalize_addr_bits` are zero for the first
                 for bit in current_init_addr_bits.iter() {
-                    builder.assert_felt_eq(is_first_shard * *bit, C::F::zero());
+                    builder.assert_felt_eq(is_first_shard * *bit, C::F::ZERO);
                 }
                 for bit in current_finalize_addr_bits.iter() {
-                    builder.assert_felt_eq(is_first_shard * *bit, C::F::zero());
+                    builder.assert_felt_eq(is_first_shard * *bit, C::F::ZERO);
                 }
             }
 
@@ -289,7 +289,7 @@ where
             challenger.observe_slice(builder, vk.initial_global_cumulative_sum.0.x.0);
             challenger.observe_slice(builder, vk.initial_global_cumulative_sum.0.y.0);
             // Observe the padding.
-            let zero: Felt<_> = builder.eval(C::F::zero());
+            let zero: Felt<_> = builder.eval(C::F::ZERO);
             challenger.observe(builder, zero);
 
             // Observe the public values.
@@ -306,7 +306,7 @@ where
             // Assert that first shard has a "CPU". Equivalently, assert that if the shard does
             // not have a "CPU", then the current shard is not 1.
             if !contains_cpu {
-                builder.assert_felt_ne(current_shard, C::F::one());
+                builder.assert_felt_ne(current_shard, C::F::ONE);
             }
 
             // CPU log degree bound check constraints (this assertion is made in compile time).
@@ -321,7 +321,7 @@ where
                 builder.assert_felt_eq(current_shard, public_values.shard);
 
                 // Increment the current shard by one.
-                current_shard = builder.eval(current_shard + C::F::one());
+                current_shard = builder.eval(current_shard + C::F::ONE);
             }
 
             // Execution shard constraints.
@@ -339,7 +339,7 @@ where
 
                     builder.assert_felt_eq(current_execution_shard, public_values.execution_shard);
 
-                    current_execution_shard = builder.eval(current_execution_shard + C::F::one());
+                    current_execution_shard = builder.eval(current_execution_shard + C::F::ONE);
                 }
             }
 
@@ -354,7 +354,7 @@ where
                     builder.assert_felt_eq(public_values.start_pc, public_values.next_pc);
                 } else {
                     // If it's a shard with "CPU", then assert that the start_pc is not zero.
-                    builder.assert_felt_ne(public_values.start_pc, C::F::zero());
+                    builder.assert_felt_ne(public_values.start_pc, C::F::ZERO);
                 }
 
                 // Update current_pc to be the end_pc of the current proof.
@@ -364,7 +364,7 @@ where
             // Exit code constraints.
             {
                 // Assert that the exit code is zero (success) for all proofs.
-                builder.assert_felt_eq(exit_code, C::F::zero());
+                builder.assert_felt_eq(exit_code, C::F::ZERO);
             }
 
             // Memory initialization & finalization constraints.
@@ -448,7 +448,7 @@ where
                         {
                             builder.assert_felt_eq(
                                 is_non_zero * (byte_current - byte_public),
-                                C::F::zero(),
+                                C::F::ZERO,
                             );
                         }
                     }
@@ -498,7 +498,7 @@ where
                     {
                         builder.assert_felt_eq(
                             is_non_zero * (*deferred_current - *deferred_public),
-                            C::F::zero(),
+                            C::F::ZERO,
                         );
                     }
                 }
@@ -536,7 +536,7 @@ where
         let global_cumulative_sum = builder.sum_digest_v2(global_cumulative_sums);
 
         // Assert that the last exit code is zero.
-        builder.assert_felt_eq(exit_code, C::F::zero());
+        builder.assert_felt_eq(exit_code, C::F::ZERO);
 
         // Write all values to the public values struct and commit to them.
         {
@@ -544,7 +544,7 @@ where
             let vk_digest = vk.hash(builder);
 
             // Initialize the public values we will commit to.
-            let zero: Felt<_> = builder.eval(C::F::zero());
+            let zero: Felt<_> = builder.eval(C::F::ZERO);
             let mut recursion_public_values_stream = [zero; RECURSIVE_PROOF_NUM_PV_ELTS];
             let recursion_public_values: &mut RecursionPublicValues<_> =
                 recursion_public_values_stream.as_mut_slice().borrow_mut();
@@ -602,10 +602,10 @@ impl SP1RecursionWitnessValues<BabyBearPoseidon2> {
         Self {
             vk,
             shard_proofs,
-            reconstruct_deferred_digest: [BabyBear::zero(); DIGEST_SIZE],
+            reconstruct_deferred_digest: [BabyBear::ZERO; DIGEST_SIZE],
             is_complete: shape.is_complete,
             is_first_shard: false,
-            vk_root: [BabyBear::zero(); DIGEST_SIZE],
+            vk_root: [BabyBear::ZERO; DIGEST_SIZE],
         }
     }
 }

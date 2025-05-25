@@ -8,7 +8,7 @@ use crate::air::MemoryAirBuilder;
 use generic_array::GenericArray;
 use num::{BigUint, One, Zero};
 use p3_air::{Air, AirBuilder, BaseAir};
-use p3_field::{AbstractField, PrimeField32};
+use p3_field::{PrimeCharacteristicRing, PrimeField32};
 use p3_matrix::{dense::RowMajorMatrix, Matrix};
 use sp1_core_executor::{
     events::{ByteLookupEvent, ByteRecord, EdDecompressEvent, FieldOperation, PrecompileEvent},
@@ -68,9 +68,9 @@ impl<F: PrimeField32> EdDecompressCols<F> {
     ) {
         let mut new_byte_lookup_events = Vec::new();
         self.is_real = F::from_bool(true);
-        self.shard = F::from_canonical_u32(event.shard);
-        self.clk = F::from_canonical_u32(event.clk);
-        self.ptr = F::from_canonical_u32(event.ptr);
+        self.shard = F::from_u32(event.shard);
+        self.clk = F::from_u32(event.clk);
+        self.ptr = F::from_u32(event.ptr);
         self.sign = F::from_bool(event.sign);
         for i in 0..8 {
             self.x_access[i].populate(event.x_memory_records[i], &mut new_byte_lookup_events);
@@ -121,7 +121,7 @@ impl<V: Copy> EdDecompressCols<V> {
         self.u.eval(
             builder,
             &self.yy.result,
-            &[AB::Expr::one()].iter(),
+            &[AB::Expr::ONE].iter(),
             FieldOperation::Sub,
             self.is_real,
         );
@@ -130,7 +130,7 @@ impl<V: Copy> EdDecompressCols<V> {
         self.dyy.eval(builder, &d_const, &self.yy.result, FieldOperation::Mul, self.is_real);
         self.v.eval(
             builder,
-            &[AB::Expr::one()].iter(),
+            &[AB::Expr::ONE].iter(),
             &self.dyy.result,
             FieldOperation::Add,
             self.is_real,
@@ -145,10 +145,10 @@ impl<V: Copy> EdDecompressCols<V> {
 
         // Constrain that `x` is a square root. Note that `x.multiplication.result` is constrained
         // to be canonical here.
-        self.x.eval(builder, &self.u_div_v.result, AB::F::zero(), self.is_real);
+        self.x.eval(builder, &self.u_div_v.result, AB::F::ZERO, self.is_real);
         self.neg_x.eval(
             builder,
-            &[AB::Expr::zero()].iter(),
+            &[AB::Expr::ZERO].iter(),
             &self.x.multiplication.result,
             FieldOperation::Sub,
             self.is_real,
@@ -166,7 +166,7 @@ impl<V: Copy> EdDecompressCols<V> {
         builder.eval_memory_access_slice(
             self.shard,
             self.clk,
-            self.ptr.into() + AB::F::from_canonical_u32(32),
+            self.ptr.into() + AB::F::from_u32(32),
             &self.y_access,
             self.is_real,
         );
@@ -184,7 +184,7 @@ impl<V: Copy> EdDecompressCols<V> {
         builder.receive_syscall(
             self.shard,
             self.clk,
-            AB::F::from_canonical_u32(SyscallCode::ED_DECOMPRESS.syscall_id()),
+            AB::F::from_u32(SyscallCode::ED_DECOMPRESS.syscall_id()),
             self.ptr,
             self.sign,
             self.is_real,
@@ -227,7 +227,7 @@ impl<F: PrimeField32, E: EdwardsParameters> MachineAir<F> for EdDecompressChip<E
             } else {
                 unreachable!();
             };
-            let mut row = [F::zero(); NUM_ED_DECOMPRESS_COLS];
+            let mut row = [F::ZERO; NUM_ED_DECOMPRESS_COLS];
             let cols: &mut EdDecompressCols<F> = row.as_mut_slice().borrow_mut();
             cols.populate::<E::BaseField, E>(event.clone(), output);
 
@@ -237,7 +237,7 @@ impl<F: PrimeField32, E: EdwardsParameters> MachineAir<F> for EdDecompressChip<E
         pad_rows_fixed(
             &mut rows,
             || {
-                let mut row = [F::zero(); NUM_ED_DECOMPRESS_COLS];
+                let mut row = [F::ZERO; NUM_ED_DECOMPRESS_COLS];
                 let cols: &mut EdDecompressCols<F> = row.as_mut_slice().borrow_mut();
                 let zero = BigUint::zero();
                 cols.populate_field_ops::<E>(&mut vec![], &zero);
@@ -274,7 +274,7 @@ where
 {
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
-        let local = main.row_slice(0);
+        let local = main.row_slice(0).unwrap();
         let local: &EdDecompressCols<AB::Var> = (*local).borrow();
 
         local.eval::<AB, E::BaseField, E>(builder);

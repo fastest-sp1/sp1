@@ -73,7 +73,7 @@ impl<F: PrimeField32> MachineAir<F> for MemoryChip<F> {
             .chunks(NUM_CONST_MEM_ENTRIES_PER_ROW)
             .into_iter()
             .map(|row_vs_as| {
-                let mut row = [F::zero(); NUM_MEM_PREPROCESSED_INIT_COLS];
+                let mut row = [F::ZERO; NUM_MEM_PREPROCESSED_INIT_COLS];
                 let cols: &mut MemoryPreprocessedCols<_> = row.as_mut_slice().borrow_mut();
                 for (cell, access) in zip(&mut cols.values_and_accesses, row_vs_as) {
                     *cell = access;
@@ -85,7 +85,7 @@ impl<F: PrimeField32> MachineAir<F> for MemoryChip<F> {
         // Pad the rows to the next power of two.
         pad_rows_fixed(
             &mut rows,
-            || [F::zero(); NUM_MEM_PREPROCESSED_INIT_COLS],
+            || [F::ZERO; NUM_MEM_PREPROCESSED_INIT_COLS],
             program.fixed_log2_rows(self),
         );
 
@@ -110,10 +110,10 @@ impl<F: PrimeField32> MachineAir<F> for MemoryChip<F> {
             .map(|x| x / NUM_CONST_MEM_ENTRIES_PER_ROW + 1)
             .unwrap_or_default();
         let mut rows =
-            std::iter::repeat([F::zero(); NUM_MEM_INIT_COLS]).take(num_rows).collect::<Vec<_>>();
+            std::iter::repeat([F::ZERO; NUM_MEM_INIT_COLS]).take(num_rows).collect::<Vec<_>>();
 
         // Pad the rows to the next power of two.
-        pad_rows_fixed(&mut rows, || [F::zero(); NUM_MEM_INIT_COLS], input.fixed_log2_rows(self));
+        pad_rows_fixed(&mut rows, || [F::ZERO; NUM_MEM_INIT_COLS], input.fixed_log2_rows(self));
 
         // Convert the trace to a row major matrix.
         RowMajorMatrix::new(rows.into_iter().flatten().collect::<Vec<_>>(), NUM_MEM_INIT_COLS)
@@ -134,7 +134,7 @@ where
 {
     fn eval(&self, builder: &mut AB) {
         let prep = builder.preprocessed();
-        let prep_local = prep.row_slice(0);
+        let prep_local = prep.row_slice(0).unwrap();
         let prep_local: &MemoryPreprocessedCols<AB::Var> = (*prep_local).borrow();
 
         for (value, access) in prep_local.values_and_accesses {

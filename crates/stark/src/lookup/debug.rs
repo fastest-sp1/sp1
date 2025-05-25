@@ -1,5 +1,5 @@
 use p3_baby_bear::BabyBear;
-use p3_field::{AbstractField, Field, PrimeField32, PrimeField64};
+use p3_field::{PrimeCharacteristicRing, Field, PrimeField32, PrimeField64};
 use p3_matrix::Matrix;
 use std::collections::BTreeMap;
 
@@ -114,7 +114,7 @@ pub fn debug_interactions<SC: StarkGenericConfig, A: MachineAir<Val<SC>>>(
                     is_send,
                     multiplicity: multiplicity_eval,
                 });
-                let current = key_to_count.entry(key.clone()).or_insert(Val::<SC>::zero());
+                let current = key_to_count.entry(key.clone()).or_insert(Val::<SC>::ZERO);
                 if is_send {
                     *current += multiplicity_eval;
                 } else {
@@ -147,7 +147,7 @@ where
     }
 
     let mut final_map = BTreeMap::new();
-    let mut total = SC::Val::zero();
+    let mut total = SC::Val::ZERO;
 
     let chips = machine.chips();
     for chip in chips.iter() {
@@ -162,10 +162,10 @@ where
             total_events += count.len();
             for (key, value) in count.iter() {
                 let entry =
-                    final_map.entry(key.clone()).or_insert((SC::Val::zero(), BTreeMap::new()));
+                    final_map.entry(key.clone()).or_insert((SC::Val::ZERO, BTreeMap::new()));
                 entry.0 += *value;
                 total += *value;
-                *entry.1.entry(chip.name()).or_insert(SC::Val::zero()) += *value;
+                *entry.1.entry(chip.name()).or_insert(SC::Val::ZERO) += *value;
             }
         }
         tracing::info!("{} chip has {} distinct events", chip.name(), total_events);
@@ -199,7 +199,7 @@ where
     } else {
         tracing::info!("Positive values mean sent more than received.");
         tracing::info!("Negative values mean received more than sent.");
-        if total != SC::Val::zero() {
+        if total != SC::Val::ZERO {
             tracing::info!("Total send-receive discrepancy: {}", field_to_int(total));
             if field_to_int(total) > 0 {
                 tracing::info!("you're sending more than you are receiving");

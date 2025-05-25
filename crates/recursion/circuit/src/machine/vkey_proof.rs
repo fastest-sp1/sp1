@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use p3_air::Air;
 use p3_baby_bear::BabyBear;
 use p3_commit::Mmcs;
-use p3_field::AbstractField;
+use p3_field::PrimeCharacteristicRing;
 use p3_matrix::dense::RowMajorMatrix;
 use serde::{Deserialize, Serialize};
 use sp1_recursion_compiler::ir::{Builder, Felt};
@@ -151,7 +151,7 @@ impl<SC: BabyBearFriConfig + FieldHasher<BabyBear>> SP1CompressWithVKeyWitnessVa
 
 impl SP1MerkleProofWitnessValues<BabyBearPoseidon2> {
     pub fn dummy(num_proofs: usize, height: usize) -> Self {
-        let dummy_digest = [BabyBear::zero(); DIGEST_SIZE];
+        let dummy_digest = [BabyBear::ZERO; DIGEST_SIZE];
         let vk_merkle_proofs =
             vec![MerkleProof { index: 0, path: vec![dummy_digest; height] }; num_proofs];
         let values = vec![dummy_digest; num_proofs];

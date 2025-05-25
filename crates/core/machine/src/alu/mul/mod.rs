@@ -37,7 +37,7 @@ use core::{
 
 use hashbrown::HashMap;
 use p3_air::{Air, AirBuilder, BaseAir};
-use p3_field::{AbstractField, PrimeField, PrimeField32};
+use p3_field::{PrimeCharacteristicRing, PrimeField, PrimeField32};
 use p3_matrix::{dense::RowMajorMatrix, Matrix};
 use p3_maybe_rayon::prelude::{ParallelBridge, ParallelIterator, ParallelSlice};
 use sp1_core_executor::{
@@ -166,7 +166,7 @@ impl<F: PrimeField32> MachineAir<F> for MulChip {
             .map(|events| {
                 let mut blu: HashMap<ByteLookupEvent, usize> = HashMap::new();
                 events.iter().for_each(|event| {
-                    let mut row = [F::zero(); NUM_MUL_COLS];
+                    let mut row = [F::ZERO; NUM_MUL_COLS];
                     let cols: &mut MulCols<F> = row.as_mut_slice().borrow_mut();
                     self.event_to_row(event, cols, &mut blu);
                 });
@@ -198,7 +198,7 @@ impl MulChip {
         cols: &mut MulCols<F>,
         blu: &mut impl ByteRecord,
     ) {
-        cols.pc = F::from_canonical_u32(event.pc);
+        cols.pc = F::from_u32(event.pc);
 
         let a_word = event.a.to_le_bytes();
         let b_word = event.b.to_le_bytes();
@@ -211,19 +211,19 @@ impl MulChip {
         // Handle b and c's signs.
         {
             let b_msb = get_msb(b_word);
-            cols.b_msb = F::from_canonical_u8(b_msb);
+            cols.b_msb = F::from_u8(b_msb);
             let c_msb = get_msb(c_word);
-            cols.c_msb = F::from_canonical_u8(c_msb);
+            cols.c_msb = F::from_u8(c_msb);
 
             // If b is signed and it is negative, sign extend b.
             if (event.opcode == Opcode::MULH || event.opcode == Opcode::MULHSU) && b_msb == 1 {
-                cols.b_sign_extend = F::one();
+                cols.b_sign_extend = F::ONE;
                 b.resize(LONG_WORD_SIZE, BYTE_MASK);
             }
 
             // If c is signed and it is negative, sign extend c.
             if event.opcode == Opcode::MULH && c_msb == 1 {
-                cols.c_sign_extend = F::one();
+                cols.c_sign_extend = F::ONE;
                 c.resize(LONG_WORD_SIZE, BYTE_MASK);
             }
 
@@ -264,14 +264,14 @@ impl MulChip {
             if i + 1 < LONG_WORD_SIZE {
                 product[i + 1] += carry[i];
             }
-            cols.carry[i] = F::from_canonical_u32(carry[i]);
+            cols.carry[i] = F::from_u32(carry[i]);
         }
 
-        cols.product = product.map(F::from_canonical_u32);
-        cols.a = Word(a_word.map(F::from_canonical_u8));
-        cols.b = Word(b_word.map(F::from_canonical_u8));
-        cols.c = Word(c_word.map(F::from_canonical_u8));
-        cols.is_real = F::one();
+        cols.product = product.map(F::from_u32);
+        cols.a = Word(a_word.map(F::from_u8));
+        cols.b = Word(b_word.map(F::from_u8));
+        cols.c = Word(c_word.map(F::from_u8));
+        cols.is_real = F::ONE;
         cols.is_mul = F::from_bool(event.opcode == Opcode::MUL);
         cols.is_mulh = F::from_bool(event.opcode == Opcode::MULH);
         cols.is_mulhu = F::from_bool(event.opcode == Opcode::MULHU);
@@ -297,19 +297,19 @@ where
 {
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
-        let local = main.row_slice(0);
+        let local = main.row_slice(0).unwrap();
         let local: &MulCols<AB::Var> = (*local).borrow();
-        let base = AB::F::from_canonical_u32(1 << 8);
+        let base = AB::F::from_u32(1 << 8);
 
-        let zero: AB::Expr = AB::F::zero().into();
-        let one: AB::Expr = AB::F::one().into();
-        let byte_mask = AB::F::from_canonical_u8(BYTE_MASK);
+        let zero: AB::Expr = AB::F::ZERO.into();
+        let one: AB::Expr = AB::F::ONE.into();
+        let byte_mask = AB::F::from_u8(BYTE_MASK);
 
         // Calculate the MSBs.
         let (b_msb, c_msb) = {
             let msb_pairs =
                 [(local.b_msb, local.b[WORD_SIZE - 1]), (local.c_msb, local.c[WORD_SIZE - 1])];
-            let opcode = AB::F::from_canonical_u32(ByteOpcode::MSB as u32);
+            let opcode = AB::F::from_u32(ByteOpcode::MSB as u32);
             for msb_pair in msb_pairs.iter() {
                 let msb = msb_pair.0;
                 let byte = msb_pair.1;
@@ -332,8 +332,8 @@ where
 
         // Sign extend local.b and local.c whenever appropriate.
         let (b, c) = {
-            let mut b: Vec<AB::Expr> = vec![AB::F::zero().into(); LONG_WORD_SIZE];
-            let mut c: Vec<AB::Expr> = vec![AB::F::zero().into(); LONG_WORD_SIZE];
+            let mut b: Vec<AB::Expr> = vec![AB::F::ZERO.into(); LONG_WORD_SIZE];
+            let mut c: Vec<AB::Expr> = vec![AB::F::ZERO.into(); LONG_WORD_SIZE];
             for i in 0..LONG_WORD_SIZE {
                 if i < WORD_SIZE {
                     b[i] = local.b[i].into();
@@ -347,7 +347,7 @@ where
         };
 
         // Compute the uncarried product b(x) * c(x) = m(x).
-        let mut m: Vec<AB::Expr> = vec![AB::F::zero().into(); LONG_WORD_SIZE];
+        let mut m: Vec<AB::Expr> = vec![AB::F::ZERO.into(); LONG_WORD_SIZE];
         for i in 0..LONG_WORD_SIZE {
             for j in 0..LONG_WORD_SIZE {
                 if i + j < LONG_WORD_SIZE {
@@ -420,10 +420,10 @@ where
                 .when(local.is_real)
                 .assert_one(local.is_mul + local.is_mulh + local.is_mulhu + local.is_mulhsu);
 
-            let mul: AB::Expr = AB::F::from_canonical_u32(Opcode::MUL as u32).into();
-            let mulh: AB::Expr = AB::F::from_canonical_u32(Opcode::MULH as u32).into();
-            let mulhu: AB::Expr = AB::F::from_canonical_u32(Opcode::MULHU as u32).into();
-            let mulhsu: AB::Expr = AB::F::from_canonical_u32(Opcode::MULHSU as u32).into();
+            let mul: AB::Expr = AB::F::from_u32(Opcode::MUL as u32).into();
+            let mulh: AB::Expr = AB::F::from_u32(Opcode::MULH as u32).into();
+            let mulhu: AB::Expr = AB::F::from_u32(Opcode::MULHU as u32).into();
+            let mulhsu: AB::Expr = AB::F::from_u32(Opcode::MULHSU as u32).into();
             local.is_mul * mul +
                 local.is_mulh * mulh +
                 local.is_mulhu * mulhu +
@@ -451,20 +451,20 @@ where
         // - `is_syscall = 0`
         // - `is_halt = 0`
         builder.receive_instruction(
-            AB::Expr::zero(),
-            AB::Expr::zero(),
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
             local.pc,
-            local.pc + AB::Expr::from_canonical_u32(DEFAULT_PC_INC),
-            AB::Expr::zero(),
+            local.pc + AB::Expr::from_u32(DEFAULT_PC_INC),
+            AB::Expr::ZERO,
             opcode,
             local.a,
             local.b,
             local.c,
-            AB::Expr::one() - local.op_a_not_0,
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
+            AB::Expr::ONE - local.op_a_not_0,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
             local.is_real,
         );
 
@@ -519,7 +519,6 @@ mod tests {
     #[test]
     fn prove_babybear() {
         let config = BabyBearPoseidon2::new();
-        let mut challenger = config.challenger();
 
         let mut shard = ExecutionRecord::default();
         let mut mul_events: Vec<AluEvent> = Vec::new();
@@ -589,10 +588,9 @@ mod tests {
         let chip = MulChip::default();
         let trace: RowMajorMatrix<BabyBear> =
             chip.generate_trace(&shard, &mut ExecutionRecord::default());
-        let proof = prove::<BabyBearPoseidon2, _>(&config, &chip, &mut challenger, trace);
+        let proof = prove::<BabyBearPoseidon2, _>(&config, &chip, trace);
 
-        let mut challenger = config.challenger();
-        verify(&config, &chip, &mut challenger, &proof).unwrap();
+        verify(&config, &chip, &proof).unwrap();
     }
 
     #[test]

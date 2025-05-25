@@ -13,7 +13,7 @@ const N: usize = 8;
 /// The caller must ensure that `result`, `x`, `y`, and `modulus` are valid pointers to data that is
 /// aligned along a four byte boundary.
 #[allow(unused_variables)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn sys_bigint(
     result: *mut [u32; N],
     op: u32,

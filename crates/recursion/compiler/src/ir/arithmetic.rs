@@ -1,6 +1,6 @@
 use std::{cell::UnsafeCell, mem::ManuallyDrop};
 
-use p3_field::{AbstractExtensionField, AbstractField, Field};
+use p3_field::{PrimeCharacteristicRing, Field, ExtensionField};
 
 use crate::ir::DslIr;
 
@@ -634,7 +634,7 @@ impl<C: Config> ExtOperations<C::F, C::EF> for UnsafeCell<InnerBuilder<C>> {
         handle: *mut ExtHandle<C::F, C::EF>,
     ) -> Ext<C::F, C::EF> {
         // TODO: optimize to one opcode.
-        let lhs = Self::add_felt_const_ext(ptr, lhs, C::EF::zero(), handle);
+        let lhs = Self::add_felt_const_ext(ptr, lhs, C::EF::ZERO, handle);
         Self::mul_const_ext(ptr, lhs, rhs)
     }
 
@@ -668,7 +668,7 @@ impl<C: Config> ExtOperations<C::F, C::EF> for UnsafeCell<InnerBuilder<C>> {
 
     fn div_base_ext(ptr: *mut (), lhs: Felt<C::F>, rhs: Ext<C::F, C::EF>) -> Ext<C::F, C::EF> {
         // TODO: optimize to one opcode.
-        let lhs = Self::add_felt_const_ext(ptr, lhs, C::EF::zero(), rhs.handle);
+        let lhs = Self::add_felt_const_ext(ptr, lhs, C::EF::ZERO, rhs.handle);
         Self::div_ext(ptr, lhs, rhs)
     }
 
@@ -802,7 +802,7 @@ impl<F> FeltHandle<F> {
     }
 }
 
-impl<F: Field, EF: AbstractExtensionField<F>> ExtHandle<F, EF> {
+impl<F: Field, EF: ExtensionField<F>> ExtHandle<F, EF> {
     pub fn add_e(&self, lhs: Ext<F, EF>, rhs: Ext<F, EF>) -> Ext<F, EF> {
         (self.add_ext)(self.ptr, lhs, rhs)
     }
@@ -858,7 +858,7 @@ impl<F: Field, EF: AbstractExtensionField<F>> ExtHandle<F, EF> {
     }
 
     pub fn sub_e_const_f(&self, lhs: Ext<F, EF>, rhs: F) -> Ext<F, EF> {
-        (self.sub_const_ext)(self.ptr, lhs, EF::from_base(rhs))
+        (self.sub_const_ext)(self.ptr, lhs, EF::from(rhs))
     }
 
     pub fn sub_f_const_e(
@@ -877,7 +877,7 @@ impl<F: Field, EF: AbstractExtensionField<F>> ExtHandle<F, EF> {
         handle: *mut ExtHandle<F, EF>,
     ) -> Ext<F, EF> {
         // TODO: optimize to one opcode.
-        let rhs = self.add_f_const_e(rhs, EF::zero(), handle);
+        let rhs = self.add_f_const_e(rhs, EF::ZERO, handle);
         self.sub_e_const(lhs, rhs)
     }
 
@@ -906,7 +906,7 @@ impl<F: Field, EF: AbstractExtensionField<F>> ExtHandle<F, EF> {
     }
 
     pub fn mul_e_const_f(&self, lhs: Ext<F, EF>, rhs: F) -> Ext<F, EF> {
-        (self.mul_const_ext)(self.ptr, lhs, EF::from_base(rhs))
+        (self.mul_const_ext)(self.ptr, lhs, EF::from(rhs))
     }
 
     pub fn mul_f_const_e(

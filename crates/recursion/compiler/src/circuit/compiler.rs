@@ -4,7 +4,7 @@ use instruction::{
     FieldEltType, HintAddCurveInstr, HintBitsInstr, HintExt2FeltsInstr, HintInstr, PrintInstr,
 };
 use itertools::Itertools;
-use p3_field::{AbstractExtensionField, AbstractField, Field, PrimeField64, TwoAdicField};
+use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, Field, PrimeField64, TwoAdicField};
 use sp1_recursion_core::{
     air::{Block, RecursionPublicValues, RECURSIVE_PROOF_NUM_PV_ELTS},
     BaseAluInstr, BaseAluOpcode,
@@ -40,7 +40,7 @@ where
     /// Allocate a fresh address. Checks that the address space is not full.
     pub fn alloc(next_addr: &mut C::F) -> Address<C::F> {
         let id = Address(*next_addr);
-        *next_addr += C::F::one();
+        *next_addr += C::F::ONE;
         if next_addr.is_zero() {
             panic!("out of address space");
         }
@@ -69,7 +69,7 @@ where
                 if increment_mult {
                     // This is a read, so we increment the mult.
                     match self.addr_to_mult.get_mut(entry.get().as_usize()) {
-                        Some(mult) => *mult += C::F::one(),
+                        Some(mult) => *mult += C::F::ONE,
                         None => panic!("expected entry: virtual_physical[{:?}]", vaddr),
                     }
                 }
@@ -87,7 +87,7 @@ where
             Entry::Vacant(entry) => {
                 let addr = Self::alloc(&mut self.next_addr);
                 // This is a write, so we set the mult to zero.
-                if let Some(x) = self.addr_to_mult.insert(addr.as_usize(), C::F::zero()) {
+                if let Some(x) = self.addr_to_mult.insert(addr.as_usize(), C::F::ZERO) {
                     panic!("unexpected entry in addr_to_mult: {x:?}");
                 }
                 *entry.insert(addr)
@@ -120,7 +120,7 @@ where
                 // This is a read, so we increment the mult.
                 let mult = entry.into_mut();
                 if increment_mult {
-                    *mult += C::F::one();
+                    *mult += C::F::ONE;
                 }
                 mult
             }
@@ -133,7 +133,7 @@ where
     pub fn write_addr(&mut self, addr: Address<C::F>) -> &mut C::F {
         use vec_map::Entry;
         match self.addr_to_mult.entry(addr.as_usize()) {
-            Entry::Vacant(entry) => entry.insert(C::F::zero()),
+            Entry::Vacant(entry) => entry.insert(C::F::ZERO),
             Entry::Occupied(entry) => {
                 panic!("unexpected entry: addr_to_mult[{:?}] = {:?}", addr.as_usize(), entry.get())
             }
@@ -146,8 +146,8 @@ where
     pub fn read_const(&mut self, imm: Imm<C::F, C::EF>) -> Address<C::F> {
         self.consts
             .entry(imm)
-            .and_modify(|(_, x)| *x += C::F::one())
-            .or_insert_with(|| (Self::alloc(&mut self.next_addr), C::F::one()))
+            .and_modify(|(_, x)| *x += C::F::ONE)
+            .or_insert_with(|| (Self::alloc(&mut self.next_addr), C::F::ONE))
             .0
     }
 
@@ -155,14 +155,14 @@ where
     ///    
     /// Does not increment the mult. Creates an entry if it does not yet exist.
     pub fn read_ghost_const(&mut self, imm: Imm<C::F, C::EF>) -> Address<C::F> {
-        self.consts.entry(imm).or_insert_with(|| (Self::alloc(&mut self.next_addr), C::F::zero())).0
+        self.consts.entry(imm).or_insert_with(|| (Self::alloc(&mut self.next_addr), C::F::ZERO)).0
     }
 
     fn mem_write_const(&mut self, dst: impl Reg<C>, src: Imm<C::F, C::EF>) -> Instruction<C::F> {
         Instruction::Mem(MemInstr {
             addrs: MemIo { inner: dst.write(self) },
             vals: MemIo { inner: src.as_block() },
-            mult: C::F::zero(),
+            mult: C::F::ZERO,
             kind: MemAccessKind::Write,
         })
     }
@@ -176,7 +176,7 @@ where
     ) -> Instruction<C::F> {
         Instruction::BaseAlu(BaseAluInstr {
             opcode,
-            mult: C::F::zero(),
+            mult: C::F::ZERO,
             addrs: BaseAluIo { out: dst.write(self), in1: lhs.read(self), in2: rhs.read(self) },
         })
     }
@@ -190,7 +190,7 @@ where
     ) -> Instruction<C::F> {
         Instruction::ExtAlu(ExtAluInstr {
             opcode,
-            mult: C::F::zero(),
+            mult: C::F::ZERO,
             addrs: ExtAluIo { out: dst.write(self), in1: lhs.read(self), in2: rhs.read(self) },
         })
     }
@@ -204,7 +204,7 @@ where
         use BaseAluOpcode::*;
         let [diff, out] = core::array::from_fn(|_| Self::alloc(&mut self.next_addr));
         f(self.base_alu(SubF, diff, lhs, rhs));
-        f(self.base_alu(DivF, out, diff, Imm::F(C::F::zero())));
+        f(self.base_alu(DivF, out, diff, Imm::F(C::F::ZERO)));
     }
 
     fn base_assert_ne(
@@ -217,7 +217,7 @@ where
         let [diff, out] = core::array::from_fn(|_| Self::alloc(&mut self.next_addr));
 
         f(self.base_alu(SubF, diff, lhs, rhs));
-        f(self.base_alu(DivF, out, Imm::F(C::F::one()), diff));
+        f(self.base_alu(DivF, out, Imm::F(C::F::ONE), diff));
     }
 
     fn ext_assert_eq(
@@ -230,7 +230,7 @@ where
         let [diff, out] = core::array::from_fn(|_| Self::alloc(&mut self.next_addr));
 
         f(self.ext_alu(SubE, diff, lhs, rhs));
-        f(self.ext_alu(DivE, out, diff, Imm::EF(C::EF::zero())));
+        f(self.ext_alu(DivE, out, diff, Imm::EF(C::EF::ZERO)));
     }
 
     fn ext_assert_ne(
@@ -243,7 +243,7 @@ where
         let [diff, out] = core::array::from_fn(|_| Self::alloc(&mut self.next_addr));
 
         f(self.ext_alu(SubE, diff, lhs, rhs));
-        f(self.ext_alu(DivE, out, Imm::EF(C::EF::one()), diff));
+        f(self.ext_alu(DivE, out, Imm::EF(C::EF::ONE), diff));
     }
 
     #[inline(always)]
@@ -257,7 +257,7 @@ where
                 input: src.map(|r| r.read(self)),
                 output: dst.map(|r| r.write(self)),
             },
-            mults: [C::F::zero(); WIDTH],
+            mults: [C::F::ZERO; WIDTH],
         }))
     }
 
@@ -278,8 +278,8 @@ where
                 in1: lhs.read(self),
                 in2: rhs.read(self),
             },
-            mult1: C::F::zero(),
-            mult2: C::F::zero(),
+            mult1: C::F::ZERO,
+            mult2: C::F::ZERO,
         })
     }
 
@@ -295,7 +295,7 @@ where
                 base: base.read(self),
                 exp: exp.into_iter().map(|r| r.read(self)).collect(),
             },
-            mult: C::F::zero(),
+            mult: C::F::ZERO,
         })
     }
 
@@ -305,7 +305,7 @@ where
         output: impl IntoIterator<Item = impl Reg<C>>,
     ) -> Instruction<C::F> {
         Instruction::HintBits(HintBitsInstr {
-            output_addrs_mults: output.into_iter().map(|r| (r.write(self), C::F::zero())).collect(),
+            output_addrs_mults: output.into_iter().map(|r| (r.write(self), C::F::ZERO)).collect(),
             input_addr: value.read_ghost(self),
         })
     }
@@ -321,13 +321,13 @@ where
                 .x
                 .0
                 .into_iter()
-                .map(|r| (r.write(self), C::F::zero()))
+                .map(|r| (r.write(self), C::F::ZERO))
                 .collect(),
             output_y_addrs_mults: output
                 .y
                 .0
                 .into_iter()
-                .map(|r| (r.write(self), C::F::zero()))
+                .map(|r| (r.write(self), C::F::ZERO))
                 .collect(),
             input1_x_addrs: input1.x.0.into_iter().map(|value| value.read_ghost(self)).collect(),
             input1_y_addrs: input1.y.0.into_iter().map(|value| value.read_ghost(self)).collect(),
@@ -351,8 +351,8 @@ where
     ) -> Instruction<C::F> {
         Instruction::FriFold(Box::new(FriFoldInstr {
             // Calculate before moving the vecs.
-            alpha_pow_mults: vec![C::F::zero(); alpha_pow_output.len()],
-            ro_mults: vec![C::F::zero(); ro_output.len()],
+            alpha_pow_mults: vec![C::F::ZERO; alpha_pow_output.len()],
+            ro_mults: vec![C::F::ZERO; ro_output.len()],
 
             base_single_addrs: FriFoldBaseIo { x: x.read(self) },
             ext_single_addrs: FriFoldExtSingleIo { z: z.read(self), alpha: alpha.read(self) },
@@ -383,7 +383,7 @@ where
                 p_at_z: p_at_zs.into_iter().map(|e| e.read(self)).collect(),
                 alpha_pow: alpha_pows.into_iter().map(|e| e.read(self)).collect(),
             },
-            acc_mult: C::F::zero(),
+            acc_mult: C::F::ZERO,
         }))
     }
 
@@ -425,13 +425,13 @@ where
 
     fn ext2felts(&mut self, felts: [impl Reg<C>; D], ext: impl Reg<C>) -> Instruction<C::F> {
         Instruction::HintExt2Felts(HintExt2FeltsInstr {
-            output_addrs_mults: felts.map(|r| (r.write(self), C::F::zero())),
+            output_addrs_mults: felts.map(|r| (r.write(self), C::F::ZERO)),
             input_addr: ext.read_ghost(self),
         })
     }
 
     fn hint(&mut self, output: impl Reg<C>, len: usize) -> Instruction<C::F> {
-        let zero = C::F::zero();
+        let zero = C::F::ZERO;
         Instruction::Hint(HintInstr {
             output_addrs_mults: output
                 .write_many(self, len)
@@ -507,12 +507,12 @@ where
             DslIr::DivEFIN(dst, lhs, rhs) => f(self.ext_alu(DivE, dst, Imm::F(lhs), rhs)),
             DslIr::DivEF(dst, lhs, rhs) => f(self.ext_alu(DivE, dst, lhs, rhs)),
 
-            DslIr::NegV(dst, src) => f(self.base_alu(SubF, dst, Imm::F(C::F::zero()), src)),
-            DslIr::NegF(dst, src) => f(self.base_alu(SubF, dst, Imm::F(C::F::zero()), src)),
-            DslIr::NegE(dst, src) => f(self.ext_alu(SubE, dst, Imm::EF(C::EF::zero()), src)),
-            DslIr::InvV(dst, src) => f(self.base_alu(DivF, dst, Imm::F(C::F::one()), src)),
-            DslIr::InvF(dst, src) => f(self.base_alu(DivF, dst, Imm::F(C::F::one()), src)),
-            DslIr::InvE(dst, src) => f(self.ext_alu(DivE, dst, Imm::F(C::F::one()), src)),
+            DslIr::NegV(dst, src) => f(self.base_alu(SubF, dst, Imm::F(C::F::ZERO), src)),
+            DslIr::NegF(dst, src) => f(self.base_alu(SubF, dst, Imm::F(C::F::ZERO), src)),
+            DslIr::NegE(dst, src) => f(self.ext_alu(SubE, dst, Imm::EF(C::EF::ZERO), src)),
+            DslIr::InvV(dst, src) => f(self.base_alu(DivF, dst, Imm::F(C::F::ONE), src)),
+            DslIr::InvF(dst, src) => f(self.base_alu(DivF, dst, Imm::F(C::F::ONE), src)),
+            DslIr::InvE(dst, src) => f(self.ext_alu(DivE, dst, Imm::F(C::F::ONE), src)),
 
             DslIr::Select(bit, dst1, dst2, lhs, rhs) => f(self.select(bit, dst1, dst2, lhs, rhs)),
 
@@ -591,7 +591,7 @@ where
                 }
                 op => {
                     let bb = maybe_bb.get_or_insert_with(Default::default);
-                    self.compile_one(op, |item| match item {
+                    self.compile_one(op, |item| match item {// =call back function, which process the compiling result
                         Ok(instr) => bb.instrs.push(instr),
                         Err(
                             CompileOneErr::CycleTrackerEnter(_) | CompileOneErr::CycleTrackerExit,
@@ -620,50 +620,50 @@ where
         for asm_instr in instrs {
             // Exhaustive match for refactoring purposes.
             match asm_instr {
-                Instruction::BaseAlu(BaseAluInstr {
-                    mult,
+                &mut Instruction::BaseAlu(BaseAluInstr {
+                    ref mut mult,
                     addrs: BaseAluIo { out: ref addr, .. },
                     ..
                 }) => backfill((mult, addr)),
-                Instruction::ExtAlu(ExtAluInstr {
-                    mult,
+                &mut Instruction::ExtAlu(ExtAluInstr {
+                    ref mut mult,
                     addrs: ExtAluIo { out: ref addr, .. },
                     ..
                 }) => backfill((mult, addr)),
-                Instruction::Mem(MemInstr {
+                &mut Instruction::Mem(MemInstr {
                     addrs: MemIo { inner: ref addr },
-                    mult,
+                    ref mut mult,
                     kind: MemAccessKind::Write,
                     ..
                 }) => backfill((mult, addr)),
                 Instruction::Poseidon2(instr) => {
-                    let Poseidon2SkinnyInstr {
+                    let &mut Poseidon2SkinnyInstr {
                         addrs: Poseidon2Io { output: ref addrs, .. },
-                        mults,
+                        ref mut mults,
                     } = instr.as_mut();
                     mults.iter_mut().zip(addrs).for_each(&mut backfill);
                 }
-                Instruction::Select(SelectInstr {
+                &mut Instruction::Select(SelectInstr {
                     addrs: SelectIo { out1: ref addr1, out2: ref addr2, .. },
-                    mult1,
-                    mult2,
+                    ref mut mult1,
+                    ref mut mult2,
                 }) => {
                     backfill((mult1, addr1));
                     backfill((mult2, addr2));
                 }
-                Instruction::ExpReverseBitsLen(ExpReverseBitsInstr {
+                &mut Instruction::ExpReverseBitsLen(ExpReverseBitsInstr {
                     addrs: ExpReverseBitsIo { result: ref addr, .. },
-                    mult,
+                    ref mut mult,
                 }) => backfill((mult, addr)),
-                Instruction::HintBits(HintBitsInstr { output_addrs_mults, .. }) |
-                Instruction::Hint(HintInstr { output_addrs_mults, .. }) => {
+                Instruction::HintBits(HintBitsInstr { output_addrs_mults, .. })
+                | Instruction::Hint(HintInstr { output_addrs_mults, .. }) => {
                     output_addrs_mults.iter_mut().for_each(|(addr, mult)| backfill((mult, addr)));
                 }
                 Instruction::FriFold(instr) => {
-                    let FriFoldInstr {
+                    let &mut FriFoldInstr {
                         ext_vec_addrs: FriFoldExtVecIo { ref alpha_pow_output, ref ro_output, .. },
-                        alpha_pow_mults,
-                        ro_mults,
+                        ref mut alpha_pow_mults,
+                        ref mut ro_mults,
                         ..
                     } = instr.as_mut();
                     // Using `.chain` seems to be less performant.
@@ -671,9 +671,9 @@ where
                     ro_mults.iter_mut().zip(ro_output).for_each(&mut backfill);
                 }
                 Instruction::BatchFRI(instr) => {
-                    let BatchFRIInstr {
+                    let &mut BatchFRIInstr {
                         ext_single_addrs: BatchFRIExtSingleIo { ref acc },
-                        acc_mult,
+                        ref mut acc_mult,
                         ..
                     } = instr.as_mut();
                     backfill((acc_mult, acc));
@@ -763,14 +763,14 @@ pub enum Imm<F, EF> {
 
 impl<F, EF> Imm<F, EF>
 where
-    F: AbstractField + Copy,
-    EF: AbstractExtensionField<F>,
+    F: PrimeCharacteristicRing + Copy,
+    EF: BasedVectorSpace<F>,
 {
     // Get a `Block` of memory representing this immediate.
     pub fn as_block(&self) -> Block<F> {
         match self {
             Imm::F(f) => Block::from(*f),
-            Imm::EF(ef) => ef.as_base_slice().into(),
+            Imm::EF(ef) => ef.as_basis_coefficients_slice().into(),
         }
     }
 }
@@ -911,7 +911,7 @@ mod tests {
     type EF = <SC as StarkGenericConfig>::Challenge;
     fn test_block(block: DslIrBlock<AsmConfig<F, EF>>) {
         test_block_with_runner(block, |program| {
-            let mut runtime = Runtime::<F, EF, DiffusionMatrixBabyBear>::new(
+            let mut runtime = Runtime::<F, EF>::new(
                 program,
                 BabyBearPoseidon2Inner::new().perm,
             );
@@ -976,32 +976,32 @@ mod tests {
         let hasher = InnerHash::new(perm.clone());
 
         let input: [F; 26] = [
-            F::from_canonical_u32(0),
-            F::from_canonical_u32(1),
-            F::from_canonical_u32(2),
-            F::from_canonical_u32(2),
-            F::from_canonical_u32(2),
-            F::from_canonical_u32(2),
-            F::from_canonical_u32(2),
-            F::from_canonical_u32(2),
-            F::from_canonical_u32(2),
-            F::from_canonical_u32(2),
-            F::from_canonical_u32(2),
-            F::from_canonical_u32(2),
-            F::from_canonical_u32(2),
-            F::from_canonical_u32(2),
-            F::from_canonical_u32(2),
-            F::from_canonical_u32(3),
-            F::from_canonical_u32(3),
-            F::from_canonical_u32(3),
-            F::from_canonical_u32(3),
-            F::from_canonical_u32(3),
-            F::from_canonical_u32(3),
-            F::from_canonical_u32(3),
-            F::from_canonical_u32(3),
-            F::from_canonical_u32(3),
-            F::from_canonical_u32(3),
-            F::from_canonical_u32(3),
+            F::from_u32(0),
+            F::from_u32(1),
+            F::from_u32(2),
+            F::from_u32(2),
+            F::from_u32(2),
+            F::from_u32(2),
+            F::from_u32(2),
+            F::from_u32(2),
+            F::from_u32(2),
+            F::from_u32(2),
+            F::from_u32(2),
+            F::from_u32(2),
+            F::from_u32(2),
+            F::from_u32(2),
+            F::from_u32(2),
+            F::from_u32(3),
+            F::from_u32(3),
+            F::from_u32(3),
+            F::from_u32(3),
+            F::from_u32(3),
+            F::from_u32(3),
+            F::from_u32(3),
+            F::from_u32(3),
+            F::from_u32(3),
+            F::from_u32(3),
+            F::from_u32(3),
         ];
         let expected = hasher.hash_iter(input);
         println!("{:?}", expected);
@@ -1039,7 +1039,7 @@ mod tests {
                 .rev()
                 .zip(std::iter::successors(Some(base), |x| Some(x.square())))
                 .map(|(bit, base_pow)| match bit {
-                    0 => F::one(),
+                    0 => F::ONE,
                     1 => base_pow,
                     _ => panic!("not a bit: {bit}"),
                 })
@@ -1060,7 +1060,7 @@ mod tests {
         let mut random_felt = move || -> F { rng.next().unwrap() };
         let mut rng =
             StdRng::seed_from_u64(0x0451).sample_iter::<[F; 4], _>(rand::distributions::Standard);
-        let mut random_ext = move || EF::from_base_slice(&rng.next().unwrap());
+        let mut random_ext = move || EF::from_basis_coefficients_slice(&rng.next().unwrap());
 
         for i in 2..17 {
             // Generate random values for the inputs.
@@ -1120,7 +1120,7 @@ mod tests {
             let input_felt = builder.eval(input_f);
             let output_felts = builder.num2bits_v2_f(input_felt, NUM_BITS);
             let expected: Vec<Felt<_>> =
-                output.into_iter().map(|x| builder.eval(F::from_canonical_u32(x))).collect();
+                output.into_iter().map(|x| builder.eval(F::from_u32(x))).collect();
             for (lhs, rhs) in output_felts.into_iter().zip(expected) {
                 builder.assert_felt_eq(lhs, rhs);
             }
@@ -1160,14 +1160,14 @@ mod tests {
         builder.cycle_tracker_v2_enter("printing exts");
         for (i, input_block) in input_efs.iter().enumerate() {
             builder.cycle_tracker_v2_enter(format!("printing ext {i}"));
-            let input_ext = builder.eval(EF::from_base_slice(input_block).cons());
+            let input_ext = builder.eval(EF::from_basis_coefficients_slice(input_block).cons());
             builder.print_e(input_ext);
             builder.cycle_tracker_v2_exit();
         }
         builder.cycle_tracker_v2_exit();
 
         test_block_with_runner(builder.into_root_block(), |program| {
-            let mut runtime = Runtime::<F, EF, DiffusionMatrixBabyBear>::new(
+            let mut runtime = Runtime::<F, EF>::new(
                 program,
                 BabyBearPoseidon2Inner::new().perm,
             );
@@ -1193,10 +1193,10 @@ mod tests {
         let mut builder = AsmBuilder::<F, EF>::default();
         let mut rng =
             StdRng::seed_from_u64(0x3264).sample_iter::<[F; 4], _>(rand::distributions::Standard);
-        let mut random_ext = move || EF::from_base_slice(&rng.next().unwrap());
+        let mut random_ext = move || EF::from_basis_coefficients_slice(&rng.next().unwrap());
         for _ in 0..100 {
             let input = random_ext();
-            let output: &[F] = input.as_base_slice();
+            let output: &[F] = input.as_basis_coefficients_slice();
 
             let input_ext = builder.eval(input.cons());
             let output_felts = builder.ext2felt_v2(input_ext);

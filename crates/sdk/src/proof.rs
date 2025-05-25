@@ -12,7 +12,7 @@ use std::{
 use anyhow::{Context, Result};
 use hashbrown::HashMap;
 use p3_baby_bear::BabyBear;
-use p3_field::{extension::BinomialExtensionField, AbstractField, PrimeField};
+use p3_field::{extension::BinomialExtensionField, PrimeCharacteristicRing, PrimeField};
 use p3_fri::{FriProof, TwoAdicFriPcsProof};
 use serde::{Deserialize, Serialize};
 use sp1_core_executor::SP1ReduceProof;
@@ -221,9 +221,9 @@ impl SP1ProofWithPublicValues {
             SP1ProofMode::Compressed => {
                 let shard_proof = ShardProof {
                     commitment: ShardCommitment {
-                        main_commit: [BabyBear::zero(); 8].into(),
-                        permutation_commit: [BabyBear::zero(); 8].into(),
-                        quotient_commit: [BabyBear::zero(); 8].into(),
+                        main_commit: [BabyBear::ZERO; 8].into(),
+                        permutation_commit: [BabyBear::ZERO; 8].into(),
+                        quotient_commit: [BabyBear::ZERO; 8].into(),
                     },
                     opened_values: ShardOpenedValues { chips: vec![] },
                     opening_proof: TwoAdicFriPcsProof {
@@ -231,7 +231,7 @@ impl SP1ProofWithPublicValues {
                             commit_phase_commits: vec![],
                             query_proofs: vec![],
                             final_poly: BinomialExtensionField::default(),
-                            pow_witness: BabyBear::zero(),
+                            pow_witness: BabyBear::ZERO,
                         },
                         query_openings: vec![],
                     },
@@ -240,8 +240,8 @@ impl SP1ProofWithPublicValues {
                 };
 
                 let reduce_vk = StarkVerifyingKey {
-                    commit: [BabyBear::zero(); 8].into(),
-                    pc_start: BabyBear::zero(),
+                    commit: [BabyBear::ZERO; 8].into(),
+                    pc_start: BabyBear::ZERO,
                     chip_information: vec![],
                     chip_ordering: HashMap::new(),
                     initial_global_cumulative_sum: SepticDigest::zero(),

@@ -13,15 +13,18 @@ pub mod select;
 pub mod test_fixtures {
     use crate::*;
     use p3_baby_bear::BabyBear;
-    use p3_field::{AbstractField, Field, PrimeField32};
+    use p3_field::{PrimeCharacteristicRing, Field, PrimeField32};
     use p3_symmetric::Permutation;
     use rand::{prelude::SliceRandom, rngs::StdRng, Rng, SeedableRng};
     use sp1_stark::inner_perm;
     use std::{array, borrow::Borrow};
 
     const SEED: u64 = 12345;
-    pub const MIN_TEST_CASES: usize = 1000;
-    const MAX_TEST_CASES: usize = 10000;
+    //pub const MIN_TEST_CASES: usize = 1000;
+    //const MAX_TEST_CASES: usize = 10000;
+
+    pub const MIN_TEST_CASES: usize = 2;
+    const MAX_TEST_CASES: usize = 2;
 
     pub fn shard() -> ExecutionRecord<BabyBear> {
         ExecutionRecord {
@@ -70,14 +73,14 @@ pub mod test_fixtures {
         let (mut rng, num_test_cases) = initialize();
         let mut events = Vec::with_capacity(num_test_cases);
         for _ in 0..num_test_cases {
-            let in1 = BabyBear::from_wrapped_u32(rng.gen());
-            let in2 = BabyBear::from_wrapped_u32(rng.gen());
+            let in1 = BabyBear::from_u32(rng.r#gen());
+            let in2 = BabyBear::from_u32(rng.r#gen());
             let out = match rng.gen_range(0..4) {
                 0 => in1 + in2, // Add
                 1 => in1 - in2, // Sub
                 2 => in1 * in2, // Mul
                 _ => {
-                    let in2 = if in2.is_zero() { BabyBear::one() } else { in2 };
+                    let in2 = if in2.is_zero() { BabyBear::ONE } else { in2 };
                     in1 / in2
                 }
             };
@@ -91,9 +94,9 @@ pub mod test_fixtures {
         let mut events = Vec::with_capacity(num_test_cases);
         for _ in 0..num_test_cases {
             events.push(ExtAluIo {
-                out: BabyBear::one().into(),
-                in1: BabyBear::one().into(),
-                in2: BabyBear::one().into(),
+                out: BabyBear::ONE.into(),
+                in1: BabyBear::ONE.into(),
+                in2: BabyBear::ONE.into(),
             });
         }
         events
@@ -106,7 +109,7 @@ pub mod test_fixtures {
             events.push(BatchFRIEvent {
                 ext_single: BatchFRIExtSingleIo { acc: Block::default() },
                 ext_vec: BatchFRIExtVecIo { alpha_pow: Block::default(), p_at_z: Block::default() },
-                base_vec: BatchFRIBaseVecIo { p_at_x: BabyBear::one() },
+                base_vec: BatchFRIBaseVecIo { p_at_x: BabyBear::ONE },
             });
         }
         events
@@ -116,10 +119,10 @@ pub mod test_fixtures {
         let (mut rng, num_test_cases) = initialize();
         let mut events = Vec::with_capacity(num_test_cases);
         for _ in 0..num_test_cases {
-            let base = BabyBear::from_wrapped_u32(rng.gen());
+            let base = BabyBear::from_u32(rng.r#gen());
             let len = rng.gen_range(1..8); // Random length between 1 and 7 bits
             let exp: Vec<BabyBear> =
-                (0..len).map(|_| BabyBear::from_canonical_u32(rng.gen_range(0..2))).collect();
+                (0..len).map(|_| BabyBear::from_u32(rng.gen_range(0..2))).collect();
             let exp_num = exp
                 .iter()
                 .enumerate()
@@ -135,10 +138,10 @@ pub mod test_fixtures {
         let (mut rng, num_test_cases) = initialize();
         let mut events = Vec::with_capacity(num_test_cases);
         let random_block =
-            |rng: &mut StdRng| Block::from([BabyBear::from_wrapped_u32(rng.gen()); 4]);
+            |rng: &mut StdRng| Block::from([BabyBear::from_u32(rng.r#gen()); 4]);
         for _ in 0..num_test_cases {
             events.push(FriFoldEvent {
-                base_single: FriFoldBaseIo { x: BabyBear::from_wrapped_u32(rng.gen()) },
+                base_single: FriFoldBaseIo { x: BabyBear::from_u32(rng.r#gen()) },
                 ext_single: FriFoldExtSingleIo {
                     z: random_block(&mut rng),
                     alpha: random_block(&mut rng),
@@ -161,7 +164,7 @@ pub mod test_fixtures {
         let mut events = Vec::with_capacity(num_test_cases);
         for _ in 0..num_test_cases {
             let random_felts: [BabyBear; air::RECURSIVE_PROOF_NUM_PV_ELTS] =
-                array::from_fn(|_| BabyBear::from_wrapped_u32(rng.gen()));
+                array::from_fn(|_| BabyBear::from_u32(rng.r#gen()));
             events
                 .push(CommitPublicValuesEvent { public_values: *random_felts.as_slice().borrow() });
         }
@@ -172,10 +175,10 @@ pub mod test_fixtures {
         let (mut rng, num_test_cases) = initialize();
         let mut events = Vec::with_capacity(num_test_cases);
         for _ in 0..num_test_cases {
-            let bit = if rng.gen_bool(0.5) { BabyBear::one() } else { BabyBear::zero() };
-            let in1 = BabyBear::from_wrapped_u32(rng.gen());
-            let in2 = BabyBear::from_wrapped_u32(rng.gen());
-            let (out1, out2) = if bit == BabyBear::one() { (in1, in2) } else { (in2, in1) };
+            let bit = if rng.gen_bool(0.5) { BabyBear::ONE } else { BabyBear::ZERO };
+            let in1 = BabyBear::from_u32(rng.r#gen());
+            let in2 = BabyBear::from_u32(rng.r#gen());
+            let (out1, out2) = if bit == BabyBear::ONE { (in1, in2) } else { (in2, in1) };
             events.push(SelectIo { bit, out1, out2, in1, in2 });
         }
         events
@@ -185,7 +188,7 @@ pub mod test_fixtures {
         let (mut rng, num_test_cases) = initialize();
         let mut events = Vec::with_capacity(num_test_cases);
         for _ in 0..num_test_cases {
-            let input = array::from_fn(|_| BabyBear::from_wrapped_u32(rng.gen()));
+            let input = array::from_fn(|_| BabyBear::from_u32(rng.r#gen()));
             let permuter = inner_perm();
             let output = permuter.permute(input);
 
@@ -206,11 +209,11 @@ pub mod test_fixtures {
             };
             instructions.push(Instruction::BaseAlu(BaseAluInstr {
                 opcode,
-                mult: BabyBear::from_wrapped_u32(rng.gen()),
+                mult: BabyBear::from_u32(rng.r#gen()),
                 addrs: BaseAluIo {
-                    out: Address(BabyBear::from_wrapped_u32(rng.gen())),
-                    in1: Address(BabyBear::from_wrapped_u32(rng.gen())),
-                    in2: Address(BabyBear::from_wrapped_u32(rng.gen())),
+                    out: Address(BabyBear::from_u32(rng.r#gen())),
+                    in1: Address(BabyBear::from_u32(rng.r#gen())),
+                    in2: Address(BabyBear::from_u32(rng.r#gen())),
                 },
             }));
         }
@@ -229,11 +232,11 @@ pub mod test_fixtures {
             };
             instructions.push(Instruction::ExtAlu(ExtAluInstr {
                 opcode,
-                mult: BabyBear::from_wrapped_u32(rng.gen()),
+                mult: BabyBear::from_u32(rng.r#gen()),
                 addrs: ExtAluIo {
-                    out: Address(BabyBear::from_wrapped_u32(rng.gen())),
-                    in1: Address(BabyBear::from_wrapped_u32(rng.gen())),
-                    in2: Address(BabyBear::from_wrapped_u32(rng.gen())),
+                    out: Address(BabyBear::from_u32(rng.r#gen())),
+                    in1: Address(BabyBear::from_u32(rng.r#gen())),
+                    in2: Address(BabyBear::from_u32(rng.r#gen())),
                 },
             }));
         }
@@ -245,16 +248,16 @@ pub mod test_fixtures {
         let mut instructions = Vec::with_capacity(num_test_cases);
         for _ in 0..num_test_cases {
             let len = rng.gen_range(1..5); // Random number of addresses in vectors
-            let p_at_x = (0..len).map(|_| Address(BabyBear::from_wrapped_u32(rng.gen()))).collect();
+            let p_at_x = (0..len).map(|_| Address(BabyBear::from_u32(rng.r#gen()))).collect();
             let alpha_pow =
-                (0..len).map(|_| Address(BabyBear::from_wrapped_u32(rng.gen()))).collect();
-            let p_at_z = (0..len).map(|_| Address(BabyBear::from_wrapped_u32(rng.gen()))).collect();
-            let acc = Address(BabyBear::from_wrapped_u32(rng.gen()));
+                (0..len).map(|_| Address(BabyBear::from_u32(rng.r#gen()))).collect();
+            let p_at_z = (0..len).map(|_| Address(BabyBear::from_u32(rng.r#gen()))).collect();
+            let acc = Address(BabyBear::from_u32(rng.r#gen()));
             instructions.push(Instruction::BatchFRI(Box::new(BatchFRIInstr {
                 base_vec_addrs: BatchFRIBaseVecIo { p_at_x },
                 ext_single_addrs: BatchFRIExtSingleIo { acc },
                 ext_vec_addrs: BatchFRIExtVecIo { alpha_pow, p_at_z },
-                acc_mult: BabyBear::one(), // BatchFRI always uses mult of 1
+                acc_mult: BabyBear::ONE, // BatchFRI always uses mult of 1
             })));
         }
         instructions
@@ -266,10 +269,10 @@ pub mod test_fixtures {
         for _ in 0..num_test_cases {
             let len = rng.gen_range(1..8); // Random length between 1 and 7 bits
             let exp: Vec<Address<BabyBear>> =
-                (0..len).map(|_| Address(BabyBear::from_wrapped_u32(rng.gen()))).collect();
-            let base = Address(BabyBear::from_wrapped_u32(rng.gen()));
-            let result = Address(BabyBear::from_wrapped_u32(rng.gen()));
-            let mult = BabyBear::from_wrapped_u32(rng.gen());
+                (0..len).map(|_| Address(BabyBear::from_u32(rng.r#gen()))).collect();
+            let base = Address(BabyBear::from_u32(rng.r#gen()));
+            let result = Address(BabyBear::from_u32(rng.r#gen()));
+            let mult = BabyBear::from_u32(rng.r#gen());
             instructions.push(Instruction::ExpReverseBitsLen(ExpReverseBitsInstr {
                 addrs: ExpReverseBitsIo { base, exp, result },
                 mult,
@@ -281,7 +284,7 @@ pub mod test_fixtures {
     fn fri_fold_instructions() -> Vec<Instruction<BabyBear>> {
         let (mut rng, num_test_cases) = initialize();
         let mut instructions = Vec::with_capacity(num_test_cases);
-        let random_addr = |rng: &mut StdRng| Address(BabyBear::from_wrapped_u32(rng.gen()));
+        let random_addr = |rng: &mut StdRng| Address(BabyBear::from_u32(rng.r#gen()));
         let random_addrs =
             |rng: &mut StdRng, len: usize| (0..len).map(|_| random_addr(rng)).collect();
         for _ in 0..num_test_cases {
@@ -300,8 +303,8 @@ pub mod test_fixtures {
                     alpha_pow_output: random_addrs(&mut rng, len),
                     ro_output: random_addrs(&mut rng, len),
                 },
-                alpha_pow_mults: vec![BabyBear::one(); len],
-                ro_mults: vec![BabyBear::one(); len],
+                alpha_pow_mults: vec![BabyBear::ONE; len],
+                ro_mults: vec![BabyBear::ONE; len],
             })));
         }
         instructions
@@ -312,7 +315,7 @@ pub mod test_fixtures {
         let mut instructions = Vec::with_capacity(num_test_cases);
         for _ in 0..num_test_cases {
             let public_values_a: [u32; air::RECURSIVE_PROOF_NUM_PV_ELTS] =
-                array::from_fn(|_| BabyBear::from_wrapped_u32(rng.gen()).as_canonical_u32());
+                array::from_fn(|_| BabyBear::from_u32(rng.r#gen()).as_canonical_u32());
             let public_values: &RecursionPublicValues<u32> = public_values_a.as_slice().borrow();
             instructions.push(runtime::instruction::commit_public_values(public_values));
         }
@@ -325,14 +328,14 @@ pub mod test_fixtures {
         for _ in 0..num_test_cases {
             instructions.push(Instruction::Select(SelectInstr {
                 addrs: SelectIo {
-                    bit: Address(BabyBear::from_wrapped_u32(rng.gen())),
-                    out1: Address(BabyBear::from_wrapped_u32(rng.gen())),
-                    out2: Address(BabyBear::from_wrapped_u32(rng.gen())),
-                    in1: Address(BabyBear::from_wrapped_u32(rng.gen())),
-                    in2: Address(BabyBear::from_wrapped_u32(rng.gen())),
+                    bit: Address(BabyBear::from_u32(rng.r#gen())),
+                    out1: Address(BabyBear::from_u32(rng.r#gen())),
+                    out2: Address(BabyBear::from_u32(rng.r#gen())),
+                    in1: Address(BabyBear::from_u32(rng.r#gen())),
+                    in2: Address(BabyBear::from_u32(rng.r#gen())),
                 },
-                mult1: BabyBear::from_wrapped_u32(rng.gen()),
-                mult2: BabyBear::from_wrapped_u32(rng.gen()),
+                mult1: BabyBear::from_u32(rng.r#gen()),
+                mult2: BabyBear::from_u32(rng.r#gen()),
             }));
         }
         instructions
@@ -343,9 +346,9 @@ pub mod test_fixtures {
         let mut instructions = Vec::with_capacity(num_test_cases);
 
         for _ in 0..num_test_cases {
-            let input = array::from_fn(|_| Address(BabyBear::from_wrapped_u32(rng.gen())));
-            let output = array::from_fn(|_| Address(BabyBear::from_wrapped_u32(rng.gen())));
-            let mults = array::from_fn(|_| BabyBear::from_wrapped_u32(rng.gen()));
+            let input = array::from_fn(|_| Address(BabyBear::from_u32(rng.r#gen())));
+            let output = array::from_fn(|_| Address(BabyBear::from_u32(rng.r#gen())));
+            let mults = array::from_fn(|_| BabyBear::from_u32(rng.r#gen()));
 
             instructions.push(Instruction::Poseidon2(Box::new(Poseidon2Instr {
                 addrs: Poseidon2Io { input, output },

@@ -30,9 +30,9 @@ pub fn main() {
     for _ in 0..50 {
         // Test with random numbers.
         let mut rng = rand::thread_rng();
-        let mut x: [u8; 32] = rng.gen();
-        let mut y: [u8; 32] = rng.gen();
-        let modulus: [u8; 32] = rng.gen();
+        let mut x: [u8; 32] = rng.r#gen();
+        let mut y: [u8; 32] = rng.r#gen();
+        let modulus: [u8; 32] = rng.r#gen();
 
         // Convert byte arrays to BigUint
         let modulus_big = BigUint::from_bytes_le(&modulus);
@@ -55,8 +55,8 @@ pub fn main() {
     for _ in 0..50 {
         // Test with random numbers.
         let mut rng = rand::thread_rng();
-        let mut x: [u8; 32] = rng.gen();
-        let mut y: [u8; 32] = rng.gen();
+        let mut x: [u8; 32] = rng.r#gen();
+        let mut y: [u8; 32] = rng.r#gen();
 
         // Convert byte arrays to BigUint
         let x_big = BigUint::from_bytes_le(&x);
@@ -74,7 +74,7 @@ pub fn main() {
 
     // Test with random numbers.
     let mut rng = rand::thread_rng();
-    let x: [u8; 32] = rng.gen();
+    let x: [u8; 32] = rng.r#gen();
 
     // Hardcoded edge case: Multiplying by 1
     let modulus = [0u8; 32];

@@ -7,7 +7,7 @@ use itertools::Itertools;
 use p3_air::Air;
 use p3_challenger::{CanObserve, FieldChallenger};
 use p3_commit::Pcs;
-use p3_field::{AbstractExtensionField, AbstractField, Field, PrimeField32};
+use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, Field, PrimeField32};
 use p3_matrix::{dense::RowMajorMatrix, Dimensions, Matrix};
 use p3_maybe_rayon::prelude::*;
 use p3_uni_stark::{get_symbolic_constraints, SymbolicAirBuilder};
@@ -88,7 +88,7 @@ impl<SC: StarkGenericConfig> StarkProvingKey<SC> {
         challenger.observe_slice(&self.initial_global_cumulative_sum.0.x.0);
         challenger.observe_slice(&self.initial_global_cumulative_sum.0.y.0);
         // Observe the padding.
-        challenger.observe(Val::<SC>::zero());
+        challenger.observe(Val::<SC>::ZERO);
     }
 }
 
@@ -117,7 +117,7 @@ impl<SC: StarkGenericConfig> StarkVerifyingKey<SC> {
         challenger.observe_slice(&self.initial_global_cumulative_sum.0.x.0);
         challenger.observe_slice(&self.initial_global_cumulative_sum.0.y.0);
         // Observe the padding.
-        challenger.observe(Val::<SC>::zero());
+        challenger.observe(Val::<SC>::ZERO);
     }
 }
 
@@ -184,7 +184,7 @@ impl<SC: StarkGenericConfig, A: MachineAir<Val<SC>>> StarkMachine<SC, A> {
         // Obtain the challenges used for the global permutation argument.
         let mut permutation_challenges: Vec<SC::Challenge> = Vec::new();
         for _ in 0..2 {
-            permutation_challenges.push(challenger.sample_ext_element());
+            permutation_challenges.push(challenger.sample_algebra_element());
         }
 
         let mut global_cumulative_sums = Vec::new();
@@ -225,8 +225,8 @@ impl<SC: StarkGenericConfig, A: MachineAir<Val<SC>>> StarkMachine<SC, A> {
                             let last_row =
                                 &main_trace.values[main_trace_size - 14..main_trace_size];
                             SepticDigest(SepticCurve {
-                                x: SepticExtension::<Val<SC>>::from_base_fn(|i| last_row[i]),
-                                y: SepticExtension::<Val<SC>>::from_base_fn(|i| last_row[i + 7]),
+                                x: SepticExtension::<Val<SC>>::from_basis_coefficients_fn(|i| last_row[i]),
+                                y: SepticExtension::<Val<SC>>::from_basis_coefficients_fn(|i| last_row[i + 7]),
                             })
                         };
                         (trace, (global_sum, local_sum))
@@ -260,7 +260,7 @@ impl<SC: StarkGenericConfig, A: MachineAir<Val<SC>>> StarkMachine<SC, A> {
                 let trace_width = traces[i].0.width();
                 let pre_width = traces[i].1.map_or(0, p3_matrix::Matrix::width);
                 let permutation_width = permutation_traces[i].width() *
-                    <SC::Challenge as AbstractExtensionField<SC::Val>>::D;
+                    <SC::Challenge as BasedVectorSpace<SC::Val>>::DIMENSION;
                 let total_width = trace_width + pre_width + permutation_width;
                 tracing::debug!(
                     "{:<11} | Main Cols = {:<5} | Pre Cols = {:<5} | Perm Cols = {:<5} | Rows = {:<10} | Cells = {:<10}",
@@ -661,4 +661,30 @@ impl<SC: StarkGenericConfig> MachineVerificationError<SC> {
             ))
         )
     }
+}
+
+//test
+use std::sync::Mutex;
+pub fn parallel_matrix_sum<SC: StarkGenericConfig>(matrix: &RowMajorMatrix<Val<SC>>) 
+{
+    let num_rows = matrix.height();
+    let num_cols = matrix.width();
+    let values = &matrix.values;
+
+    let rows_per_chunk = std::cmp::max(8, num_rows / (rayon::current_num_threads() * 4));
+    let chunk_size = rows_per_chunk * num_cols;
+
+    let global_sum = Mutex::new(Val::<SC>::ZERO);
+
+    values.par_chunks(chunk_size).for_each(|chunk| {
+        let mut local_sum = Val::<SC>::ZERO;
+        for &element in chunk {
+            local_sum += element;
+        }
+
+        let mut global = global_sum.lock().unwrap();
+        *global += local_sum;
+    });
+
+    tracing::info!("=====H:{}, W:{}, trace_sum:{:?}", num_rows, num_cols,global_sum.into_inner().unwrap());
 }

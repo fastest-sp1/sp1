@@ -1,6 +1,5 @@
 use hashbrown::HashMap;
-use p3_commit::TwoAdicMultiplicativeCoset;
-use p3_field::{AbstractField, TwoAdicField};
+use p3_field::{PrimeCharacteristicRing, TwoAdicField, coset::TwoAdicMultiplicativeCoset};
 use p3_matrix::Dimensions;
 use sp1_stark::septic_digest::SepticDigest;
 
@@ -89,7 +88,7 @@ impl<C: CircuitConfig<F = SC::Val>, SC: BabyBearFriConfigVariable<C>> VerifyingK
         challenger.observe_slice(builder, self.initial_global_cumulative_sum.0.x.0);
         challenger.observe_slice(builder, self.initial_global_cumulative_sum.0.y.0);
         // Observe the padding.
-        let zero: Felt<_> = builder.eval(C::F::zero());
+        let zero: Felt<_> = builder.eval(C::F::ZERO);
         challenger.observe(builder, zero);
     }
 
@@ -109,11 +108,11 @@ impl<C: CircuitConfig<F = SC::Val>, SC: BabyBearFriConfigVariable<C>> VerifyingK
         inputs.extend(self.initial_global_cumulative_sum.0.x.0);
         inputs.extend(self.initial_global_cumulative_sum.0.y.0);
         for domain in prep_domains {
-            inputs.push(builder.eval(C::F::from_canonical_usize(domain.log_n)));
-            let size = 1 << domain.log_n;
-            inputs.push(builder.eval(C::F::from_canonical_usize(size)));
-            let g = C::F::two_adic_generator(domain.log_n);
-            inputs.push(builder.eval(domain.shift));
+            inputs.push(builder.eval(C::F::from_usize(domain.log_size())));
+            let size = 1 << domain.log_size();
+            inputs.push(builder.eval(C::F::from_usize(size)));
+            let g = C::F::two_adic_generator(domain.log_size());
+            inputs.push(builder.eval(domain.shift()));
             inputs.push(builder.eval(g));
         }
 

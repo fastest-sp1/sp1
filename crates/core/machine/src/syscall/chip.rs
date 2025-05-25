@@ -2,7 +2,7 @@ use crate::utils::next_power_of_two;
 use core::fmt;
 use itertools::Itertools;
 use p3_air::{Air, BaseAir};
-use p3_field::{AbstractField, PrimeField32};
+use p3_field::{PrimeCharacteristicRing, PrimeField32};
 use p3_matrix::{dense::RowMajorMatrix, Matrix};
 use p3_maybe_rayon::prelude::{IntoParallelRefIterator, ParallelBridge, ParallelIterator};
 use sp1_core_executor::{
@@ -129,15 +129,15 @@ impl<F: PrimeField32> MachineAir<F> for SyscallChip {
         _output: &mut ExecutionRecord,
     ) -> RowMajorMatrix<F> {
         let row_fn = |syscall_event: &SyscallEvent, _: bool| {
-            let mut row = [F::zero(); NUM_SYSCALL_COLS];
+            let mut row = [F::ZERO; NUM_SYSCALL_COLS];
             let cols: &mut SyscallCols<F> = row.as_mut_slice().borrow_mut();
 
-            cols.shard = F::from_canonical_u32(syscall_event.shard);
-            cols.clk = F::from_canonical_u32(syscall_event.clk);
-            cols.syscall_id = F::from_canonical_u32(syscall_event.syscall_code.syscall_id());
-            cols.arg1 = F::from_canonical_u32(syscall_event.arg1);
-            cols.arg2 = F::from_canonical_u32(syscall_event.arg2);
-            cols.is_real = F::one();
+            cols.shard = F::from_u32(syscall_event.shard);
+            cols.clk = F::from_u32(syscall_event.clk);
+            cols.syscall_id = F::from_u32(syscall_event.syscall_code.syscall_id());
+            cols.arg1 = F::from_u32(syscall_event.arg1);
+            cols.arg2 = F::from_u32(syscall_event.arg2);
+            cols.is_real = F::ONE;
             row
         };
 
@@ -160,7 +160,7 @@ impl<F: PrimeField32> MachineAir<F> for SyscallChip {
         // Pad the trace to a power of two depending on the proof shape in `input`.
         rows.resize(
             <SyscallChip as MachineAir<F>>::num_rows(self, input).unwrap(),
-            [F::zero(); NUM_SYSCALL_COLS],
+            [F::ZERO; NUM_SYSCALL_COLS],
         );
 
         RowMajorMatrix::new(rows.into_iter().flatten().collect::<Vec<_>>(), NUM_SYSCALL_COLS)
@@ -201,7 +201,7 @@ where
 {
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
-        let local = main.row_slice(0);
+        let local = main.row_slice(0).unwrap();
         let local: &SyscallCols<AB::Var> = (*local).borrow();
 
         // Constrain that `local.is_real` is boolean.
@@ -233,11 +233,11 @@ where
                             local.syscall_id.into(),
                             local.arg1.into(),
                             local.arg2.into(),
-                            AB::Expr::zero(),
-                            AB::Expr::zero(),
-                            AB::Expr::one(),
-                            AB::Expr::zero(),
-                            AB::Expr::from_canonical_u8(InteractionKind::Syscall as u8),
+                            AB::Expr::ZERO,
+                            AB::Expr::ZERO,
+                            AB::Expr::ONE,
+                            AB::Expr::ZERO,
+                            AB::Expr::from_u8(InteractionKind::Syscall as u8),
                         ],
                         local.is_real.into(),
                         InteractionKind::Global,
@@ -265,11 +265,11 @@ where
                             local.syscall_id.into(),
                             local.arg1.into(),
                             local.arg2.into(),
-                            AB::Expr::zero(),
-                            AB::Expr::zero(),
-                            AB::Expr::zero(),
-                            AB::Expr::one(),
-                            AB::Expr::from_canonical_u8(InteractionKind::Syscall as u8),
+                            AB::Expr::ZERO,
+                            AB::Expr::ZERO,
+                            AB::Expr::ZERO,
+                            AB::Expr::ONE,
+                            AB::Expr::from_u8(InteractionKind::Syscall as u8),
                         ],
                         local.is_real.into(),
                         InteractionKind::Global,

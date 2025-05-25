@@ -102,9 +102,11 @@ mod sys {
                 "sp1-core-machine",
                 "p3-baby-bear",
                 "sp1-core-executor",
+                "p3-monty-31",
             ])
-            .with_parse_extra_bindings(&["sp1-stark", "sp1-primitives", "p3-baby-bear"])
-            .rename_item("BabyBear", "BabyBearP3")
+            .with_parse_extra_bindings(&["sp1-stark", "sp1-primitives", "p3-baby-bear", "p3-monty-31"])
+            .rename_item("BabyBear", "BabyBearP3") //
+            //.rename_item("MontyField31<BabyBearParameters>", "uint32_t")
             .include_item("MemoryRecord") // Just for convenience. Not exposed, so we need to manually do this.
             .include_item("SyscallCode") // Required for populating the CPU columns for ECALL.
             .include_item("SepticExtension")

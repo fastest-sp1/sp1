@@ -19,7 +19,7 @@ mod tests {
     use std::borrow::BorrowMut;
 
     use p3_baby_bear::BabyBear;
-    use p3_field::AbstractField;
+    use p3_field::PrimeCharacteristicRing;
     use p3_matrix::dense::RowMajorMatrix;
     use sp1_core_executor::{ExecutionRecord, Instruction, Opcode, Program};
     use sp1_stark::{
@@ -102,8 +102,8 @@ mod tests {
                     if *chip_name == jump_chip_name {
                         let first_row = trace.row_mut(0);
                         let first_row: &mut JumpColumns<BabyBear> = first_row.borrow_mut();
-                        assert!(first_row.is_jal == BabyBear::one());
-                        first_row.is_jalr = BabyBear::one();
+                        assert!(first_row.is_jal == BabyBear::ONE);
+                        first_row.is_jalr = BabyBear::ONE;
                     }
                 }
                 traces

@@ -53,7 +53,7 @@ impl<F: PrimeField32> MachineAir<F> for ByteChip<F> {
             let index = lookup.opcode as usize;
 
             let cols: &mut ByteMultCols<F> = trace.row_mut(row).borrow_mut();
-            cols.multiplicities[index] += F::from_canonical_usize(*mult);
+            cols.multiplicities[index] += F::from_usize(*mult);
         }
 
         trace

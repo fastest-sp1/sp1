@@ -4,7 +4,7 @@ use p3_baby_bear::BabyBear;
 use p3_challenger::DuplexChallenger;
 use p3_symmetric::Hash;
 
-use p3_field::AbstractField;
+use p3_field::PrimeCharacteristicRing;
 use sp1_recursion_compiler::ir::Builder;
 use sp1_stark::{
     baby_bear_poseidon2::BabyBearPoseidon2, Com, InnerChallenge, InnerPerm, InnerVal, OpeningProof,

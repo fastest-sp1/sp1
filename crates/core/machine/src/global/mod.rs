@@ -123,19 +123,19 @@ impl<F: PrimeField32> MachineAir<F> for GlobalChip {
                     let idx = i * chunk_size + j;
                     let cols: &mut GlobalCols<F> = row.borrow_mut();
                     let event: &GlobalInteractionEvent = &events[idx];
-                    cols.message = event.message.map(F::from_canonical_u32);
-                    cols.kind = F::from_canonical_u8(event.kind);
+                    cols.message = event.message.map(F::from_u32);
+                    cols.kind = F::from_u8(event.kind);
                     cols.interaction.populate(
                         SepticBlock(event.message),
                         event.is_receive,
                         true,
                         event.kind,
                     );
-                    cols.is_real = F::one();
+                    cols.is_real = F::ONE;
                     if event.is_receive {
-                        cols.is_receive = F::one();
+                        cols.is_receive = F::ONE;
                     } else {
-                        cols.is_send = F::one();
+                        cols.is_send = F::ONE;
                     }
                     point_chunks.push(SepticCurveComplete::Affine(SepticCurve {
                         x: SepticExtension(cols.interaction.x_coordinate.0),
@@ -204,9 +204,9 @@ where
 {
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
-        let local = main.row_slice(0);
+        let local = main.row_slice(0).unwrap();
         let local: &GlobalCols<AB::Var> = (*local).borrow();
-        let next = main.row_slice(1);
+        let next = main.row_slice(1).unwrap();
         let next: &GlobalCols<AB::Var> = (*next).borrow();
 
         // Receive the arguments, which consists of 7 message columns, `is_send`, `is_receive`, and

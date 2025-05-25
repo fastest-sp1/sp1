@@ -55,8 +55,9 @@ __SP1_HOSTDEV__ __SP1_INLINE__ void internal_linear_layer(
     F state[POSEIDON2_WIDTH]) {
   F matmul_constants[POSEIDON2_WIDTH];
   for (size_t i = 0; i < POSEIDON2_WIDTH; i++) {
-    matmul_constants[i] = F(F::to_monty(F::from_monty(
-        constants::POSEIDON2_INTERNAL_MATRIX_DIAG_16_BABYBEAR_MONTY[i].val)));
+    //matmul_constants[i] = F(F::to_monty(F::from_monty(
+    //    constants::POSEIDON2_INTERNAL_MATRIX_DIAG_16_BABYBEAR_MONTY[i].val)));
+    matmul_constants[i] = constants::POSEIDON2_INTERNAL_MATRIX_DIAG_16_BABYBEAR_MONTY[i];
   }
 
   F sum = F::zero();
@@ -69,9 +70,9 @@ __SP1_HOSTDEV__ __SP1_INLINE__ void internal_linear_layer(
     state[i] = state[i] + sum;
   }
 
-  F monty_inverse = F(F::to_monty(F::from_monty(1)));
+  /*F monty_inverse = F(F::to_monty(F::from_monty(1)));
   for (size_t i = 0; i < POSEIDON2_WIDTH; i++) {
     state[i] = state[i] * monty_inverse;
-  }
+  }*/
 }
 }  // namespace sp1_recursion_core_sys::poseidon2

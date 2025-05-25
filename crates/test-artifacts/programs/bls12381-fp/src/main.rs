@@ -38,7 +38,7 @@ fn random_u32_12() -> [u32; 12] {
     let mut rng = rand::thread_rng();
     let mut arr = [0u32; 12];
     for item in arr.iter_mut() {
-        *item = rng.gen();
+        *item = rng.r#gen(); //new rust 
     }
     arr
 }

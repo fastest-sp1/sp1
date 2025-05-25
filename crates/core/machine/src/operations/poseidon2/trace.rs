@@ -14,7 +14,7 @@ pub fn populate_perm_deg3<F: PrimeField32>(
     input: [F; WIDTH],
     expected_output: Option<[F; WIDTH]>,
 ) -> Poseidon2Operation<F> {
-    let mut row: Vec<F> = vec![F::zero(); NUM_POSEIDON2_OPERATION_COLUMNS];
+    let mut row: Vec<F> = vec![F::ZERO; NUM_POSEIDON2_OPERATION_COLUMNS];
     populate_perm::<F, 3>(input, expected_output, row.as_mut_slice());
     let op: &Poseidon2Operation<F> = row.as_slice().borrow();
     *op
@@ -38,7 +38,7 @@ pub fn populate_perm<F: PrimeField32, const DEGREE: usize>(
         ) = permutation.get_cols_mut();
 
         external_rounds_state[0] = input;
-
+        //println!("-----populate_perm--111, before_first_external,input:{:?}", external_rounds_state);
         // Apply the first half of external rounds.
         for r in 0..NUM_EXTERNAL_ROUNDS / 2 {
             let next_state =
@@ -49,11 +49,11 @@ pub fn populate_perm<F: PrimeField32, const DEGREE: usize>(
                 external_rounds_state[r + 1] = next_state;
             }
         }
-
+        //println!("-----populate_perm--2222, before_internal,state:{:?}", internal_rounds_state);
         // Apply the internal rounds.
         external_rounds_state[NUM_EXTERNAL_ROUNDS / 2] =
             populate_internal_rounds(internal_rounds_state, internal_rounds_s0, &mut internal_sbox);
-
+        //println!("-----populate_perm--33333, after_internal,state:{:?}", external_rounds_state[NUM_EXTERNAL_ROUNDS / 2]);
         // Apply the second half of external rounds.
         for r in NUM_EXTERNAL_ROUNDS / 2..NUM_EXTERNAL_ROUNDS {
             let next_state =
@@ -93,15 +93,15 @@ pub fn populate_external_round<F: PrimeField32, const DEGREE: usize>(
         let round = if r < NUM_EXTERNAL_ROUNDS / 2 { r } else { r + NUM_INTERNAL_ROUNDS };
         let mut add_rc = *round_state;
         for i in 0..WIDTH {
-            add_rc[i] += F::from_wrapped_u32(RC_16_30_U32[round][i]);
+            add_rc[i] += F::from_u32(RC_16_30_U32[round][i]);
         }
 
         // Apply the sboxes.
         // Optimization: since the linear layer that comes after the sbox is degree 1, we can
         // avoid adding columns for the result of the sbox, and instead include the x^3 -> x^7
         // part of the sbox in the constraint for the linear layer
-        let mut sbox_deg_7: [F; 16] = [F::zero(); WIDTH];
-        let mut sbox_deg_3: [F; 16] = [F::zero(); WIDTH];
+        let mut sbox_deg_7: [F; 16] = [F::ZERO; WIDTH];
+        let mut sbox_deg_3: [F; 16] = [F::ZERO; WIDTH];
         for i in 0..WIDTH {
             sbox_deg_3[i] = add_rc[i] * add_rc[i] * add_rc[i];
             sbox_deg_7[i] = sbox_deg_3[i] * sbox_deg_3[i] * add_rc[i];
@@ -125,13 +125,14 @@ pub fn populate_internal_rounds<F: PrimeField32>(
     sbox: &mut Option<&mut [F; NUM_INTERNAL_ROUNDS]>,
 ) -> [F; WIDTH] {
     let mut state: [F; WIDTH] = *internal_rounds_state;
-    let mut sbox_deg_3: [F; NUM_INTERNAL_ROUNDS] = [F::zero(); NUM_INTERNAL_ROUNDS];
+    let mut sbox_deg_3: [F; NUM_INTERNAL_ROUNDS] = [F::ZERO; NUM_INTERNAL_ROUNDS];
     for r in 0..NUM_INTERNAL_ROUNDS {
+        //println!("###beging: local_internal_layer_mat_mul, state:{:?}", state);
         // Add the round constant to the 0th state element.
         // Optimization: Since adding a constant is a degree 1 operation, we can avoid adding
         // columns for it, just like for external rounds.
         let round = r + NUM_EXTERNAL_ROUNDS / 2;
-        let add_rc = state[0] + F::from_wrapped_u32(RC_16_30_U32[round][0]);
+        let add_rc = state[0] + F::from_u32(RC_16_30_U32[round][0]);
 
         // Apply the sboxes.
         // Optimization: since the linear layer that comes after the sbox is degree 1, we can
@@ -141,6 +142,7 @@ pub fn populate_internal_rounds<F: PrimeField32>(
 
         // Apply the linear layer.
         state[0] = sbox_deg_7;
+        //println!("###before: local_internal_layer_mat_mul, state:{:?}", state);
         internal_linear_layer_mut(&mut state);
 
         // Optimization: since we're only applying the sbox to the 0th state element, we only

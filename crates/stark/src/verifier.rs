@@ -9,7 +9,7 @@ use num_traits::cast::ToPrimitive;
 use p3_air::{Air, BaseAir};
 use p3_challenger::{CanObserve, FieldChallenger};
 use p3_commit::{LagrangeSelectors, Pcs, PolynomialSpace};
-use p3_field::{AbstractExtensionField, AbstractField, Field};
+use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, Field};
 
 use super::{
     folder::VerifierConstraintFolder,
@@ -86,7 +86,7 @@ impl<SC: StarkGenericConfig, A: MachineAir<Val<SC>>> Verifier<SC, A> {
         challenger.observe(main_commit.clone());
 
         let local_permutation_challenges =
-            (0..2).map(|_| challenger.sample_ext_element::<SC::Challenge>()).collect::<Vec<_>>();
+            (0..2).map(|_| challenger.sample_algebra_element::<SC::Challenge>()).collect::<Vec<_>>();
 
         challenger.observe(permutation_commit.clone());
         // Observe the cumulative sums and constrain any sum without a corresponding scope to be
@@ -95,7 +95,7 @@ impl<SC: StarkGenericConfig, A: MachineAir<Val<SC>>> Verifier<SC, A> {
             let local_sum = opening.local_cumulative_sum;
             let global_sum = opening.global_cumulative_sum;
 
-            challenger.observe_slice(local_sum.as_base_slice());
+            challenger.observe_slice(local_sum.as_basis_coefficients_slice());
             challenger.observe_slice(&global_sum.0.x.0);
             challenger.observe_slice(&global_sum.0.y.0);
 
@@ -117,12 +117,12 @@ impl<SC: StarkGenericConfig, A: MachineAir<Val<SC>>> Verifier<SC, A> {
             }
         }
 
-        let alpha = challenger.sample_ext_element::<SC::Challenge>();
+        let alpha = challenger.sample_algebra_element::<SC::Challenge>();
 
         // Observe the quotient commitments.
         challenger.observe(quotient_commit.clone());
 
-        let zeta = challenger.sample_ext_element::<SC::Challenge>();
+        let zeta = challenger.sample_algebra_element::<SC::Challenge>();
 
         let preprocessed_domains_points_and_opens = vk
             .chip_information
@@ -242,7 +242,7 @@ impl<SC: StarkGenericConfig, A: MachineAir<Val<SC>>> Verifier<SC, A> {
         }
         // Verify that the local cumulative sum is zero.
         let local_cumulative_sum = proof.local_cumulative_sum();
-        if local_cumulative_sum != SC::Challenge::zero() {
+        if local_cumulative_sum != SC::Challenge::ZERO {
             return Err(VerificationError::CumulativeSumsError("local cumulative sum is not zero"));
         }
 
@@ -279,13 +279,13 @@ impl<SC: StarkGenericConfig, A: MachineAir<Val<SC>>> Verifier<SC, A> {
         }
 
         // Verify that the permutation width matches the expected value for the chip.
-        if opening.permutation.local.len() != chip.permutation_width() * SC::Challenge::D {
+        if opening.permutation.local.len() != chip.permutation_width() * SC::Challenge::DIMENSION {
             return Err(OpeningShapeError::PermutationWidthMismatch(
                 chip.permutation_width(),
                 opening.permutation.local.len(),
             ));
         }
-        if opening.permutation.next.len() != chip.permutation_width() * SC::Challenge::D {
+        if opening.permutation.next.len() != chip.permutation_width() * SC::Challenge::DIMENSION {
             return Err(OpeningShapeError::PermutationWidthMismatch(
                 chip.permutation_width(),
                 opening.permutation.next.len(),
@@ -301,9 +301,9 @@ impl<SC: StarkGenericConfig, A: MachineAir<Val<SC>>> Verifier<SC, A> {
         // For each quotient chunk, verify that the number of elements is equal to the degree of the
         // challenge extension field over the value field.
         for slice in &opening.quotient {
-            if slice.len() != SC::Challenge::D {
+            if slice.len() != SC::Challenge::DIMENSION {
                 return Err(OpeningShapeError::QuotientChunkSizeMismatch(
-                    SC::Challenge::D,
+                    SC::Challenge::DIMENSION,
                     slice.len(),
                 ));
             }
@@ -343,7 +343,7 @@ impl<SC: StarkGenericConfig, A: MachineAir<Val<SC>>> Verifier<SC, A> {
 
         // Check that the constraints match the quotient, i.e.
         //     folded_constraints(zeta) / Z_H(zeta) = quotient(zeta)
-        if folded_constraints * sels.inv_zeroifier == quotient {
+        if folded_constraints * sels.inv_vanishing == quotient {
             Ok(())
         } else {
             Err(OodEvaluationMismatch)
@@ -364,9 +364,9 @@ impl<SC: StarkGenericConfig, A: MachineAir<Val<SC>>> Verifier<SC, A> {
     {
         // Reconstruct the prmutation opening values as extension elements.
         let unflatten = |v: &[SC::Challenge]| {
-            v.chunks_exact(SC::Challenge::D)
+            v.chunks_exact(SC::Challenge::DIMENSION)
                 .map(|chunk| {
-                    chunk.iter().enumerate().map(|(e_i, &x)| SC::Challenge::monomial(e_i) * x).sum()
+                    chunk.iter().enumerate().map(|(e_i, &x)| SC::Challenge::ith_basis_element(e_i).unwrap() * x).sum()
                 })
                 .collect::<Vec<SC::Challenge>>()
         };
@@ -387,7 +387,7 @@ impl<SC: StarkGenericConfig, A: MachineAir<Val<SC>>> Verifier<SC, A> {
             is_last_row: selectors.is_last_row,
             is_transition: selectors.is_transition,
             alpha,
-            accumulator: SC::Challenge::zero(),
+            accumulator: SC::Challenge::ZERO,
             public_values,
             _marker: PhantomData,
         };
@@ -414,8 +414,8 @@ impl<SC: StarkGenericConfig, A: MachineAir<Val<SC>>> Verifier<SC, A> {
                     .enumerate()
                     .filter(|(j, _)| *j != i)
                     .map(|(_, other_domain)| {
-                        other_domain.zp_at_point(zeta) *
-                            other_domain.zp_at_point(domain.first_point()).inverse()
+                        other_domain.vanishing_poly_at_point(zeta) *
+                            other_domain.vanishing_poly_at_point(domain.first_point()).inverse()
                     })
                     .product::<SC::Challenge>()
             })
@@ -426,10 +426,10 @@ impl<SC: StarkGenericConfig, A: MachineAir<Val<SC>>> Verifier<SC, A> {
             .iter()
             .enumerate()
             .map(|(ch_i, ch)| {
-                assert_eq!(ch.len(), SC::Challenge::D);
+                assert_eq!(ch.len(), SC::Challenge::DIMENSION);
                 ch.iter()
                     .enumerate()
-                    .map(|(e_i, &c)| zps[ch_i] * SC::Challenge::monomial(e_i) * c)
+                    .map(|(e_i, &c)| zps[ch_i] * SC::Challenge::ith_basis_element(e_i).unwrap() * c)
                     .sum::<SC::Challenge>()
             })
             .sum::<SC::Challenge>()

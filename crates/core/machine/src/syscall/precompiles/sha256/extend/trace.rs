@@ -44,7 +44,7 @@ impl<F: PrimeField32> MachineAir<F> for ShaExtendChip {
             padded_nb_rows = 4;
         }
         for i in nb_rows..padded_nb_rows {
-            let mut row = [F::zero(); NUM_SHA_EXTEND_COLS];
+            let mut row = [F::ZERO; NUM_SHA_EXTEND_COLS];
             let cols: &mut ShaExtendCols<F> = row.as_mut_slice().borrow_mut();
             cols.populate_flags(i);
             rows.push(row);
@@ -94,13 +94,13 @@ impl ShaExtendChip {
         blu: &mut impl ByteRecord,
     ) {
         for j in 0..48usize {
-            let mut row = [F::zero(); NUM_SHA_EXTEND_COLS];
+            let mut row = [F::ZERO; NUM_SHA_EXTEND_COLS];
             let cols: &mut ShaExtendCols<F> = row.as_mut_slice().borrow_mut();
-            cols.is_real = F::one();
+            cols.is_real = F::ONE;
             cols.populate_flags(j);
-            cols.shard = F::from_canonical_u32(event.shard);
-            cols.clk = F::from_canonical_u32(event.clk);
-            cols.w_ptr = F::from_canonical_u32(event.w_ptr);
+            cols.shard = F::from_u32(event.shard);
+            cols.clk = F::from_u32(event.clk);
+            cols.w_ptr = F::from_u32(event.w_ptr);
 
             cols.w_i_minus_15.populate(event.w_i_minus_15_reads[j], blu);
             cols.w_i_minus_2.populate(event.w_i_minus_2_reads[j], blu);

@@ -1,7 +1,7 @@
 use std::borrow::Borrow;
 
 use p3_air::{Air, AirBuilder};
-use p3_field::AbstractField;
+use p3_field::PrimeCharacteristicRing;
 use p3_matrix::Matrix;
 use sp1_core_executor::{Opcode, DEFAULT_PC_INC, UNUSED_PC};
 use sp1_stark::{
@@ -29,7 +29,7 @@ where
     #[inline(never)]
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
-        let local = main.row_slice(0);
+        let local = main.row_slice(0).unwrap();
         let local: &BranchColumns<AB::Var> = (*local).borrow();
 
         // SAFETY: All selectors `is_beq`, `is_bne`, `is_blt`, `is_bge`, `is_bltu`, `is_bgeu` are
@@ -66,20 +66,20 @@ where
         // - `is_halt = 0`
         // `next_pc` still has to be constrained, and this is done below.
         builder.receive_instruction(
-            AB::Expr::zero(),
-            AB::Expr::zero(),
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
             local.pc.reduce::<AB>(),
             local.next_pc.reduce::<AB>(),
-            AB::Expr::zero(),
+            AB::Expr::ZERO,
             opcode,
             local.op_a_value,
             local.op_b_value,
             local.op_c_value,
             local.op_a_0,
-            AB::Expr::one(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
+            AB::Expr::ONE,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
             is_real.clone(),
         );
 
@@ -106,26 +106,26 @@ where
 
             // When we are branching, assert that local.next_pc <==> local.pc + c.
             builder.send_instruction(
-                AB::Expr::zero(),
-                AB::Expr::zero(),
-                AB::Expr::from_canonical_u32(UNUSED_PC),
-                AB::Expr::from_canonical_u32(UNUSED_PC + DEFAULT_PC_INC),
-                AB::Expr::zero(),
+                AB::Expr::ZERO,
+                AB::Expr::ZERO,
+                AB::Expr::from_u32(UNUSED_PC),
+                AB::Expr::from_u32(UNUSED_PC + DEFAULT_PC_INC),
+                AB::Expr::ZERO,
                 Opcode::ADD.as_field::<AB::F>(),
                 local.next_pc,
                 local.pc,
                 local.op_c_value,
-                AB::Expr::zero(),
-                AB::Expr::zero(),
-                AB::Expr::zero(),
-                AB::Expr::zero(),
-                AB::Expr::zero(),
+                AB::Expr::ZERO,
+                AB::Expr::ZERO,
+                AB::Expr::ZERO,
+                AB::Expr::ZERO,
+                AB::Expr::ZERO,
                 local.is_branching,
             );
 
             // When we are not branching, assert that local.pc + 4 <==> next.pc.
             builder.when(is_real.clone()).when(local.not_branching).assert_eq(
-                local.pc.reduce::<AB>() + AB::Expr::from_canonical_u32(DEFAULT_PC_INC),
+                local.pc.reduce::<AB>() + AB::Expr::from_u32(DEFAULT_PC_INC),
                 local.next_pc.reduce::<AB>(),
             );
 
@@ -197,42 +197,42 @@ where
         // SAFETY: `use_signed_comparison` is boolean, since at most one selector is turned on.
         let use_signed_comparison = local.is_blt + local.is_bge;
         builder.send_instruction(
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::from_canonical_u32(UNUSED_PC),
-            AB::Expr::from_canonical_u32(UNUSED_PC + DEFAULT_PC_INC),
-            AB::Expr::zero(),
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::from_u32(UNUSED_PC),
+            AB::Expr::from_u32(UNUSED_PC + DEFAULT_PC_INC),
+            AB::Expr::ZERO,
             use_signed_comparison.clone() * Opcode::SLT.as_field::<AB::F>() +
-                (AB::Expr::one() - use_signed_comparison.clone()) *
+                (AB::Expr::ONE - use_signed_comparison.clone()) *
                     Opcode::SLTU.as_field::<AB::F>(),
             Word::extend_var::<AB>(local.a_lt_b),
             local.op_a_value,
             local.op_b_value,
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
             is_real.clone(),
         );
 
         // Calculate a_gt_b <==> a > b (using appropriate signedness).
         builder.send_instruction(
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::from_canonical_u32(UNUSED_PC),
-            AB::Expr::from_canonical_u32(UNUSED_PC + DEFAULT_PC_INC),
-            AB::Expr::zero(),
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::from_u32(UNUSED_PC),
+            AB::Expr::from_u32(UNUSED_PC + DEFAULT_PC_INC),
+            AB::Expr::ZERO,
             use_signed_comparison.clone() * Opcode::SLT.as_field::<AB::F>() +
-                (AB::Expr::one() - use_signed_comparison) * Opcode::SLTU.as_field::<AB::F>(),
+                (AB::Expr::ONE - use_signed_comparison) * Opcode::SLTU.as_field::<AB::F>(),
             Word::extend_var::<AB>(local.a_gt_b),
             local.op_b_value,
             local.op_a_value,
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
-            AB::Expr::zero(),
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
+            AB::Expr::ZERO,
             is_real.clone(),
         );
     }
