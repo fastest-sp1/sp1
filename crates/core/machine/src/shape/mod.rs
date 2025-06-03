@@ -525,7 +525,7 @@ impl<F: PrimeField32> Default for CoreShapeConfig<F> {
                     ShapeCluster::new(x.into_iter().map(|(k, v)| (k, vec![Some(v)])).collect())
                 })
                 .collect(),
-            costs: serde_json::from_str(include_str!("rv32im_costs.json"))
+            costs: serde_json::from_str(include_str!("rv_32im_costs.json"))
                 .expect("Failed to load rv32im_costs.json file. Verify that `git config core.symlinks` is not set to false."),
             _data: PhantomData,
         }
