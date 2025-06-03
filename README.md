@@ -121,14 +121,24 @@ If failure, please check the machine's free memory which is at lease 60G.
 # Permance
 
 > [!NOTE]
-> Only compare CPU avx2 between the orginal SP1 v4.2 and this customed version.
+> Only compare CPU avx2 between the orginal SP1 v4.2 and this customed version.  
 > Only run the three host programs in sp1/examples/fibonacci: fibonacci-script, groth16_bn254, plonk_bn254.
 
 ## fibonacci-script
 
-|            | cusomed version   | SP1 v4.2.0 |
+|   item     | cusomed version   | SP1 v4.2.0 |
 |------------|-------------------|------------|
 | execute    | 8.08ms            | 8.17ms     |
 | prove_core | 32.0s             | 68.7s      |
 | compress   | 113s              | 208s       |
+
+## groth16_bn254
+
+|   item     | cusomed version   | SP1 v4.2.0 |
+|------------|-------------------|------------|
+| prove_core | 34.0s             | 69.2s      |
+| compress   | 107s              | 215s       |
+| shrink     | 9.79s             | 18.3s      |
+| wrap_bn254 |  238s             | 362s       |
+| wrap_groth16_bn254 |  53.0s             | 53.6s       |
 
