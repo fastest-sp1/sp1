@@ -38,7 +38,6 @@ pub fn populate_perm<F: PrimeField32, const DEGREE: usize>(
         ) = permutation.get_cols_mut();
 
         external_rounds_state[0] = input;
-        //println!("-----populate_perm--111, before_first_external,input:{:?}", external_rounds_state);
         // Apply the first half of external rounds.
         for r in 0..NUM_EXTERNAL_ROUNDS / 2 {
             let next_state =
@@ -49,11 +48,9 @@ pub fn populate_perm<F: PrimeField32, const DEGREE: usize>(
                 external_rounds_state[r + 1] = next_state;
             }
         }
-        //println!("-----populate_perm--2222, before_internal,state:{:?}", internal_rounds_state);
         // Apply the internal rounds.
         external_rounds_state[NUM_EXTERNAL_ROUNDS / 2] =
             populate_internal_rounds(internal_rounds_state, internal_rounds_s0, &mut internal_sbox);
-        //println!("-----populate_perm--33333, after_internal,state:{:?}", external_rounds_state[NUM_EXTERNAL_ROUNDS / 2]);
         // Apply the second half of external rounds.
         for r in NUM_EXTERNAL_ROUNDS / 2..NUM_EXTERNAL_ROUNDS {
             let next_state =
