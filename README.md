@@ -135,7 +135,7 @@ If failure, please check the machine's free memory which is at lease 60G.
 ## groth16_bn254
 
 |   item     | customed version   | SP1 v4.2.0 | Improvement (%) |
-|------------|-------------------|------------|
+|------------|-------------------|-------------|-----------------|
 | prove_core | 34.0s             | 69.2s      |   53.4% faster    |
 | compress   | 107s              | 215s       |   50.2% faster    |
 | shrink     | 9.79s             | 18.3s      |   46.5% faster    |
