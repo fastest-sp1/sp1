@@ -23,17 +23,17 @@ This modified version of SP1(based on SP1 v4.2.0) is the fastest SP1, which uses
 
 ### Build the Groth16 circuit
 
-1. generate the build_groth16_bn254
+1. Generate the build_groth16_bn254
 ```sh
 # cd fastest-sp1/sp1/crates/prover
 # RUSTFLAGS="-C target-feature=+avx2" cargo build -r
 ```
 > [!NOTE]
-> Modified the "target-feature" according your CPU feature.
-> Plonky3 only supports avx2 or avx512.
-> Use this command for cross-compilation: RUSTFLAGS="-C target-feature=+avx512f" cargo build --release --target x86_64-unknown-linux-gnu
+> Modified the "target-feature" according your CPU feature.  
+> Plonky3 only supports avx2 or avx512.  
+> Use this command for cross-compilation: RUSTFLAGS="-C target-feature=+avx512f" cargo build --release --target x86_64-unknown-linux-gnu  
 
-2. it will report the following similar error:
+2. It will report the following similar error:
 ```sh
 error: extern blocks must be unsafe
     --> /home/gavin/zkvm/fastest-sp1/sp1/target/release/build/sp1-recursion-gnark-ffi-e09b39f64bd06e95/out/bindings.rs:1485:1
@@ -43,10 +43,10 @@ error: extern blocks must be unsafe
 1487 | | }
      | |_^
 ```
-please copy sp1/examples/fibonacci/bindings.rs to your target directory, such as sp1/target/release/build/sp1-recursion-gnark-ffi-e09b39f64bd06e95/out/.
-then, rebuild it.
+Please copy sp1/examples/fibonacci/bindings.rs to your target directory, such as sp1/target/release/build/sp1-recursion-gnark-ffi-e09b39f64bd06e95/out/.
+Then, rebuild it.
 
-3. run the build_groth16_bn254
+3. Run the build_groth16_bn254
 > [!NOTE]
 > The machine need free memory 30G.
 
@@ -54,9 +54,9 @@ then, rebuild it.
 # mkdir -p ~/.sp1/circuits/groth16/v4.2.0-new-p3/
 # cd fastest-sp1/sp1/target/release
 # export SP1_ALLOW_DEPRECATED_HOOKS=true
-# RUST_LOG=debug nohup ./build_groth16_bn254 --build-dir ./groth16  > ./gen-groth16-key.log 2>&1 &
+# RUST_LOG=debug nohup ./build_groth16_bn254 --build-dir ~/.sp1/circuits/groth16/v4.2.0-new-p3  > ./gen-groth16-key.log 2>&1 &
 ```
-The generation will last about 30 minutes according your cpu speed. If ok, the log is similar to :
+The generation will last about 30 minutes according your cpu speed. If ok, the log's tail is similar to :
 
 ```sh
 16:44:38 INF compiling circuit
@@ -67,7 +67,53 @@ The generation will last about 30 minutes according your cpu speed. If ok, the l
 16:48:35 DBG verifier done backend=groth16 curve=bn254 took=0.892739
 16:48:35 DBG hash to field function not set, using keccak256 as default
 ```
-if failure, please check the machine free memory which is at lease 30G.
+
+and the build-dir has the files:
+
+```sh
+$ ls -l ~/.sp1/circuits/groth16/v4.2.0-new-p3/
+total 4109340
+-rw-r--r-- 1 gavin gavin      24977 Jun  1 17:41 Groth16Verifier.sol
+-rw-r--r-- 1 gavin gavin       2481 Jun  1 17:41 SP1VerifierGroth16.sol
+-rw-r--r-- 1 gavin gavin  172615564 Jun  1 17:41 constraints.json
+-rw-r--r-- 1 gavin gavin 1169531596 Jun  1 17:41 groth16_circuit.bin
+-rw-r--r-- 1 gavin gavin 2864539679 Jun  1 17:41 groth16_pk.bin
+-rw-r--r-- 1 gavin gavin        396 Jun  1 17:41 groth16_vk.bin
+-rw-r--r-- 1 gavin gavin     823105 Jun  1 17:41 groth16_witness.json
+-rw-r--r-- 1 gavin gavin        648 Jun  1 17:41 wrap_vk.bin
+-rw-r--r-- 1 gavin gavin     393926 Jun  1 17:41 wrapped_proof.bin
+```
+
+If failure, please check the machine's free memory which is at lease 30G.
 
 ### Build the Plonk circuit
 
+1. Generate build_plonk_bn254  
+
+   If generating build_groth16_bn254 ok, it will also generate build_plonk_bn254.
+   
+2.  Run the build_plonk_bn254
+
+> [!NOTE]
+> The machine need free memory 60G.
+
+```sh
+# mkdir -p ~/.sp1/circuits/plonk/v4.2.0-new-p3/
+# cd fastest-sp1/sp1/target/release
+# export SP1_ALLOW_DEPRECATED_HOOKS=true
+# RUST_LOG=debug nohup ./build_plonk_bn254 --build-dir ~/.sp1/circuits/plonk/v4.2.0-new-p3  > ./gen-plonk-key.log 2>&1 &
+```
+The generation will last about 60 minutes according your cpu speed. If ok, the build-dir has the files :
+
+```sh
+$ ls -l ~/.sp1/circuits/plonk/v4.2.0-new-p3/
+total 1610284
+-rw-r--r-- 1 gavin gavin      58858 Jun  2 22:58 PlonkVerifier.sol
+-rw-r--r-- 1 gavin gavin       2510 Jun  2 22:59 SP1VerifierPlonk.sol
+-rw-r--r-- 1 gavin gavin  172615564 Jun  2 22:38 constraints.json
+-rw-r--r-- 1 gavin gavin  401593333 Jun  2 22:58 plonk_circuit.bin
+-rw-r--r-- 1 gavin gavin 1073776296 Jun  2 22:59 plonk_pk.bin
+-rw-r--r-- 1 gavin gavin      34368 Jun  2 22:58 plonk_vk.bin
+-rw-r--r-- 1 gavin gavin     823370 Jun  2 22:38 plonk_witness.json
+```
+If failure, please check the machine's free memory which is at lease 60G.
