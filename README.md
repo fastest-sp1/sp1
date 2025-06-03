@@ -21,7 +21,7 @@ This modified version of SP1(based on SP1 v4.2.0) is the fastest SP1, which uses
 # git clone https://github.com/fastest-sp1/sp1.git
 ```
 
-### Build the Groth16 circuit
+## Build the Groth16 circuit
 
 1. Generate the build_groth16_bn254
 ```sh
@@ -86,7 +86,7 @@ total 4109340
 
 If failure, please check the machine's free memory which is at lease 30G.
 
-### Build the Plonk circuit
+## Build the Plonk circuit
 
 1. Generate build_plonk_bn254  
 
@@ -117,3 +117,18 @@ total 1610284
 -rw-r--r-- 1 gavin gavin     823370 Jun  2 22:38 plonk_witness.json
 ```
 If failure, please check the machine's free memory which is at lease 60G.
+
+# Permance
+
+> [!NOTE]
+> Only compare CPU avx2 between the orginal SP1 v4.2 and this customed version.
+> Only run the three host programs in sp1/examples/fibonacci: fibonacci-script, groth16_bn254, plonk_bn254.
+
+## fibonacci-script
+
+|            | cusomed version   | SP1 v4.2.0 |
+|------------|-------------------|------------|
+| execute    | 8.08ms            | 8.17ms     |
+| prove_core | 32.0s             | 68.7s      |
+| compress   | 113s              | 208s       |
+
