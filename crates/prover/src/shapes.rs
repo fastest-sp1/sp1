@@ -157,7 +157,7 @@ pub fn build_vk_map<C: SP1ProverComponents + 'static>(
         prover.compress_shape_config.as_ref().expect("recursion shape config not found");
 
     let (vk_set, panic_indices, height) = if dummy {
-        tracing::warn!("building a dummy vk map");
+        tracing::info!("building a dummy vk map");
         let dummy_set = SP1ProofShape::dummy_vk_map(
             core_shape_config,
             recursion_shape_config,
@@ -168,7 +168,7 @@ pub fn build_vk_map<C: SP1ProverComponents + 'static>(
         let height = dummy_set.len().next_power_of_two().ilog2() as usize;
         (dummy_set, vec![], height)
     } else {
-        tracing::debug!("building vk map");
+        tracing::info!("building vk map");
 
         // Setup the channels.
         let (vk_tx, vk_rx) = std::sync::mpsc::channel();
@@ -193,11 +193,10 @@ pub fn build_vk_map<C: SP1ProverComponents + 'static>(
         }
 
         let num_shapes = all_shapes.len();
-        tracing::debug!("number of shapes: {} in {:?}", num_shapes, start.elapsed());
+        tracing::info!("number of shapes: {} in {:?}", num_shapes, start.elapsed());
 
         let height = num_shapes.next_power_of_two().ilog2() as usize;
         let chunk_size = indices_set.as_ref().map(|indices| indices.len()).unwrap_or(num_shapes);
-
         std::thread::scope(|s| {
             // Initialize compiler workers.
             for _ in 0..num_compiler_workers {
@@ -260,7 +259,7 @@ pub fn build_vk_map<C: SP1ProverComponents + 'static>(
                         let vk = vk.unwrap();
 
                         let vk_digest = vk.hash_babybear();
-                        tracing::debug!(
+                        tracing::info!(
                             "program {} = {:?}, {}% done",
                             i,
                             vk_digest,

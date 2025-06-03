@@ -354,7 +354,7 @@ impl<F: PrimeField32> CoreShapeConfig<F> {
             .chain(Self::generate_all_shapes_from_allowed_log_heights(memory_heights))
             .chain(precompile_shapes)
     }
-
+    
     pub fn maximal_core_shapes(&self, max_log_shard_size: usize) -> Vec<Shape<RiscvAirId>> {
         let max_shard_size: usize = core::cmp::max(
             1 << max_log_shard_size,

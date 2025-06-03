@@ -359,7 +359,7 @@ impl<SC: StarkGenericConfig, A: MachineAir<Val<SC>> + Air<SymbolicAirBuilder<Val
                             "generated preprocessed trace for chip {} in {:?}",
                             chip_name,
                             begin.elapsed()
-                        );
+                        );  //println!("---set_core, chip:{}, prep_trace.width:{}", chip_name, chip.preprocessed_width());
                         // Assert that the chip width data is correct.
                         let expected_width =
                             prep_trace.as_ref().map_or(0, p3_matrix::Matrix::width);
@@ -686,5 +686,5 @@ pub fn parallel_matrix_sum<SC: StarkGenericConfig>(matrix: &RowMajorMatrix<Val<S
         *global += local_sum;
     });
 
-    tracing::info!("=====H:{}, W:{}, trace_sum:{:?}", num_rows, num_cols,global_sum.into_inner().unwrap());
+    tracing::debug!("Height:{}, Width:{}, trace_sum:{:?}", num_rows, num_cols, global_sum.into_inner().unwrap());
 }

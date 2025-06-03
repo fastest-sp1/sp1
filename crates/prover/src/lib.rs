@@ -211,23 +211,12 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
 
         // Read the shapes from the shapes directory and deserialize them into memory.
         let allowed_vk_map: BTreeMap<[BabyBear; DIGEST_SIZE], usize> = if vk_verification {
-        //let allowed_vk_map: BTreeMap<[u32; DIGEST_SIZE], usize> = if vk_verification { //temp
             bincode::deserialize(include_bytes!(concat!(env!("OUT_DIR"), "/vk_map.bin"))).unwrap()
         } else {
             bincode::deserialize(include_bytes!("vk_map_dummy.bin")).unwrap()
         };
-        //org-->my-sp1
-        /*let new_keys: Vec<[BabyBear; DIGEST_SIZE]> = allowed_vk_map
-        .keys()
-        .map(|original_key| {
-            original_key.map(|x| BabyBear::from_u32(x))
-        })
-        .collect();*/
-
+       
         let (root, merkle_tree) = MerkleTree::commit(allowed_vk_map.keys().copied().collect());
-        //let (root, merkle_tree) = MerkleTree::commit(new_keys.clone()); //temp
-        //tracing::info!("-----SP1Prover: uninitialized(), recursion_vk_tree_root: {:?}, tree_height:{}", root, merkle_tree.height);
-
         let mut compress_programs = BTreeMap::new();
         let program_cache_disabled = env::var("SP1_DISABLE_PROGRAM_CACHE")
             .map(|v| v.eq_ignore_ascii_case("true"))
@@ -268,8 +257,7 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
             join_cache_misses: AtomicUsize::new(0),
             recursion_vk_root: root,
             recursion_vk_tree: merkle_tree,
-            recursion_vk_map: allowed_vk_map, //org
-            //recursion_vk_map: new_keys.into_iter().enumerate().map(|(i, vk)| (vk, i)).collect::<BTreeMap<_, _>>(),
+            recursion_vk_map: allowed_vk_map,
             core_shape_config,
             compress_shape_config: recursion_shape_config,
             vk_verification,
@@ -965,7 +953,7 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
             .unwrap();
         let elapsed = time.elapsed();
         tracing::debug!("wrap proving time: {:?}", elapsed);
-        //let mut wrap_challenger = self.wrap_prover.config().challenger();
+        let mut wrap_challenger = self.wrap_prover.config().initialise_challenger();
         self.wrap_prover.machine().verify(&wrap_vk, &wrap_proof, &mut wrap_challenger).unwrap();
         tracing::debug!("wrapping successful");
 

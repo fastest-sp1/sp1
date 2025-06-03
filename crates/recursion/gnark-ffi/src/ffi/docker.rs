@@ -33,8 +33,8 @@ fn assert_docker() {
 
 fn get_docker_image() -> String {
     std::env::var("SP1_GNARK_IMAGE")
-        //.unwrap_or_else(|_| format!("ghcr.io/succinctlabs/sp1-gnark:{}", SP1_CIRCUIT_VERSION)) 
-        .unwrap_or_else(|_| format!("ghcr.io/succinctlabs/sp1-gnark:{}","nightly-287a2c5fb5a299049c41e30fa50be95151a64a25"))//only test
+        .unwrap_or_else(|_| format!("ghcr.io/succinctlabs/sp1-gnark:{}", SP1_CIRCUIT_VERSION)) 
+        //.unwrap_or_else(|_| format!("ghcr.io/succinctlabs/sp1-gnark:{}","nightly-287a2c5fb5a299049c41e30fa50be95151a64a25"))//only test
 }
 
 /// Calls `docker run` with the given arguments and bind mounts.

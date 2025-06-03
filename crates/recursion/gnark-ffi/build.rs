@@ -48,7 +48,7 @@ fn main() {
                 .header(header_path.to_str().unwrap())
                 .generate()
                 .expect("Unable to generate bindings");
-
+                
             bindings
                 .write_to_file(dest_path.join("bindings.rs"))
                 .expect("Couldn't write bindings!");

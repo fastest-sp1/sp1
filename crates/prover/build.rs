@@ -9,7 +9,9 @@ use sha2::{Digest, Sha256};
 
 const FILENAME: &str = "vk_map.bin";
 const SRC_PATH: &str = "src/vk_map.bin";
-const SHA256_HASH: &str = "5791e67cb339f4936f21f0e7aa40fea6e534b4284175285444935613f7d61827";
+//const SHA256_HASH: &str = "5791e67cb339f4936f21f0e7aa40fea6e534b4284175285444935613f7d61827"; 
+//new vk_map.bin 
+const SHA256_HASH: &str = "a09eb157a07dbb39a061da24b768298c4576b4b5c4c3ec1445e9a4f573629b8d";
 
 fn check_sha2(path: &Path) -> bool {
     let data = fs::read(path).unwrap();
@@ -38,7 +40,7 @@ fn main() {
             return;
         }
         eprintln!("SHA256 check failed, removing file");
-        fs::remove_file(&out_path).unwrap();
+        fs::remove_file(&out_path).unwrap(); 
     }
 
     if src_path.exists() && check_sha2(&src_path) {
