@@ -142,3 +142,13 @@ If failure, please check the machine's free memory which is at lease 60G.
 | wrap_bn254 |  238s             | 362s       |   34.3% faster    |
 | wrap_groth16_bn254 |  53.0s             | 53.6s       |        |
 
+
+## plonk_bn254
+
+|   item     | customed version   | SP1 v4.2.0 | Improvement (%) |
+|------------|-------------------|-------------|-----------------|
+| prove_core | 29.1s             | 63.6s      |   54.2% faster    |
+| compress   | 114s              | 199s       |   42.7% faster    |
+| shrink     | 8.44s             | 16.7s      |   49.5% faster    |
+| wrap_bn254 |  242s             | 352s       |   31.2% faster    |
+| wrap_plonk_bn254 |  361.0s             | 369s       |        |
