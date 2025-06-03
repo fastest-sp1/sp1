@@ -126,19 +126,19 @@ If failure, please check the machine's free memory which is at lease 60G.
 
 ## fibonacci-script
 
-|   item     | cusomed version   | SP1 v4.2.0 |
-|------------|-------------------|------------|
+|   Item     | Customed version   | SP1 v4.2.0 | Improvement (%) |
+|------------|-------------------|------------|-----------------|
 | execute    | 8.08ms            | 8.17ms     |
-| prove_core | 32.0s             | 68.7s      |
-| compress   | 113s              | 208s       |
+| prove_core | 32.0s             | 68.7s      | 53.4% faster    |
+| compress   | 113s              | 208s       | 45.7% faster    |
 
 ## groth16_bn254
 
-|   item     | cusomed version   | SP1 v4.2.0 |
+|   item     | customed version   | SP1 v4.2.0 | Improvement (%) |
 |------------|-------------------|------------|
-| prove_core | 34.0s             | 69.2s      |
-| compress   | 107s              | 215s       |
-| shrink     | 9.79s             | 18.3s      |
-| wrap_bn254 |  238s             | 362s       |
-| wrap_groth16_bn254 |  53.0s             | 53.6s       |
+| prove_core | 34.0s             | 69.2s      |   53.4% faster    |
+| compress   | 107s              | 215s       |   50.2% faster    |
+| shrink     | 9.79s             | 18.3s      |   46.5% faster    |
+| wrap_bn254 |  238s             | 362s       |   34.3% faster    |
+| wrap_groth16_bn254 |  53.0s             | 53.6s       |        |
 
