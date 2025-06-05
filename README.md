@@ -4,6 +4,9 @@
 
 This modified version of SP1(based on SP1 v4.2.0) is the fastest SP1, which uses the latest Plonky3(commit 5c04950709d20c8d88c3e64d37c935d7d759a01c).
 
+> [!NOTE]
+> The CUDA acceleration in SP1 is only partially open, so performance comparison is currently not possible. 
+
 # Usage
 
 ## Clone the customized Plonky3 repository
@@ -118,7 +121,13 @@ total 1610284
 ```
 If failure, please check the machine's free memory which is at lease 60G.
 
-# Permance
+# Performance
+
+## Hardware
+
+CPU: Intel(R) Core(TM) i7-10875H CPU @ 2.30GHz  
+Memory: 20G Ram + 18G swap  
+OS: ubuntu20  
 
 > [!NOTE]
 > Only compare CPU avx2 between the orginal SP1 v4.2 and this customed version.  
