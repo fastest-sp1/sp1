@@ -4,7 +4,7 @@ go 1.22.0
 
 require (
 	github.com/consensys/gnark v0.10.1-0.20240504023521-d9bfacd7cb60
-	github.com/consensys/gnark-crypto v0.14.0
+	github.com/consensys/gnark-crypto v0.14.1-0.20240909142611-e6b99e74cec1
 )
 
 require (
