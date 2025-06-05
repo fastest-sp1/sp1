@@ -143,7 +143,7 @@ OS: ubuntu20
 
 ## groth16_bn254
 
-|   item     | customed version   | SP1 v4.2.0 | Improvement (%) |
+|   Item     | Customed version   | SP1 v4.2.0 | Improvement (%) |
 |------------|-------------------|-------------|-----------------|
 | prove_core | 34.0s             | 69.2s      |   53.4% faster    |
 | compress   | 107s              | 215s       |   50.2% faster    |
@@ -154,7 +154,7 @@ OS: ubuntu20
 
 ## plonk_bn254
 
-|   item     | customed version   | SP1 v4.2.0 | Improvement (%) |
+|   Item     | Customed version   | SP1 v4.2.0 | Improvement (%) |
 |------------|-------------------|-------------|-----------------|
 | prove_core | 29.1s             | 63.6s      |   54.2% faster    |
 | compress   | 114s              | 199s       |   42.7% faster    |
