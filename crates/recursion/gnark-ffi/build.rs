@@ -6,6 +6,7 @@ use std::{env, path::PathBuf, process::Command};
 #[allow(deprecated)]
 use bindgen::CargoCallbacks;
 
+use regex::Regex;
 /// Build the go library, generate Rust bindings for the exposed functions, and link the library.
 fn main() {
     cfg_if! {
@@ -49,9 +50,18 @@ fn main() {
                 .generate()
                 .expect("Unable to generate bindings");
                 
-            bindings
-                .write_to_file(dest_path.join("bindings.rs"))
-                .expect("Couldn't write bindings!");
+            // we need to make modifications to the generated code
+            let generated_bindings = bindings.to_string();
+            
+            let extern_regex = Regex::new(r#"extern "C""#).unwrap();
+            let modified_bindings = extern_regex.replace_all(&generated_bindings, r#"unsafe extern "C""#);
+
+            let extern_regex = Regex::new(r#"unsafe unsafe"#).unwrap();
+            let modified_bindings = extern_regex.replace_all(&modified_bindings, r#"unsafe"#);
+
+            // Write the bindings to the $OUT_DIR/bindings.rs file.
+            std::fs::write(dest_path.join("bindings.rs"), modified_bindings.as_bytes())
+                .expect("Failed to write bindings");
 
             println!("Go library built");
 
