@@ -4,6 +4,7 @@ use std::{env, path::PathBuf, process::Command};
 
 #[allow(deprecated)]
 use bindgen::CargoCallbacks;
+use regex::Regex;
 
 use regex::Regex;
 
@@ -49,12 +50,7 @@ fn main() {
                 .header(header_path.to_str().unwrap())
                 .generate()
                 .expect("Unable to generate bindings");
-                
-            //bindings
-            //    .write_to_file(dest_path.join("bindings.rs"))
-            //    .expect("Couldn't write bindings!");
 
-            // we need to make modifications to the generated code
             let generated_bindings = bindings.to_string();
             
             let extern_regex = Regex::new(r#"extern "C""#).unwrap();
