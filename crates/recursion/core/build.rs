@@ -12,6 +12,7 @@ mod sys {
     use std::{
         env, fs, os,
         path::{Path, PathBuf},
+        process::Command,
     };
 
     use pathdiff::diff_paths;
@@ -24,7 +25,12 @@ mod sys {
     const INCLUDE_DIRNAME: &str = "include";
 
     /// The name of the directory to recursively search for source files in.
-    const SOURCE_DIRNAME: &str = "cpp";
+    const CPP_SOURCE_DIRNAME: &str = "cpp";
+
+    /// The name of the directory to recursively search for cuda (.cu) source files in.
+    //const CUDA_SOURCE_DIRNAME: &str = "cuda"; 
+
+    const GPU_FFI_SOURCE_DIRNAME: &str = "gpu_ffi";
 
     /// The warning placed in the cbindgen header.
     const AUTOGEN_WARNING: &str =
@@ -63,22 +69,29 @@ mod sys {
         // The directory to place symlinks to headers into. Has the fixed path "target/include".
         let target_include_dir_fixed = target_dir.join(INCLUDE_DIRNAME);
 
-        // The directory to read source files from.
-        let source_dir = crate_dir.join(SOURCE_DIRNAME);
 
         let headers = glob::glob(source_include_dir.join("**/*.hpp").to_str().unwrap())
             .unwrap()
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
 
-        let compilation_units = glob::glob(source_dir.join("**/*.cpp").to_str().unwrap())
+        // Glob for C++ source files in the `cpp` directory.
+        let compilation_units_cpp = glob::glob(crate_dir.join(CPP_SOURCE_DIRNAME).join("**/*.cpp").to_str().unwrap())
             .unwrap()
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
 
+        // Glob for CUDA Host FFI source files in the `gpu_ffi` directory.
+        let compilation_units_gpu_ffi = glob::glob(crate_dir.join(GPU_FFI_SOURCE_DIRNAME).join("**/*.cpp").to_str().unwrap())
+            .unwrap()
+            .map(|p| p.unwrap())
+            .collect::<Vec<_>>();
+
         // Tell Cargo that if the given file changes, to rerun this build script.
         println!("cargo::rerun-if-changed={INCLUDE_DIRNAME}");
-        println!("cargo::rerun-if-changed={SOURCE_DIRNAME}");
+        println!("cargo::rerun-if-changed={CPP_SOURCE_DIRNAME}");
+        //println!("cargo::rerun-if-changed={CUDA_SOURCE_DIRNAME}");
+        println!("cargo::rerun-if-changed={GPU_FFI_SOURCE_DIRNAME}");
         println!("cargo::rerun-if-changed=src");
         println!("cargo::rerun-if-changed=Cargo.toml");
 
@@ -118,14 +131,20 @@ mod sys {
             .include_item("BatchFRIEvent")
             .include_item("BatchFRICols")
             .include_item("BatchFRIInstrFFI")
+            .include_item("BatchFRIInstrFlat")
+            .include_item("InstrsFlatIdex")
+            .include_item("ExpReverseBitsEventFlatFFI")
+            .include_item("ExpReverseBitsFlatIdex")
             .include_item("BatchFRIPreprocessedCols")
             .include_item("ExpReverseBitsEventFFI")
+            .include_item("ExpReverseBitsInstrFlatFFI")
             .include_item("ExpReverseBitsLenCols")
             .include_item("ExpReverseBitsInstrFFI")
             .include_item("ExpReverseBitsLenPreprocessedCols")
             .include_item("FriFoldEvent")
             .include_item("FriFoldCols")
             .include_item("FriFoldInstrFFI")
+            .include_item("FriFoldInstrRowFFI")
             .include_item("FriFoldPreprocessedCols")
             .include_item("SelectEvent")
             .include_item("SelectCols")
@@ -135,6 +154,7 @@ mod sys {
             .include_item("PublicValuesPreprocessedCols")
             .include_item("SelectEvent")
             .include_item("SelectCols")
+            .include_item("SelectInstrPtx")
             .include_item("SelectInstr")
             .include_item("SelectPreprocessedCols")
             .include_item("Poseidon2Event")
@@ -146,56 +166,160 @@ mod sys {
             .with_crate(crate_dir)
             .generate()
         {
-            Ok(bindings) => {
+            Ok(bindings) => { 
                 // Write the bindings to the target include directory.
                 let header_path = target_include_dir.join(cbindgen_hpp);
                 if bindings.write_to_file(&header_path) {
                     // Symlink the header to the fixed include directory.
                     rel_symlink_file(header_path, target_include_dir_fixed.join(cbindgen_hpp));
+                    println!("****Success!  generate {cbindgen_hpp}");
                 }
             }
-            Err(cbindgen::Error::ParseSyntaxError { .. }) => {} /* Ignore parse errors so */
+            Err(cbindgen::Error::ParseSyntaxError { .. }) => { 
+                                                                println!("****Fail!  generate {cbindgen_hpp}");
+                                                                return;
+                                                                } /* Ignore parse errors so */
             // rust-analyzer can run.
             Err(e) => panic!("{:?}", e),
+
         }
 
-        // Copy the headers to the include directory and symlink them to the fixed include
-        // directory.
+        // Copy additional headers (unchanged)
         for header in &headers {
-            // Get the path of the header relative to the source include directory.
             let relpath = diff_paths(header, &source_include_dir).unwrap();
-
-            // Let the destination path be the same place relative to the target include directory.
             let dst = target_include_dir.join(&relpath);
-
-            // Create the parent directory if it does not exist.
-            if let Some(parent) = dst.parent() {
-                fs::create_dir_all(parent).unwrap();
-            }
+            if let Some(parent) = dst.parent() { fs::create_dir_all(parent).unwrap(); }
             fs::copy(header, &dst).unwrap();
             rel_symlink_file(dst, target_include_dir_fixed.join(relpath));
         }
-
-        println!("cargo::rustc-link-lib=static=sp1-core-machine-sys");
         let include_dir = env::var("DEP_SP1_CORE_MACHINE_SYS_INCLUDE").unwrap();
 
-        // Use the `cc` crate to build the library and statically link it to the crate.
-        let mut cc_builder = cc::Build::new();
-        cc_builder.files(&compilation_units).include(target_include_dir).include(include_dir);
-        cc_builder.cpp(true).std("c++17");
-        cc_builder.compile(LIB_NAME)
+        // --- Compile and Link FFI Library ---
+        let mut all_obj_files_to_link: Vec<PathBuf> = vec![];
+
+        // Compile pure C++ files into separate object files
+        let pure_cpp_compiler_path = cc::Build::new() // Create a temporary builder to get compiler info
+            .cpp(true).std("c++17")
+            .get_compiler().path().to_path_buf(); 
+
+        let pure_cpp_compiler_args: Vec<String> = {
+            let mut builder = cc::Build::new();
+            builder.files(&compilation_units_cpp)
+                   .include(target_include_dir.clone())
+                   .include(include_dir.clone());
+            builder.cpp(true).std("c++17");
+            builder.cargo_metadata(false); // Prevent cc from outputting extra cargo directives
+            builder.out_dir(&out_dir); // Set output directory for .o files
+            // Get the args for the compiler
+            let mut args = Vec::new();
+            for arg in builder.get_compiler().args() {
+                args.push(arg.to_string_lossy().to_string());
+            }
+            args.push("-c".to_string()); // Compile only
+            args
+        };
+
+        for file in &compilation_units_cpp {
+            let obj_name = out_dir.join(file.file_stem().unwrap()).with_extension("o");
+            let output = Command::new(&pure_cpp_compiler_path)
+                .args(&pure_cpp_compiler_args)
+                .arg(file.to_str().unwrap())
+                .arg("-o").arg(obj_name.to_str().unwrap())
+                .output().expect("Failed to compile pure cpp file");
+            if !output.status.success() { 
+                eprintln!("Pure C++ compilation stdout for {}:\n{}", file.display(), String::from_utf8_lossy(&output.stdout));
+                eprintln!("Pure C++ compilation stderr for {}:\n{}", file.display(), String::from_utf8_lossy(&output.stderr));
+                panic!("Pure C++ compilation failed for {}: {}", file.display(), String::from_utf8_lossy(&output.stderr));
+            }
+            all_obj_files_to_link.push(obj_name); // <--- Add g++ compiled objects
+        }
+        
+        // Compile CUDA Host FFI .cpp files (from gpu_ffi/ directory)
+        if cfg!(feature = "recursion_cuda") {
+            let arch = env::var("CUDA_ARCH").unwrap_or_else(|_| "sm_75".into());
+            let cuda_common_args = &[
+                "-c", // Compile only, do not link
+                &format!("-arch={}", arch),
+                "--expt-relaxed-constexpr",
+                //"-rdc=true", // Enable relocatable device code for dynamic parallelism
+                "-I", target_include_dir.to_str().unwrap(),
+                "-I", &include_dir.to_string(),
+            ];
+
+            for cpp_file in &compilation_units_gpu_ffi {
+                let obj_name = out_dir.join(cpp_file.file_stem().unwrap()).with_extension("o");
+                let output = Command::new("nvcc")
+                    .args(cuda_common_args)
+                    .arg("--x") // Force nvcc to treat the file as .cu
+                    .arg("cu")
+                    .arg("-o")
+                    .arg(obj_name.to_str().unwrap())
+                    .arg(cpp_file.to_str().unwrap())
+                    .output()
+                    .expect("Failed to execute nvcc command for gpu_ffi cpp file");
+
+                if !output.status.success() {
+                    eprintln!("CUDA gpu_ffi cpp compilation stdout for {}:\n{}", cpp_file.display(), String::from_utf8_lossy(&output.stdout));
+                    eprintln!("CUDA gpu_ffi cpp compilation stderr for {}:\n{}", cpp_file.display(), String::from_utf8_lossy(&output.stderr));
+                    panic!("CUDA gpu_ffi cpp compilation failed for {}:\n{}", cpp_file.display(), String::from_utf8_lossy(&output.stderr));
+                }
+                all_obj_files_to_link.push(obj_name);
+            }
+
+             // --- Final Linking with NVCC (for CUDA-enabled build) ---
+            let lib_path = out_dir.join(format!("lib{}.a", LIB_NAME));
+            let mut nvcc_linker_command = Command::new("nvcc");
+            nvcc_linker_command.arg("-lib") // Create static library .a (equivalent to ar)
+                               .arg("-o").arg(lib_path.to_str().unwrap());
+            nvcc_linker_command.args(all_obj_files_to_link.iter().map(|p| p.to_str().unwrap())); // Add all .o files
+
+            let output = nvcc_linker_command.output().expect("Failed to execute nvcc linker command");
+            if !output.status.success() {
+                eprintln!("nvcc linker stdout:\n{}", String::from_utf8_lossy(&output.stdout));
+                eprintln!("nvcc linker stderr:\n{}", String::from_utf8_lossy(&output.stderr));
+                panic!("Failed to link static library with nvcc.");
+            }
+
+            // Tell Cargo to link the generated static library
+            println!("cargo::rustc-link-search=native={}", out_dir.to_str().unwrap());
+            println!("cargo::rustc-link-lib=static={}", LIB_NAME);
+            
+            println!("cargo::rustc-link-search=native=/usr/local/cuda/lib64");
+            println!("cargo::rustc-link-search=native=/usr/local/cuda/lib"); 
+
+            // Tell Cargo to link CUDA runtime libraries (nvcc handles this implicitly, but explicit is fine)
+            println!("cargo::rustc-link-lib=dylib=cuda");
+            println!("cargo::rustc-link-lib=dylib=cudart");
+            println!("cargo::rustc-link-lib=dylib=cudadevrt");
+        }  else {
+            // --- Final Static Library Archiving with AR (for non-CUDA build) ---
+            // In this branch, all_obj_files_to_link only contains objects from pure C++ files
+            let lib_path = out_dir.join(format!("lib{}.a", LIB_NAME));
+            let mut ar_command = Command::new("ar");
+            ar_command.arg("crus").arg(lib_path.to_str().unwrap());
+            ar_command.args(all_obj_files_to_link.iter().map(|p| p.to_str().unwrap())); // Add all .o files
+
+            let output = ar_command.output().expect("Failed to execute ar command");
+            if !output.status.success() {
+                eprintln!("ar stdout:\n{}", String::from_utf8_lossy(&output.stdout));
+                eprintln!("ar stderr:\n{}", String::from_utf8_lossy(&output.stderr));
+                panic!("Failed to create static library with ar.");
+            }
+            
+            // Tell Cargo to link the generated static library
+            println!("cargo::rustc-link-search=native={}", out_dir.to_str().unwrap());
+            println!("cargo::rustc-link-lib=static={}", LIB_NAME);
+        }
+
     }
 
-    /// Place a relative symlink pointing to `original` at `link`.
+    /// Creates a relative symlink pointing to `original` at `link`.
     fn rel_symlink_file<P, Q>(original: P, link: Q)
     where
         P: AsRef<Path>,
         Q: AsRef<Path>,
     {
-        #[cfg(unix)]
         use os::unix::fs::symlink;
-        #[cfg(windows)]
-        use os::windows::fs::symlink_file as symlink;
 
         let target_dir = link.as_ref().parent().unwrap();
         fs::create_dir_all(target_dir).unwrap();

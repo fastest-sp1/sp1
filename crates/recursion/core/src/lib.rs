@@ -11,6 +11,7 @@ pub mod machine;
 pub mod runtime;
 pub mod shape;
 pub mod stark;
+//pub mod gpu;
 #[cfg(feature = "sys")]
 pub mod sys;
 
@@ -19,8 +20,8 @@ pub use runtime::*;
 // Re-export the stark stuff from `sp1_recursion_core` for now, until we will migrate it here.
 // pub use sp1_recursion_core::stark;
 
-use crate::chips::poseidon2_skinny::WIDTH;
 
+use crate::chips::poseidon2_skinny::WIDTH;
 #[derive(
     AlignedBorrow, Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default,
 )]
@@ -133,11 +134,21 @@ pub struct SelectIo<V> {
     pub in2: V,
 }
 
+
 /// An instruction invoking the select operation.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[repr(C)]
 pub struct SelectInstr<F> {
     pub addrs: SelectIo<Address<F>>,
+    pub mult1: F,
+    pub mult2: F,
+}
+
+/// An instruction invoking the select operation.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[repr(C)]
+pub struct SelectInstrPtx<F> {
+    pub addrs: SelectIo<F>,
     pub mult1: F,
     pub mult2: F,
 }
@@ -164,6 +175,7 @@ pub struct ExpReverseBitsInstr<F> {
     pub mult: F,
 }
 
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[repr(C)]
 pub struct ExpReverseBitsInstrFFI<'a, F> {
@@ -173,6 +185,18 @@ pub struct ExpReverseBitsInstrFFI<'a, F> {
     pub result: &'a Address<F>,
 
     pub mult: &'a F,
+}
+
+//GPU
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[repr(C)]
+pub struct ExpReverseBitsInstrFlatFFI<F> {
+    pub base: Address<F>,
+    pub exp_offset: usize,
+    pub exp_len: usize,
+    pub result: Address<F>,
+
+    pub mult: F,
 }
 
 impl<'a, F> From<&'a ExpReverseBitsInstr<F>> for ExpReverseBitsInstrFFI<'a, F> {
@@ -204,6 +228,24 @@ pub struct ExpReverseBitsEventFFI<'a, F> {
     pub exp_ptr: *const F,
     pub exp_len: usize,
     pub result: &'a F,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(C)]
+pub struct ExpReverseBitsEventFlatFFI<F> {
+    pub base_val: F, 
+    pub exp_bits_offset: usize,
+    pub exp_len: usize,
+    pub result_val: F,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[repr(C)]
+pub struct ExpReverseBitsFlatIdex<F> {
+    pub event_idx: usize, 
+    pub exp_idx: usize,
+    pub multiplier: F,  
+    pub prev_accum: F,
 }
 
 impl<'a, F> From<&'a ExpReverseBitsEvent<F>> for ExpReverseBitsEventFFI<'a, F> {
@@ -288,6 +330,59 @@ pub struct FriFoldInstrFFI<'a, F> {
     pub ro_mults_len: usize,
 }
 
+//GPU
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[repr(C)]
+pub struct FriFoldInstrFlat<F> {
+    pub base_single_addrs: FriFoldBaseIo<Address<F>>,
+    pub ext_single_addrs: FriFoldExtSingleIo<Address<F>>,
+
+    pub ext_vec_addrs_mat_opening_offset: usize,
+    pub ext_vec_addrs_mat_opening_len: usize,
+    pub ext_vec_addrs_ps_at_z_offset: usize,
+    pub ext_vec_addrs_ps_at_z_len: usize,
+    pub ext_vec_addrs_alpha_pow_input_offset: usize,
+    pub ext_vec_addrs_alpha_pow_input_len: usize,
+    pub ext_vec_addrs_ro_input_offset: usize,
+    pub ext_vec_addrs_ro_input_len: usize,
+    pub ext_vec_addrs_alpha_pow_output_offset: usize,
+    pub ext_vec_addrs_alpha_pow_output_len: usize,
+    pub ext_vec_addrs_ro_output_offset: usize,
+    pub ext_vec_addrs_ro_output_len: usize,
+
+    pub alpha_pow_mults_offset: usize,
+    pub alpha_pow_mults_len: usize,
+
+    pub ro_mults_offset: usize,
+    pub ro_mults_len: usize,
+}
+
+//GPU
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[repr(C)]
+pub struct FriFoldInstrRowFFI<F> {
+    pub base_single_addrs_x: Address<F>,
+
+    pub ext_single_addrs_z: Address<F>,
+    pub ext_single_addrs_alpha: Address<F>,
+
+    pub ext_vec_addrs_mat_opening_val: Address<F>,
+    pub ext_vec_addrs_ps_at_z_val: Address<F>,
+    pub ext_vec_addrs_alpha_pow_input_val: Address<F>,
+    pub ext_vec_addrs_ro_input_val: Address<F>,
+    pub ext_vec_addrs_alpha_pow_output_val: Address<F>,
+    pub ext_vec_addrs_ro_output_val: Address<F>,
+
+    pub alpha_pow_mult_val: F,
+    pub ro_mult_val: F,
+
+    pub is_first_val: F, // F::from_bool(i == 0)
+    pub z_mem_mult_val: F, // F::zero() - F::from_bool(i == 0)
+    pub x_mem_mult_val: F, // F::zero() - F::from_bool(i == 0)
+    pub alpha_mem_mult_val: F, // F::zero() - F::from_bool(i == 0)
+
+}
+
 impl<'a, F> From<&'a FriFoldInstr<F>> for FriFoldInstrFFI<'a, F> {
     fn from(instr: &'a FriFoldInstr<F>) -> Self {
         Self {
@@ -370,6 +465,40 @@ pub struct BatchFRIInstr<F> {
     pub ext_single_addrs: BatchFRIExtSingleIo<Address<F>>,
     pub ext_vec_addrs: BatchFRIExtVecIo<Vec<Address<F>>>,
     pub acc_mult: F,
+}
+
+//Gpu
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[repr(C)]
+pub struct BatchFRIInstrRowFFI<F> {
+    pub base_vec_addrs_p_at_x: F,
+    pub ext_single_addrs: F,
+    pub ext_vec_addrs_p_at_z: F,
+    pub ext_vec_addrs_alpha_pow: F,
+    pub acc_mult: F,
+    pub is_end: F,
+}
+
+
+//Gpu
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[repr(C)]
+pub struct BatchFRIInstrFlat<F> { 
+    pub base_p_at_x_offset: usize, 
+    pub base_p_at_x_len: usize,   
+    pub ext_single_addrs_acc_val: BatchFRIExtSingleIo<Address<F>>, 
+    pub ext_p_at_z_offset: usize,
+    pub ext_p_at_z_len: usize,
+    pub ext_alpha_pow_offset: usize,
+    pub ext_alpha_pow_len: usize,
+    pub acc_mult_val: F,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[repr(C)]
+pub struct InstrsFlatIdex {
+    pub instr_idx: usize, 
+    pub arr_idx: usize,   
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

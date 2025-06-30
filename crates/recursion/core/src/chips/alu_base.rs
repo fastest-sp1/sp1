@@ -10,6 +10,11 @@ use sp1_derive::AlignedBorrow;
 use sp1_stark::air::MachineAir;
 use std::{borrow::BorrowMut, iter::zip};
 
+use itertools::Itertools;
+
+//gpu
+//use crate::gpu::alu_base_trace::{process_alu_base_events_gpu, process_alu_base_instructions_gpu};
+
 pub const NUM_BASE_ALU_ENTRIES_PER_ROW: usize = 4;
 
 #[derive(Default)]
@@ -59,6 +64,9 @@ impl<F: Field> BaseAir<F> for BaseAluChip {
     }
 }
 
+// No longer need FFI extern block here, as it's abstracted by alu_trace.rs
+
+
 impl<F: PrimeField32> MachineAir<F> for BaseAluChip {
     type Record = ExecutionRecord<F>;
 
@@ -100,25 +108,53 @@ impl<F: PrimeField32> MachineAir<F> for BaseAluChip {
                     .collect::<Vec<_>>(),
             )
         };
+
         let padded_nb_rows = self.preprocessed_num_rows(program, instrs.len()).unwrap();
         let mut values = vec![BabyBear::ZERO; padded_nb_rows * NUM_BASE_ALU_PREPROCESSED_COLS];
 
-        // Generate the trace rows & corresponding records for each chunk of events in parallel.
-        let populate_len = instrs.len() * NUM_BASE_ALU_ACCESS_COLS;
-        values[..populate_len].par_chunks_mut(NUM_BASE_ALU_ACCESS_COLS).zip_eq(instrs).for_each(
-            |(row, instr)| {
-                let access: &mut BaseAluAccessCols<_> = row.borrow_mut();
-                unsafe {
-                    crate::sys::alu_base_instr_to_row_babybear(instr, access);
-                }
-            },
-        );
+        if instrs.is_empty() {
+             return Some(RowMajorMatrix::new(
+                 unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
+                 NUM_BASE_ALU_PREPROCESSED_COLS,
+            ));
+        }
+        
+
+        // Using GPU (via the new alu_trace module)
+        if cfg!(feature = "recursion_cuda") {
+            let instrs_for_gpu: Vec<BaseAluInstr<BabyBear>> = instrs
+                .iter()
+                .map(|&instr_ref| *instr_ref)
+                .collect_vec();
+            unsafe {
+                crate::sys::process_alu_base_instructions_gpu(
+                    instrs_for_gpu.as_ptr(), 
+                    instrs_for_gpu.len(),
+                    values.as_mut_ptr(),
+                    values.len(),
+                    NUM_BASE_ALU_ACCESS_COLS,
+                );
+            }
+        } else {
+            // CPU fallback (existing code)
+            let populate_len = instrs.len() * NUM_BASE_ALU_ACCESS_COLS;
+            values[..populate_len].par_chunks_mut(NUM_BASE_ALU_ACCESS_COLS).zip_eq(instrs).for_each(
+                |(row, instr)| {
+                    let access: &mut BaseAluAccessCols<_> = row.borrow_mut();
+                    unsafe {
+                        crate::sys::alu_base_instr_to_row_babybear(instr, access);
+                    }
+                },
+            );
+        };
 
         // Convert the trace to a row major matrix.
-        Some(RowMajorMatrix::new(
+        let trace = RowMajorMatrix::new(
             unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
             NUM_BASE_ALU_PREPROCESSED_COLS,
-        ))
+        );
+
+        Some(trace)
     }
 
     fn generate_dependencies(&self, _: &Self::Record, _: &mut Self::Record) {
@@ -140,31 +176,53 @@ impl<F: PrimeField32> MachineAir<F> for BaseAluChip {
             std::any::TypeId::of::<BabyBear>(),
             "generate_trace only supports BabyBear field"
         );
-
+        
         let events = unsafe {
             std::mem::transmute::<&Vec<BaseAluIo<F>>, &Vec<BaseAluIo<BabyBear>>>(
                 &input.base_alu_events,
             )
         };
+
         let padded_nb_rows = self.num_rows(input).unwrap();
         let mut values = vec![BabyBear::ZERO; padded_nb_rows * NUM_BASE_ALU_COLS];
 
-        // Generate the trace rows & corresponding records for each chunk of events in parallel.
-        let populate_len = events.len() * NUM_BASE_ALU_VALUE_COLS;
-        values[..populate_len].par_chunks_mut(NUM_BASE_ALU_VALUE_COLS).zip_eq(events).for_each(
-            |(row, &vals)| {
-                let cols: &mut BaseAluValueCols<_> = row.borrow_mut();
-                unsafe {
-                    crate::sys::alu_base_event_to_row_babybear(&vals, cols);
-                }
-            },
-        );
+        if events.is_empty() {
+            return RowMajorMatrix::new(
+                unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
+                NUM_BASE_ALU_COLS,
+            );
+        }
+ 
+        if cfg!(feature = "recursion_cuda") {
+            unsafe {
+                crate::sys::process_alu_base_events_gpu(
+                    events.as_ptr(),
+                    events.len(),
+                    values.as_mut_ptr(),
+                    values.len(),
+                    NUM_BASE_ALU_VALUE_COLS,
+                );
+            }
+        } else {
+            // CPU 
+            let populate_len = events.len() * NUM_BASE_ALU_VALUE_COLS;
+            values[..populate_len].par_chunks_mut(NUM_BASE_ALU_VALUE_COLS).zip_eq(events).for_each(
+                |(row, &vals)| {
+                    let cols: &mut BaseAluValueCols<_> = row.borrow_mut();
+                    unsafe {
+                        crate::sys::alu_base_event_to_row_babybear(&vals, cols);
+                    }
+                },
+            );
+        };
 
         // Convert the trace to a row major matrix.
-        RowMajorMatrix::new(
+        let trace = RowMajorMatrix::new(
             unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
             NUM_BASE_ALU_COLS,
-        )
+        );
+        
+        trace
     }
 
     fn included(&self, _record: &Self::Record) -> bool {
@@ -220,6 +278,7 @@ mod tests {
     use p3_matrix::dense::RowMajorMatrix;
     use rand::{rngs::StdRng, Rng, SeedableRng};
     use sp1_stark::{baby_bear_poseidon2::BabyBearPoseidon2, StarkGenericConfig};
+    //use crate::gpu::init_gpu_context;
 
     use super::*;
 
@@ -244,6 +303,7 @@ mod tests {
 
     #[test]
     fn generate_trace() {
+        //init_gpu_context();
         let shard = test_fixtures::shard();
         let mut execution_record = test_fixtures::default_execution_record();
         let trace = BaseAluChip.generate_trace(&shard, &mut execution_record);
@@ -297,6 +357,7 @@ mod tests {
     #[test]
     #[ignore = "Failing due to merge conflicts. Will be fixed shortly."]
     fn generate_preprocessed_trace() {
+        //init_gpu_context();
         let program = test_fixtures::program();
         let trace = BaseAluChip.generate_preprocessed_trace(&program).unwrap();
         assert!(trace.height() >= test_fixtures::MIN_TEST_CASES);

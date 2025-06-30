@@ -204,8 +204,8 @@ pub fn test_babybear_poseidon2() {
 /// # Safety
 /// This function does not free the pointer, so the caller must ensure that the pointer is handled
 /// correctly.
-unsafe fn ptr_to_string_cloned(input: *mut c_char) -> String {
-    CStr::from_ptr(input).to_owned().into_string().expect("CStr::into_string failed")
+fn ptr_to_string_cloned(input: *mut c_char) -> String {
+    unsafe { CStr::from_ptr(input).to_owned().into_string().expect("CStr::into_string failed") }
 }
 
 /// Converts a C string into a Rust String.
@@ -213,41 +213,44 @@ unsafe fn ptr_to_string_cloned(input: *mut c_char) -> String {
 /// # Safety
 /// This function frees the pointer, so the caller must ensure that the pointer is not used
 /// after this function is called.
-unsafe fn ptr_to_string_freed(input: *mut c_char) -> String {
-    let string = ptr_to_string_cloned(input);
-    bind::FreeString(input);
-    string
+fn ptr_to_string_freed(input: *mut c_char) -> String {
+    unsafe { let string = ptr_to_string_cloned(input) ;
+        bind::FreeString(input);
+        string
+    }
 }
 
 impl PlonkBn254Proof {
-    unsafe fn from_raw(c_proof: *mut C_PlonkBn254Proof) -> Self {
-        let proof = PlonkBn254Proof {
-            public_inputs: [
-                ptr_to_string_cloned((*c_proof).PublicInputs[0]),
-                ptr_to_string_cloned((*c_proof).PublicInputs[1]),
-            ],
-            encoded_proof: ptr_to_string_cloned((*c_proof).EncodedProof),
-            raw_proof: ptr_to_string_cloned((*c_proof).RawProof),
-            plonk_vkey_hash: [0; 32],
-        };
-        bind::FreePlonkBn254Proof(c_proof);
-        proof
+    fn from_raw(c_proof: *mut C_PlonkBn254Proof) -> Self {
+        unsafe { let proof = PlonkBn254Proof {
+                public_inputs: [
+                    ptr_to_string_cloned((*c_proof).PublicInputs[0]),
+                    ptr_to_string_cloned((*c_proof).PublicInputs[1]),
+                ],
+                encoded_proof: ptr_to_string_cloned((*c_proof).EncodedProof),
+                raw_proof: ptr_to_string_cloned((*c_proof).RawProof),
+                plonk_vkey_hash: [0; 32],
+            };
+            bind::FreePlonkBn254Proof(c_proof);
+            proof
+        }
     }
 }
 
 impl Groth16Bn254Proof {
-    unsafe fn from_raw(c_proof: *mut C_Groth16Bn254Proof) -> Self {
-        let proof = Groth16Bn254Proof {
-            public_inputs: [
-                ptr_to_string_cloned((*c_proof).PublicInputs[0]),
-                ptr_to_string_cloned((*c_proof).PublicInputs[1]),
-            ],
-            encoded_proof: ptr_to_string_cloned((*c_proof).EncodedProof),
-            raw_proof: ptr_to_string_cloned((*c_proof).RawProof),
-            groth16_vkey_hash: [0; 32],
-        };
-        bind::FreeGroth16Bn254Proof(c_proof);
-        proof
+    fn from_raw(c_proof: *mut C_Groth16Bn254Proof) -> Self {
+         unsafe { let proof = Groth16Bn254Proof {
+                public_inputs: [
+                    ptr_to_string_cloned((*c_proof).PublicInputs[0]),
+                    ptr_to_string_cloned((*c_proof).PublicInputs[1]),
+                ],
+                encoded_proof: ptr_to_string_cloned((*c_proof).EncodedProof),
+                raw_proof: ptr_to_string_cloned((*c_proof).RawProof),
+                groth16_vkey_hash: [0; 32],
+            };
+            bind::FreeGroth16Bn254Proof(c_proof);
+            proof
+        }
     }
 }
 

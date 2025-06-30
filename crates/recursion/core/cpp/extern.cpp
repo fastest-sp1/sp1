@@ -134,4 +134,5 @@ extern void poseidon2_wide_instr_to_row_babybear(
       *reinterpret_cast<const Poseidon2SkinnyInstr<bb31_t>*>(instr),
       *reinterpret_cast<Poseidon2PreprocessedColsWide<bb31_t>*>(cols));
 }
+
 }  // namespace sp1_recursion_core_sys

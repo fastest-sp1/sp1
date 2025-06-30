@@ -1,5 +1,4 @@
 use sp1_sdk::{include_elf, utils, ProverClient, SP1ProofWithPublicValues, SP1Stdin};
-
 /// The ELF we want to execute inside the zkVM.
 const ELF: &[u8] = include_elf!("fibonacci-program");
 
@@ -9,7 +8,8 @@ fn main() {
 
     // Create an input stream and write '500' to it.
     let n = 1000u32;
-
+    let start = std::time::Instant::now();
+    
     // The input stream that the program will read from using `sp1_zkvm::io::read`. Note that the
     // types of the elements in the input stream must match the types being read in the program.
     let mut stdin = SP1Stdin::new();
@@ -27,7 +27,8 @@ fn main() {
     let mut proof = client.prove(&pk, &stdin).compressed().run().unwrap();
     //let mut proof = client.prove(&pk, &stdin).run().unwrap();
 
-    println!("generated proof");
+    let duration = start.elapsed();
+    println!("generated proof, duration:{:?}", duration);
 
     // Read and verify the output.
     //

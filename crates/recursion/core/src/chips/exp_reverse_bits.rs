@@ -2,19 +2,20 @@
 
 use crate::{
     builder::SP1RecursionAirBuilder, runtime::ExecutionRecord, ExpReverseBitsEvent,
-    ExpReverseBitsInstr, Instruction,
+    ExpReverseBitsInstr, Instruction, ExpReverseBitsEventFlatFFI, ExpReverseBitsFlatIdex, 
+    ExpReverseBitsInstrFlatFFI, InstrsFlatIdex, Address, 
 };
 use core::borrow::Borrow;
 use p3_air::{Air, AirBuilder, BaseAir, PairBuilder};
 use p3_baby_bear::BabyBear;
 use p3_field::{PrimeCharacteristicRing, PrimeField32};
 use p3_matrix::{dense::RowMajorMatrix, Matrix};
-use sp1_core_machine::utils::pad_rows_fixed;
+use sp1_core_machine::utils::{pad_rows_fixed, next_power_of_two};
 use sp1_derive::AlignedBorrow;
 use sp1_stark::air::{BaseAirBuilder, ExtensionAirBuilder, MachineAir, SP1AirBuilder};
 use std::borrow::BorrowMut;
 use tracing::instrument;
-
+use itertools::Itertools;
 use super::mem::{MemoryAccessCols, MemoryAccessColsChips};
 
 pub const NUM_EXP_REVERSE_BITS_LEN_COLS: usize = core::mem::size_of::<ExpReverseBitsLenCols<u8>>();
@@ -89,63 +90,144 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for ExpReverseBitsLenCh
             std::any::TypeId::of::<F>() == std::any::TypeId::of::<BabyBear>(),
             "generate_preprocessed_trace only supports BabyBear field"
         );
+        
+        let mut values: Vec<BabyBear>;
 
-        let mut rows: Vec<[BabyBear; NUM_EXP_REVERSE_BITS_LEN_PREPROCESSED_COLS]> = Vec::new();
-        program
-            .inner
-            .iter()
-            .filter_map(|instruction| match instruction {
-                Instruction::ExpReverseBitsLen(x) => Some(unsafe {
-                    std::mem::transmute::<&ExpReverseBitsInstr<F>, &ExpReverseBitsInstr<BabyBear>>(
-                        x,
-                    )
-                }),
-                _ => None,
-            })
-            .for_each(|instruction: &ExpReverseBitsInstr<BabyBear>| {
-                let ExpReverseBitsInstr { addrs, mult } = instruction;
-                let mut row_add = vec![
-                    [BabyBear::ZERO;
-                        NUM_EXP_REVERSE_BITS_LEN_PREPROCESSED_COLS];
-                    addrs.exp.len()
-                ];
-                row_add.iter_mut().enumerate().for_each(|(i, row)| {
-                    let row: &mut ExpReverseBitsLenPreprocessedCols<BabyBear> =
-                        row.as_mut_slice().borrow_mut();
-                    row.iteration_num = BabyBear::from_u32(i as u32);
-                    row.is_first = BabyBear::from_bool(i == 0);
-                    row.is_last = BabyBear::from_bool(i == addrs.exp.len() - 1);
-                    row.is_real = BabyBear::ONE;
-                    row.x_mem =
-                        MemoryAccessCols { addr: addrs.base, mult: -BabyBear::from_bool(i == 0) };
-                    row.exponent_mem =
-                        MemoryAccessCols { addr: addrs.exp[i], mult: BabyBear::NEG_ONE };
-                    row.result_mem = MemoryAccessCols {
-                        addr: addrs.result,
-                        mult: *mult * BabyBear::from_bool(i == addrs.exp.len() - 1),
-                    };
+        if cfg!(feature = "recursion_cuda") {
+             let instrs_raw: Vec<&ExpReverseBitsInstr<BabyBear>> = program
+                .inner
+                .iter()
+                .filter_map(|instruction| match instruction {
+                    Instruction::ExpReverseBitsLen(x) => Some(unsafe {
+                        std::mem::transmute::<&ExpReverseBitsInstr<F>, &ExpReverseBitsInstr<BabyBear>>(
+                            x,
+                        )
+                    }),
+                    _ => None,
+                })
+                .collect_vec(); 
+
+            let mut all_exp_bits: Vec<Address<BabyBear>> = Vec::new();
+            let mut instrs_values: Vec<ExpReverseBitsInstrFlatFFI<BabyBear>> = Vec::with_capacity(instrs_raw.len());
+
+            let mut current_exp_offset = 0;
+        
+
+            let mut instrs_index_info: Vec<InstrsFlatIdex> = Vec::new();
+
+            let mut num_total_output_rows = 0;
+            for (instr_idx, &instr_ref) in instrs_raw.iter().enumerate() {
+                let instr_data = instr_ref; 
+                let exp_len = instr_data.addrs.exp.len();
+                num_total_output_rows += exp_len;
+                for j in 0..exp_len { 
+                     instrs_index_info.push(InstrsFlatIdex {
+                            instr_idx: instr_idx,
+                            arr_idx: j ,
+                           // last_row: p_at_z_len, 
+                        });
+                }
+ 
+                all_exp_bits.extend_from_slice(&instr_data.addrs.exp);
+
+                instrs_values.push(crate::ExpReverseBitsInstrFlatFFI {
+                    base: instr_data.addrs.base,
+                    exp_offset: current_exp_offset,
+                    exp_len: exp_len,
+                    result: instr_data.addrs.result,
+                    mult: instr_data.mult,
                 });
-                rows.extend(row_add);
-            });
+
+                current_exp_offset += exp_len;
+                
+            }
+
+            let initial_len = num_total_output_rows * NUM_EXP_REVERSE_BITS_LEN_PREPROCESSED_COLS;
+            values = vec![BabyBear::ZERO; initial_len];
+            
+            unsafe {
+                crate::sys::process_exp_reverse_bits_instructions_gpu(
+                    instrs_values.as_ptr(),
+                    instrs_values.len(),
+                    instrs_index_info.as_ptr(),
+                    instrs_index_info.len(),
+                    all_exp_bits.as_ptr(),
+                    all_exp_bits.len(),
+                    values.as_mut_ptr(),
+                    values.len(),
+                    num_total_output_rows, //= instrucctions after extending 
+                    NUM_EXP_REVERSE_BITS_LEN_PREPROCESSED_COLS,
+                );
+            } 
+
+        } else {
+            //CPU
+            let mut cpu_rows: Vec<[BabyBear; NUM_EXP_REVERSE_BITS_LEN_PREPROCESSED_COLS]> = Vec::new();
+            program
+                .inner
+                .iter()
+                .filter_map(|instruction| match instruction {
+                    Instruction::ExpReverseBitsLen(x) => Some(unsafe {
+                        std::mem::transmute::<&ExpReverseBitsInstr<F>, &ExpReverseBitsInstr<BabyBear>>(
+                            x,
+                        )
+                    }),
+                    _ => None,
+                })
+                .for_each(|instruction: &ExpReverseBitsInstr<BabyBear>| {
+                    let ExpReverseBitsInstr { addrs, mult } = instruction;
+                    let mut row_add = vec![
+                        [BabyBear::ZERO;
+                            NUM_EXP_REVERSE_BITS_LEN_PREPROCESSED_COLS];
+                        addrs.exp.len()
+                    ];
+                    row_add.iter_mut().enumerate().for_each(|(i, row)| {
+                        let row: &mut ExpReverseBitsLenPreprocessedCols<BabyBear> =
+                            row.as_mut_slice().borrow_mut();
+                        row.iteration_num = BabyBear::from_u32(i as u32);
+                        row.is_first = BabyBear::from_bool(i == 0);
+                        row.is_last = BabyBear::from_bool(i == addrs.exp.len() - 1);
+                        row.is_real = BabyBear::ONE;
+                        row.x_mem =
+                            MemoryAccessCols { addr: addrs.base, mult: -BabyBear::from_bool(i == 0) };
+                        row.exponent_mem =
+                            MemoryAccessCols { addr: addrs.exp[i], mult: BabyBear::NEG_ONE };
+                        row.result_mem = MemoryAccessCols {
+                            addr: addrs.result,
+                            mult: *mult * BabyBear::from_bool(i == addrs.exp.len() - 1),
+                        };
+                    });
+                    cpu_rows.extend(row_add);
+                });
+            values = cpu_rows.into_iter().flatten().collect::<Vec<BabyBear>>();
+        }
 
         // Pad the trace to a power of two.
-        pad_rows_fixed(
-            &mut rows,
-            || [BabyBear::ZERO; NUM_EXP_REVERSE_BITS_LEN_PREPROCESSED_COLS],
-            program.fixed_log2_rows(self),
-        );
+        if program.fixed_log2_rows(self).is_some() || values.len() > 0 {
+            let current_num_rows = values.len() / NUM_EXP_REVERSE_BITS_LEN_PREPROCESSED_COLS;
+            let padded_num_rows = next_power_of_two(current_num_rows, program.fixed_log2_rows(self));
+            let target_total_elements = padded_num_rows * NUM_EXP_REVERSE_BITS_LEN_PREPROCESSED_COLS;
+            values.resize(target_total_elements, BabyBear::ZERO);
+        }
 
         let trace = RowMajorMatrix::new(
             unsafe {
                 std::mem::transmute::<Vec<BabyBear>, Vec<F>>(
-                    rows.into_iter().flatten().collect::<Vec<BabyBear>>(),
+                    values
                 )
             },
             NUM_EXP_REVERSE_BITS_LEN_PREPROCESSED_COLS,
         );
+        
         Some(trace)
     }
 
+    fn num_rows(&self, input: &Self::Record) -> Option<usize> {
+        let events = &input.exp_reverse_bits_len_events;
+        Some(next_power_of_two(events.len(), input.fixed_log2_rows(self)))
+    }
+
+//v1 ok
     #[instrument(name = "generate exp reverse bits len trace", level = "debug", skip_all, fields(rows = input.exp_reverse_bits_len_events.len()))]
     fn generate_trace(
         &self,
@@ -156,54 +238,119 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for ExpReverseBitsLenCh
             std::any::TypeId::of::<F>() == std::any::TypeId::of::<BabyBear>(),
             "generate_trace only supports BabyBear field"
         );
-
+        
         let events = unsafe {
             std::mem::transmute::<&Vec<ExpReverseBitsEvent<F>>, &Vec<ExpReverseBitsEvent<BabyBear>>>(
                 &input.exp_reverse_bits_len_events,
             )
         };
-        let mut overall_rows = Vec::new();
 
-        events.iter().for_each(|event| {
-            let mut rows =
-                vec![vec![BabyBear::ZERO; NUM_EXP_REVERSE_BITS_LEN_COLS]; event.exp.len()];
-            let mut accum = BabyBear::ONE;
+        let mut values: Vec<BabyBear>;
 
-            rows.iter_mut().enumerate().for_each(|(i, row)| {
-                let cols: &mut ExpReverseBitsLenCols<BabyBear> = row.as_mut_slice().borrow_mut();
-                unsafe {
-                    crate::sys::exp_reverse_bits_event_to_row_babybear(&event.into(), i, cols);
+        if cfg!(feature = "recursion_cuda") {
+            let mut ffi_events: Vec<ExpReverseBitsEventFlatFFI<BabyBear>> = Vec::new();
+            let mut all_exp_bits: Vec<BabyBear> = Vec::new(); 
+
+            let mut current_exp_offset = 0; 
+            let mut events_index_info: Vec<ExpReverseBitsFlatIdex<BabyBear>> = Vec::new();
+
+            for (event_idx, event) in events.iter().enumerate() {
+                let event_exp_len  = event.exp.len();
+               
+                let mut accum = BabyBear::ONE;
+                for j in 0..event_exp_len { 
+                    let current_exp_bit = event.exp[j];
+                    let base_val = event.base;
+
+                    let multiplier = if BabyBear::ONE == current_exp_bit { 
+                        base_val 
+                    } else { 
+                        BabyBear::ONE 
+                    };
+                    let prev_accum = accum;
+                    events_index_info.push(ExpReverseBitsFlatIdex {
+                            event_idx: event_idx,
+                            exp_idx: j,
+                            multiplier: multiplier,
+                            prev_accum: prev_accum,
+                        });
+                   
+                    
+                    accum = prev_accum * prev_accum * multiplier;
                 }
 
-                let prev_accum = accum;
-                accum = prev_accum * prev_accum * cols.multiplier;
+                all_exp_bits.extend_from_slice(&event.exp);
 
-                cols.accum = accum;
-                cols.accum_squared = accum * accum;
-                cols.prev_accum_squared = prev_accum * prev_accum;
-                cols.prev_accum_squared_times_multiplier =
-                    cols.prev_accum_squared * cols.multiplier;
+                // ExpReverseBitsEventFlatFFI
+                ffi_events.push(ExpReverseBitsEventFlatFFI {
+                    base_val: event.base,
+                    exp_bits_offset: current_exp_offset,
+                    exp_len: event_exp_len,
+                    result_val: event.result,
+                });
+
+                current_exp_offset += event_exp_len;
+            }
+            let total_output_rows = current_exp_offset ;
+            let initial_len = total_output_rows * NUM_EXP_REVERSE_BITS_LEN_COLS;
+            values = vec![BabyBear::ZERO; initial_len];
+
+            unsafe {
+                crate::sys::process_exp_reverse_bits_events_gpu(
+                    ffi_events.as_ptr(),
+                    ffi_events.len(),
+                    events_index_info.as_ptr(),
+                    events_index_info.len(),
+                    all_exp_bits.as_ptr(),
+                    all_exp_bits.len(),
+                    values.as_mut_ptr(),
+                    values.len(),
+                    total_output_rows,     //= events after extending 
+                    NUM_EXP_REVERSE_BITS_LEN_COLS,
+                );
+            } 
+
+        } else {
+            //CPU
+            let mut overall_rows = Vec::new();
+            events.iter().for_each(|event| {
+                let mut rows =
+                    vec![vec![BabyBear::ZERO; NUM_EXP_REVERSE_BITS_LEN_COLS]; event.exp.len()];
+                let mut accum = BabyBear::ONE;
+
+                rows.iter_mut().enumerate().for_each(|(i, row)| {
+                    let cols: &mut ExpReverseBitsLenCols<BabyBear> = row.as_mut_slice().borrow_mut();
+                    unsafe {
+                        crate::sys::exp_reverse_bits_event_to_row_babybear(&event.into(), i, cols);
+                    }
+
+                    let prev_accum = accum;
+                    accum = prev_accum * prev_accum * cols.multiplier;
+
+                    cols.accum = accum;
+                    cols.accum_squared = accum * accum;
+                    cols.prev_accum_squared = prev_accum * prev_accum;
+                    cols.prev_accum_squared_times_multiplier =
+                        cols.prev_accum_squared * cols.multiplier;
+                });
+                overall_rows.extend(rows);
             });
-            overall_rows.extend(rows);
-        });
+            values = overall_rows.into_iter().flatten().collect::<Vec<BabyBear>>();
+        }
 
         // Pad the trace to a power of two.
-        pad_rows_fixed(
-            &mut overall_rows,
-            || [BabyBear::ZERO; NUM_EXP_REVERSE_BITS_LEN_COLS].to_vec(),
-            input.fixed_log2_rows(self),
-        );
+        let padded_num_rows = self.num_rows(input).unwrap();
+        let target_total_elements = padded_num_rows * NUM_EXP_REVERSE_BITS_LEN_COLS;
+        values.resize(target_total_elements, BabyBear::ZERO);
 
-        // Convert the trace to a row major matrix.
+
         let trace = RowMajorMatrix::new(
             unsafe {
-                std::mem::transmute::<Vec<BabyBear>, Vec<F>>(
-                    overall_rows.into_iter().flatten().collect::<Vec<BabyBear>>(),
-                )
+                std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values)
             },
             NUM_EXP_REVERSE_BITS_LEN_COLS,
         );
-
+        
         #[cfg(debug_assertions)]
         eprintln!(
             "exp reverse bits len trace dims is width: {:?}, height: {:?}",
@@ -213,7 +360,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for ExpReverseBitsLenCh
 
         trace
     }
-
+    
     fn included(&self, _record: &Self::Record) -> bool {
         true
     }
@@ -487,8 +634,10 @@ mod tests {
         )
     }
 
+    //use crate::gpu::init_gpu_context;
     #[test]
     fn test_generate_trace() {
+        //init_gpu_context();
         let shard = test_fixtures::shard();
         let mut execution_record = test_fixtures::default_execution_record();
         let trace = ExpReverseBitsLenChip::<DEGREE>.generate_trace(&shard, &mut execution_record);

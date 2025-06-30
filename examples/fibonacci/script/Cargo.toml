@@ -38,3 +38,7 @@ path = "src/main.rs"
 
 [features]
 cuda = ["sp1-sdk/cuda"]
+recursion_cuda = ["sp1-sdk/recursion_cuda"]
+
+[dependencies.libloading]
+version = "0.8.8"

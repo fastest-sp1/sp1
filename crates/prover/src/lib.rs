@@ -169,6 +169,9 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
     /// Initializes a new [SP1Prover].
     #[instrument(name = "initialize prover", level = "debug", skip_all)]
     pub fn new() -> Self {
+        //if cfg!(feature = "recursion_cuda") {
+          //  init_gpu_context();
+       // }
         Self::uninitialized()
     }
 
@@ -917,7 +920,7 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
             is_complete: true,
         };
         let input_with_vk = self.make_merkle_proofs(input);
-
+        tracing::info!("wrap program");
         let program = self.wrap_program();
 
         // Run the compress program.
@@ -930,18 +933,18 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
         Witnessable::<InnerConfig>::write(&input_with_vk, &mut witness_stream);
 
         runtime.witness_stream = witness_stream.into();
-
+        tracing::info!("execute runtime");
         runtime.run().map_err(|e| SP1RecursionProverError::RuntimeError(e.to_string()))?;
 
         runtime.print_stats();
-        tracing::debug!("wrap program executed successfully");
+        tracing::info!("wrap program executed successfully");
 
         // Setup the wrap program.
         let (wrap_pk, wrap_vk) =
             tracing::debug_span!("setup wrap").in_scope(|| self.wrap_prover.setup(&program));
 
         if self.wrap_vk.set(wrap_vk.clone()).is_ok() {
-            tracing::debug!("wrap verifier key set");
+            tracing::info!("wrap verifier key set");
         }
 
         // Prove the wrap program.
@@ -952,10 +955,10 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
             .prove(&wrap_pk, vec![runtime.record], &mut wrap_challenger, opts.recursion_opts)
             .unwrap();
         let elapsed = time.elapsed();
-        tracing::debug!("wrap proving time: {:?}", elapsed);
+        tracing::info!("wrap proving time: {:?}", elapsed);
         let mut wrap_challenger = self.wrap_prover.config().initialise_challenger();
         self.wrap_prover.machine().verify(&wrap_vk, &wrap_proof, &mut wrap_challenger).unwrap();
-        tracing::debug!("wrapping successful");
+        tracing::info!("wrapping successful");
 
         Ok(SP1ReduceProof { vk: wrap_vk, proof: wrap_proof.shard_proofs.pop().unwrap() })
     }

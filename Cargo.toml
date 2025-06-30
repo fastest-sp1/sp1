@@ -72,6 +72,8 @@ sp1-stark = { path = "crates/stark", version = "4.2.1" }
 sp1-lib = { path = "crates/zkvm/lib", version = "4.2.1", default-features = false }
 sp1-zkvm = { path = "crates/zkvm/entrypoint", version = "4.2.1", default-features = false }
 
+
+
 # For testing.
 test-artifacts = { path = "crates/test-artifacts" }
 
@@ -98,6 +100,7 @@ p3-maybe-rayon = { path = "../Plonky3/maybe-rayon" }
 p3-bn254-fr = { path = "../Plonky3/bn254-fr" }
 p3-monty-31 = { path = "../Plonky3/monty-31" }
 
+
 # misc
 hashbrown = "0.14.5"
 itertools = "0.13.0"
@@ -119,3 +122,7 @@ default.extend-ignore-words-re = ["(?i)groth", "TRE"]
 
 [workspace.lints.clippy]
 print_stdout = "deny"
+
+
+
+

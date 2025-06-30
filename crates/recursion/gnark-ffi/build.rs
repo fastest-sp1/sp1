@@ -1,5 +1,4 @@
 #![allow(unused)]
-
 use cfg_if::cfg_if;
 use std::{env, path::PathBuf, process::Command};
 
@@ -7,6 +6,7 @@ use std::{env, path::PathBuf, process::Command};
 use bindgen::CargoCallbacks;
 
 use regex::Regex;
+
 /// Build the go library, generate Rust bindings for the exposed functions, and link the library.
 fn main() {
     cfg_if! {
@@ -50,6 +50,10 @@ fn main() {
                 .generate()
                 .expect("Unable to generate bindings");
                 
+            //bindings
+            //    .write_to_file(dest_path.join("bindings.rs"))
+            //    .expect("Couldn't write bindings!");
+
             // we need to make modifications to the generated code
             let generated_bindings = bindings.to_string();
             

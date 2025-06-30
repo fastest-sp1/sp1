@@ -6,7 +6,8 @@ const ELF: &[u8] = include_elf!("fibonacci-program");
 fn main() {
     // Setup logging.
     utils::setup_logger();
-
+    let start = std::time::Instant::now();
+    
     // Create an input stream and write '500' to it.
     let n = 500u32;
 
@@ -20,7 +21,8 @@ fn main() {
 
     // Generate the Plonk proof.
     let proof = client.prove(&pk, &stdin).plonk().run().unwrap();
-    println!("generated proof");
+    let duration = start.elapsed();
+    println!("generated proof, duration:{:?}", duration);
 
     // Get the public values as bytes.
     let public_values = proof.public_values.as_slice();

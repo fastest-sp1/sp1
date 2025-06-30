@@ -8,8 +8,11 @@ use sp1_core_machine::utils::next_power_of_two;
 use sp1_derive::AlignedBorrow;
 use sp1_stark::air::MachineAir;
 use std::borrow::BorrowMut;
+use itertools::Itertools;
 
 use crate::{builder::SP1RecursionAirBuilder, *};
+
+//use crate::gpu::select_trace::{process_select_events_gpu, process_select_instructions_gpu};
 
 #[derive(Default)]
 pub struct SelectChip;
@@ -66,7 +69,7 @@ impl<F: PrimeField32> MachineAir<F> for SelectChip {
             std::any::TypeId::of::<BabyBear>(),
             "generate_preprocessed_trace only supports BabyBear field"
         );
-
+        
         let instrs = unsafe {
             std::mem::transmute::<Vec<&SelectInstr<F>>, Vec<&SelectInstr<BabyBear>>>(
                 program
@@ -82,22 +85,50 @@ impl<F: PrimeField32> MachineAir<F> for SelectChip {
         let padded_nb_rows = self.preprocessed_num_rows(program, instrs.len()).unwrap();
         let mut values = vec![BabyBear::ZERO; padded_nb_rows * SELECT_PREPROCESSED_COLS];
 
-        // Generate the trace rows & corresponding records for each chunk of events in parallel.
-        let populate_len = instrs.len() * SELECT_PREPROCESSED_COLS;
-        values[..populate_len].par_chunks_mut(SELECT_PREPROCESSED_COLS).zip_eq(instrs).for_each(
-            |(row, instr)| {
-                let cols: &mut SelectPreprocessedCols<_> = row.borrow_mut();
-                unsafe {
-                    crate::sys::select_instr_to_row_babybear(instr, cols);
-                }
-            },
-        );
 
+        // Generate the trace rows & corresponding records for each chunk of events in parallel.
+        if instrs.is_empty() {
+             return Some(RowMajorMatrix::new(
+                 unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
+                 SELECT_PREPROCESSED_COLS,
+            ));
+        }
+    
+        // Using GPU (via the new alu_trace module)
+        if cfg!(feature = "recursion_cuda") {
+            let instrs_for_gpu: Vec<SelectInstr<BabyBear>> = instrs
+                .iter()
+                .map(|&instr_ref| *instr_ref)
+                .collect_vec();
+            println!("--select instr GPU, instrs.len:{}", instrs_for_gpu.len());
+            unsafe {
+                crate::sys::process_select_instructions_gpu(
+                    instrs_for_gpu.as_ptr(), 
+                    instrs_for_gpu.len(),
+                    values.as_mut_ptr(),
+                    values.len(),
+                    SELECT_PREPROCESSED_COLS,
+                );
+            }
+        } else {
+            let populate_len = instrs.len() * SELECT_PREPROCESSED_COLS;
+            values[..populate_len].par_chunks_mut(SELECT_PREPROCESSED_COLS).zip_eq(instrs).for_each(
+                |(row, instr)| {
+                    let cols: &mut SelectPreprocessedCols<_> = row.borrow_mut();
+                    unsafe {
+                        crate::sys::select_instr_to_row_babybear(instr, cols);
+                    }
+                },
+            );
+        }
+        
         // Convert the trace to a row major matrix.
-        Some(RowMajorMatrix::new(
+        let trace = RowMajorMatrix::new(
             unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
             SELECT_PREPROCESSED_COLS,
-        ))
+        );
+        
+        Some(trace)
     }
 
     fn generate_dependencies(&self, _: &Self::Record, _: &mut Self::Record) {
@@ -123,21 +154,44 @@ impl<F: PrimeField32> MachineAir<F> for SelectChip {
         let mut values = vec![BabyBear::ZERO; padded_nb_rows * SELECT_COLS];
 
         // Generate the trace rows & corresponding records for each chunk of events in parallel.
-        let populate_len = events.len() * SELECT_COLS;
-        values[..populate_len].par_chunks_mut(SELECT_COLS).zip_eq(events).for_each(
-            |(row, &vals)| {
-                let cols: &mut SelectCols<_> = row.borrow_mut();
-                unsafe {
-                    crate::sys::select_event_to_row_babybear(&vals, cols);
-                }
-            },
-        );
+        if events.is_empty() {
+            return RowMajorMatrix::new(
+                unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
+                SELECT_COLS,
+            );
+        }
+    
+        // using GPU (via the new alu_trace module)
+        if cfg!(feature = "recursion_cuda") {
+           unsafe {
+                crate::sys::process_select_events_gpu(
+                    events.as_ptr(),
+                    events.len(),
+                    values.as_mut_ptr(),
+                    values.len(),
+                    SELECT_COLS,
+                );
+            }
+        } else {
+            //CPU
+            let populate_len = events.len() * SELECT_COLS;
+            values[..populate_len].par_chunks_mut(SELECT_COLS).zip_eq(events).for_each(
+                |(row, &vals)| {
+                    let cols: &mut SelectCols<_> = row.borrow_mut();
+                    unsafe {
+                        crate::sys::select_event_to_row_babybear(&vals, cols);
+                    }
+                },
+            );
+        }
 
         // Convert the trace to a row major matrix.
-        RowMajorMatrix::new(
+        let trace = RowMajorMatrix::new(
             unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<_>>(values) },
             SELECT_COLS,
-        )
+        );
+        
+        trace
     }
 
     fn included(&self, _record: &Self::Record) -> bool {
@@ -243,8 +297,10 @@ mod tests {
         RowMajorMatrix::new(values, SELECT_COLS)
     }
 
+    //use crate::gpu::init_gpu_context;
     #[test]
     fn generate_trace() {
+        //init_gpu_context();
         let shard = test_fixtures::shard();
         let mut execution_record = test_fixtures::default_execution_record();
         let trace = SelectChip.generate_trace(&shard, &mut execution_record);
@@ -289,6 +345,7 @@ mod tests {
     #[test]
     #[ignore = "Failing due to merge conflicts. Will be fixed shortly."]
     fn generate_preprocessed_trace() {
+        //init_gpu_context();
         let program = test_fixtures::program();
         let trace = SelectChip.generate_preprocessed_trace(&program).unwrap();
         assert!(trace.height() >= test_fixtures::MIN_TEST_CASES);

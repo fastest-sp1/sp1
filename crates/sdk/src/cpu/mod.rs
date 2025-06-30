@@ -134,13 +134,13 @@ impl CpuProver {
                 self.version().to_string(),
             ));
         }
-
+        tracing::info!("Finish compress proof successfully");
         // Generate the shrink proof.
         let compress_proof = self.prover.shrink(reduce_proof, opts)?;
-
+        tracing::info!("Finish shrink proof successfully");
         // Generate the wrap proof.
         let outer_proof = self.prover.wrap_bn254(compress_proof, opts)?;
-
+        tracing::info!("Finish wrap_bn254 proof successfully");
         // Generate the gnark proof.
         match mode {
             SP1ProofMode::Groth16 => {

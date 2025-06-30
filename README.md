@@ -36,8 +36,20 @@ This modified version of SP1(based on SP1 v4.2.0) is the fastest SP1, which uses
 > Plonky3 only supports avx2 or avx512.  
 > Use this command for cross-compilation: RUSTFLAGS="-C target-feature=+avx512f" cargo build --release --target x86_64-unknown-linux-gnu  
 
+2. It will report the following similar error:
+```sh
+error: extern blocks must be unsafe
+    --> /home/gavin/zkvm/fastest-sp1/sp1/target/release/build/sp1-recursion-gnark-ffi-e09b39f64bd06e95/out/bindings.rs:1485:1
+     |
+1485 | / extern "C" {
+1486 | |     pub fn FreeString(s: *mut ::std::os::raw::c_char);
+1487 | | }
+     | |_^
+```
+Please copy sp1/examples/fibonacci/bindings.rs to your target directory, such as sp1/target/release/build/sp1-recursion-gnark-ffi-e09b39f64bd06e95/out/.
+Then, rebuild it.
 
-2. Run the build_groth16_bn254
+3. Run the build_groth16_bn254
 > [!NOTE]
 > The machine need free memory 30G.
 
@@ -131,7 +143,7 @@ OS: ubuntu20
 
 ## groth16_bn254
 
-|   Item     | Customed version   | SP1 v4.2.0 | Improvement (%) |
+|   item     | customed version   | SP1 v4.2.0 | Improvement (%) |
 |------------|-------------------|-------------|-----------------|
 | prove_core | 34.0s             | 69.2s      |   53.4% faster    |
 | compress   | 107s              | 215s       |   50.2% faster    |
@@ -142,7 +154,7 @@ OS: ubuntu20
 
 ## plonk_bn254
 
-|   Item     | Customed version   | SP1 v4.2.0 | Improvement (%) |
+|   item     | customed version   | SP1 v4.2.0 | Improvement (%) |
 |------------|-------------------|-------------|-----------------|
 | prove_core | 29.1s             | 63.6s      |   54.2% faster    |
 | compress   | 114s              | 199s       |   42.7% faster    |
