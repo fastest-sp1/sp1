@@ -155,7 +155,7 @@ OS: ubuntu20
 ## Usage 
 
 > [!NOTE]
-> Only test in sp1/examples/fibonacci
+> Only test in sp1/examples/fibonacci  
 > Set the 'CUDA_ARCH=sm_86' according your GPU
 
 ```sh
