@@ -6,8 +6,6 @@ use std::{env, path::PathBuf, process::Command};
 use bindgen::CargoCallbacks;
 use regex::Regex;
 
-use regex::Regex;
-
 /// Build the go library, generate Rust bindings for the exposed functions, and link the library.
 fn main() {
     cfg_if! {

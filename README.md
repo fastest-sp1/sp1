@@ -148,3 +148,19 @@ OS: ubuntu20
 | shrink     | 8.44s             | 16.7s      |   49.5% faster    |
 | wrap_bn254 |  242s             | 352s       |   31.2% faster    |
 | wrap_plonk_bn254 |  361.0s             | 369s       |        |
+
+
+# GPU-accelerated library of sp1-recursion-core-sys 
+
+## Usage 
+
+> [!NOTE]
+> Only test in sp1/examples/fibonacci
+> Set the 'CUDA_ARCH=sm_86' according your GPU
+
+```sh
+$ cd sp1/examples/fibonacci/script
+$ CUDA_ARCH=sm_86  RUSTFLAGS="-C target-cpu=native" cargo build -r --features recursion_cuda
+$ RUST_LOG=info  RUST_LOGGER=forest    ../../target/release/fibonacci-script
+
+```

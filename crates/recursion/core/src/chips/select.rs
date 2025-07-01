@@ -100,7 +100,7 @@ impl<F: PrimeField32> MachineAir<F> for SelectChip {
                 .iter()
                 .map(|&instr_ref| *instr_ref)
                 .collect_vec();
-            println!("--select instr GPU, instrs.len:{}", instrs_for_gpu.len());
+        
             unsafe {
                 crate::sys::process_select_instructions_gpu(
                     instrs_for_gpu.as_ptr(), 
