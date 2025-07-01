@@ -155,8 +155,9 @@ OS: ubuntu20
 ## Usage 
 
 > [!NOTE]
-> Only test in sp1/examples/fibonacci  
-> Set the 'CUDA_ARCH=sm_86' according your GPU
+> Currently, only generate_preprocessed_trace and generate_trace are accelerated by GPU. Support for other functions will be added soon.  
+> Only the test in sp1/examples/fibonacci is currently enabled for GPU acceleration.  
+> Set the following environment variable 'CUDA_ARCH=sm_86' according to your GPU architecture.
 
 ```sh
 $ cd sp1/examples/fibonacci/script
