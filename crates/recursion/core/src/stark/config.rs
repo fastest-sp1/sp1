@@ -13,7 +13,7 @@ use p3_poseidon2::ExternalLayerConstants;
 
 use p3_symmetric::{Hash, MultiField32PaddingFreeSponge, TruncatedPermutation};
 use serde::{Deserialize, Serialize};
-use sp1_stark::{Com, StarkGenericConfig, ZeroCommitment};
+use sp1_stark::{Com, StarkGenericConfig, ZeroCommitment, CudaDft,};
 
 use super::{poseidon2::bn254_poseidon2_rc3, sp1_dev_mode};
 
@@ -34,7 +34,12 @@ pub type OuterDigest = [Bn254Fr; DIGEST_SIZE];
 pub type OuterCompress = TruncatedPermutation<OuterPerm, 2, 1, 3>;
 pub type OuterValMmcs = MerkleTreeMmcs<BabyBear, Bn254Fr, OuterHash, OuterCompress, 1>;
 pub type OuterChallengeMmcs = ExtensionMmcs<OuterVal, OuterChallenge, OuterValMmcs>;
-pub type OuterDft = Radix2DitParallel<OuterVal>;
+//pub type OuterDft = Radix2DitParallel<OuterVal>;
+#[cfg(not(feature = "recursion_cuda"))]
+pub type OuterDft = Radix2DitParallel<BabyBear>;
+#[cfg(feature = "recursion_cuda")]
+pub type OuterDft = CudaDft;
+
 pub type OuterChallenger = MultiField32Challenger<
     OuterVal,
     Bn254Fr,

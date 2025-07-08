@@ -42,7 +42,9 @@ mod types;
 mod util;
 mod verifier;
 mod word;
+pub mod gpu;
 
+pub use gpu::*;
 pub use bb31_poseidon2::*;
 pub use chip::*;
 pub use config::*;

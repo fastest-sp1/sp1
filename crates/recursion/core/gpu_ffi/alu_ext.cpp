@@ -63,7 +63,7 @@ extern "C" void process_alu_ext_events_gpu(
     if (events_len == 0) return; 
     ExtAluIo<Block<BabyBear>> *events_d = nullptr; 
     BabyBear *output_d = nullptr; 
-    cudaError_t err = cudaSuccess;
+    cudaError_t err = cudaSuccess; 
 
     uint32_t input_size_bytes;
     uint32_t output_size_bytes;

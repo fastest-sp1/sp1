@@ -16,6 +16,9 @@ use p3_symmetric::{Hash, PaddingFreeSponge, TruncatedPermutation};
 use serde::{Deserialize, Serialize};
 use sp1_primitives::poseidon2_init;
 
+#[cfg(feature = "recursion_cuda")]
+use crate::gpu::dft::CudaDft; 
+
 pub const DIGEST_SIZE: usize = 8;
 
 /// A configuration for inner recursion.
@@ -182,7 +185,12 @@ pub mod baby_bear_poseidon2 {
         8,
     >;
     pub type ChallengeMmcs = ExtensionMmcs<Val, Challenge, ValMmcs>;
-    pub type Dft = Radix2DitParallel<Val>;
+    //pub type Dft = Radix2DitParallel<Val>;
+    #[cfg(not(feature = "recursion_cuda"))]
+    pub type Dft = p3_dft::Radix2DitParallel<Val>;
+    #[cfg(feature = "recursion_cuda")]
+    pub type Dft = crate::gpu::dft::CudaDft;
+
     pub type Challenger = DuplexChallenger<Val, Perm, 16, 8>;
     type Pcs = TwoAdicFriPcs<Val, Dft, ValMmcs, ChallengeMmcs>;
 

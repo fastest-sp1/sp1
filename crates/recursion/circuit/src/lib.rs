@@ -31,7 +31,7 @@ pub mod witness;
 
 use sp1_stark::{
     baby_bear_poseidon2::{BabyBearPoseidon2, ValMmcs},
-    StarkGenericConfig,
+    StarkGenericConfig, CudaDft, 
 };
 pub use types::*;
 
@@ -62,6 +62,11 @@ pub type Digest<C, SC> = <SC as FieldHasherVariable<C>>::DigestVariable;
 
 pub type FriMmcs<C> = ExtensionMmcs<BabyBear, EF, <C as BabyBearFriConfig>::ValMmcs>;
 
+#[cfg(not(feature = "recursion_cuda"))]
+pub type Dft = Radix2DitParallel<BabyBear>;
+#[cfg(feature = "recursion_cuda")]
+pub type Dft = CudaDft;
+
 pub trait BabyBearFriConfig:
     StarkGenericConfig<
     Val = BabyBear,
@@ -69,7 +74,7 @@ pub trait BabyBearFriConfig:
     Challenger = Self::FriChallenger,
     Pcs = TwoAdicFriPcs<
         BabyBear,
-        Radix2DitParallel<BabyBear>,
+        Dft,
         Self::ValMmcs,
         ExtensionMmcs<BabyBear, EF, Self::ValMmcs>,
     >,

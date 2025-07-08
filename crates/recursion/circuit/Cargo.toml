@@ -57,5 +57,7 @@ test-artifacts = { path = "../../test-artifacts" }
 native-gnark = ["sp1-recursion-gnark-ffi/native"]
 debug = ["sp1-core-machine/debug", "sp1-recursion-compiler/debug"]
 
+recursion_cuda = []
+
 [lints]
 workspace = true
