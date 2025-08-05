@@ -2,7 +2,7 @@
 
 use crate::{
     air::Block, builder::SP1RecursionAirBuilder, Address, BatchFRIEvent, BatchFRIInstr,
-    ExecutionRecord, Instruction,  InstrsFlatIdex, 
+    ExecutionRecord, Instruction, BatchFRIInstrRowFFI, 
 };
 use core::borrow::Borrow;
 use itertools::Itertools;
@@ -69,16 +69,12 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for BatchFRIChip<DEGREE
         NUM_BATCH_FRI_PREPROCESSED_COLS
     }
 
-
-//v1 ok
     fn generate_preprocessed_trace(&self, program: &Self::Program) -> Option<RowMajorMatrix<F>> {
         assert_eq!(
             std::any::TypeId::of::<F>(),
             std::any::TypeId::of::<BabyBear>(),
             "generate_preprocessed_trace only supports BabyBear field"
         );
-        //let start = std::time::Instant::now();
-
 
         let instrs: Vec<&BatchFRIInstr<BabyBear>> = program
             .inner
@@ -95,212 +91,37 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for BatchFRIChip<DEGREE
         let mut values: Vec<BabyBear>;
 
         if cfg!(feature = "recursion_cuda") {
-            let mut all_base_p_at_x: Vec<Address<BabyBear>> = Vec::new();
-            let mut all_ext_p_at_z: Vec<Address<BabyBear>> = Vec::new();
-            let mut all_ext_alpha_pow: Vec<Address<BabyBear>> = Vec::new();
-            let mut instrs_values: Vec<crate::BatchFRIInstrFlat<BabyBear>> = Vec::with_capacity(instrs.len());
+            let mut gpu_input_rows: Vec<BatchFRIInstrRowFFI<BabyBear>> = Vec::new();
+            for instr_ref in instrs {
+                let instr_data = (*instr_ref).clone(); //  FriFoldInstr<BabyBear>
 
-            let mut current_base_p_at_x_offset = 0;
-            let mut current_ext_p_at_z_offset = 0;
-            let mut current_ext_alpha_pow_offset = 0;
-
-            let mut instrs_index_info: Vec<crate::InstrsFlatIdex> = Vec::new();
-
-            let mut num_total_output_rows = 0;
-            for (instr_idx, &instr_ref) in instrs.iter().enumerate() {
-                let instr_data = instr_ref; 
-                let p_at_z_len = instr_data.ext_vec_addrs.p_at_z.len();
-                num_total_output_rows += p_at_z_len;
-                for j in 0..p_at_z_len { 
-                     instrs_index_info.push(InstrsFlatIdex {
-                            instr_idx: instr_idx,
-                            arr_idx: j ,
-                           // last_row: p_at_z_len, 
-                        });
+                let len = instr_data.ext_vec_addrs.p_at_z.len();
+                for i in 0..len {
+                    gpu_input_rows.push(BatchFRIInstrRowFFI {
+                        base_vec_addrs_p_at_x: instr_data.base_vec_addrs.p_at_x[i].0,
+                        ext_single_addrs: instr_data.ext_single_addrs.acc.0,
+                        ext_vec_addrs_p_at_z: instr_data.ext_vec_addrs.p_at_z[i].0,
+                        ext_vec_addrs_alpha_pow: instr_data.ext_vec_addrs.alpha_pow[i].0,
+                        acc_mult: instr_data.acc_mult,
+                        is_end:  BabyBear::from_bool(i == (len - 1)),
+                    });
                 }
- 
-                all_base_p_at_x.extend_from_slice(&instr_data.base_vec_addrs.p_at_x);
-                all_ext_p_at_z.extend_from_slice(&instr_data.ext_vec_addrs.p_at_z);
-                all_ext_alpha_pow.extend_from_slice(&instr_data.ext_vec_addrs.alpha_pow);
-
-                instrs_values.push(crate::BatchFRIInstrFlat {
-                    base_p_at_x_offset: current_base_p_at_x_offset ,
-                    base_p_at_x_len: instr_data.base_vec_addrs.p_at_x.len() ,
-                    ext_single_addrs_acc_val: instr_data.ext_single_addrs,
-                    ext_p_at_z_offset: current_ext_p_at_z_offset ,
-                    ext_p_at_z_len: instr_data.ext_vec_addrs.p_at_z.len() ,
-                    ext_alpha_pow_offset: current_ext_alpha_pow_offset ,
-                    ext_alpha_pow_len: instr_data.ext_vec_addrs.alpha_pow.len() ,
-                    acc_mult_val: instr_data.acc_mult,
-                });
-
-                current_base_p_at_x_offset += instr_data.base_vec_addrs.p_at_x.len();
-                current_ext_p_at_z_offset += instr_data.ext_vec_addrs.p_at_z.len();
-                current_ext_alpha_pow_offset += instr_data.ext_vec_addrs.alpha_pow.len();
             }
 
-            let initial_len = num_total_output_rows * NUM_BATCH_FRI_PREPROCESSED_COLS;
+            let total_output_rows = gpu_input_rows.len();
+            let initial_len = total_output_rows * NUM_BATCH_FRI_PREPROCESSED_COLS;
             values = vec![BabyBear::ZERO; initial_len];
             
-            //println!("---batch_fri instr GPU, instrs.len:{}, total_rows:{}", instrs_values.len(), num_total_output_rows);
+            println!("--alu_base instr GPU, instrs.len:{}", gpu_input_rows.len());
             unsafe {
                 crate::sys::process_batch_fri_instructions_gpu(
-                    instrs_values.as_ptr(),
-                    instrs_values.len(),
-                    instrs_index_info.as_ptr(),
-                    instrs_index_info.len(),
-                    all_base_p_at_x.as_ptr(),
-                    all_base_p_at_x.len(),
-                    all_ext_p_at_z.as_ptr(),
-                    all_ext_p_at_z.len(),
-                    all_ext_alpha_pow.as_ptr(),
-                    all_ext_alpha_pow.len(),
+                    gpu_input_rows.as_ptr(), 
+                    gpu_input_rows.len(),
                     values.as_mut_ptr(),
                     values.len(),
-                    instrs.len(),          //=instrucctions before extending 
-                    num_total_output_rows, //= instrucctions after extending 
                     NUM_BATCH_FRI_PREPROCESSED_COLS,
                 );
-            } 
-            
-        } else {
-            //println!("---cpu batch_fri _instructions---");
-            let mut cpu_rows: Vec<[BabyBear; NUM_BATCH_FRI_PREPROCESSED_COLS]> = Vec::new();
-            instrs.iter().for_each(|instruction| {
-                let BatchFRIInstr { base_vec_addrs: _, ext_single_addrs: _, ext_vec_addrs, acc_mult } =
-                    *instruction;
-                let len: usize = ext_vec_addrs.p_at_z.len();
-                let mut row_add = vec![[BabyBear::ZERO; NUM_BATCH_FRI_PREPROCESSED_COLS]; len];
-                debug_assert_eq!(*acc_mult, BabyBear::ONE);
-
-                row_add.iter_mut().enumerate().for_each(|(i, row)| {
-                    let cols: &mut BatchFRIPreprocessedCols<BabyBear> = row.as_mut_slice().borrow_mut();
-                    unsafe {
-                        crate::sys::batch_fri_instr_to_row_babybear(&(&(*(*instruction))).into(), cols, i);
-                    }
-                });
-                cpu_rows.extend(row_add);
-            });
-            values = cpu_rows.into_iter().flatten().collect::<Vec<BabyBear>>();
-        }
-
-        // Pad the trace to a power of two.
-        if program.fixed_log2_rows(self).is_some() || values.len() > 0 {
-            let current_num_rows = values.len() / NUM_BATCH_FRI_PREPROCESSED_COLS;
-            let padded_num_rows = next_power_of_two(current_num_rows, program.fixed_log2_rows(self));
-            let target_total_elements = padded_num_rows * NUM_BATCH_FRI_PREPROCESSED_COLS;
-            values.resize(target_total_elements, BabyBear::ZERO);
-        }
-
-
-        let trace = RowMajorMatrix::new(
-            unsafe {
-                std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values)
-            },
-            NUM_BATCH_FRI_PREPROCESSED_COLS,
-        );
-        //let duration = start.elapsed();
-//println!("-- batch_fri-instrs , duration:{:?}", duration);
-        //println!("--batch_fri-instrs, trace_heigth:{}", trace.height());
-        Some(trace)
-    }
-/*
-//v2 ok, using child kernel
-    fn generate_preprocessed_trace(&self, program: &Self::Program) -> Option<RowMajorMatrix<F>> {
-        assert_eq!(
-            std::any::TypeId::of::<F>(),
-            std::any::TypeId::of::<BabyBear>(),
-            "generate_preprocessed_trace only supports BabyBear field"
-        );
-        let start = std::time::Instant::now();
-
-
-        let instrs: Vec<&BatchFRIInstr<BabyBear>> = program
-            .inner
-            .iter()
-            .filter_map(|instruction| match instruction {
-                Instruction::BatchFRI(x) => Some(unsafe {
-                    // Transmute Box<BatchFRIInstr<F>> to Box<BatchFRIInstr<BabyBear>>
-                    // Then get reference from Box to FriFoldInstr
-                    std::mem::transmute::<&BatchFRIInstr<F>, &BatchFRIInstr<BabyBear>>(x.as_ref())
-                }),
-                _ => None,
-            })
-            .collect_vec();
-        let mut values: Vec<BabyBear>;
-
-        if cfg!(feature = "recursion_cuda") {
-            let mut all_base_p_at_x: Vec<Address<BabyBear>> = Vec::new();
-            let mut all_ext_p_at_z: Vec<Address<BabyBear>> = Vec::new();
-            let mut all_ext_alpha_pow: Vec<Address<BabyBear>> = Vec::new();
-            let mut instrs_values: Vec<crate::BatchFRIInstrFlat<BabyBear>> = Vec::with_capacity(instrs.len());
-
-            let mut current_base_p_at_x_offset = 0;
-            let mut current_ext_p_at_z_offset = 0;
-            let mut current_ext_alpha_pow_offset = 0;
-
-            //let mut instrs_index_info: Vec<crate::InstrsFlatIdex> = Vec::new();
-
-            let mut num_total_output_rows = 0;
-            for (instr_idx, &instr_ref) in instrs.iter().enumerate() {
-                let instr_data = instr_ref; 
-                let p_at_z_len = instr_data.ext_vec_addrs.p_at_z.len();
-                num_total_output_rows += p_at_z_len;
-                //v1 ok
-                    /* for j in 0..p_at_z_len { 
-                   
-                     instrs_index_info.push(InstrsFlatIdex {        
-                            instr_idx: instr_idx,
-                            arr_idx: j , 
-                        }); 
-
-                }*/
-
- 
-                all_base_p_at_x.extend_from_slice(&instr_data.base_vec_addrs.p_at_x);
-                all_ext_p_at_z.extend_from_slice(&instr_data.ext_vec_addrs.p_at_z);
-                all_ext_alpha_pow.extend_from_slice(&instr_data.ext_vec_addrs.alpha_pow);
-
-                instrs_values.push(crate::BatchFRIInstrFlat {
-                    base_p_at_x_offset: current_base_p_at_x_offset ,
-                    base_p_at_x_len: instr_data.base_vec_addrs.p_at_x.len() ,
-                    ext_single_addrs_acc_val: instr_data.ext_single_addrs,
-                    ext_p_at_z_offset: current_ext_p_at_z_offset ,
-                    ext_p_at_z_len: instr_data.ext_vec_addrs.p_at_z.len() ,
-                    ext_alpha_pow_offset: current_ext_alpha_pow_offset ,
-                    ext_alpha_pow_len: instr_data.ext_vec_addrs.alpha_pow.len() ,
-                    acc_mult_val: instr_data.acc_mult,
-                });
-
-                current_base_p_at_x_offset += instr_data.base_vec_addrs.p_at_x.len();
-                current_ext_p_at_z_offset += instr_data.ext_vec_addrs.p_at_z.len();
-                current_ext_alpha_pow_offset += instr_data.ext_vec_addrs.alpha_pow.len();
             }
-
-            let initial_len = num_total_output_rows * NUM_BATCH_FRI_PREPROCESSED_COLS;
-            values = vec![BabyBear::ZERO; initial_len];
-            
-            println!("---batch_fri instr GPU, instrs.len:{}, total_rows:{}", instrs_values.len(), num_total_output_rows);
-            unsafe {
-                crate::sys::process_batch_fri_instructions_gpu(
-                    instrs_values.as_ptr(),
-                    instrs_values.len(),
-                    //instrs_index_info.as_ptr(),
-                    //instrs_index_info.len(),
-                    all_base_p_at_x.as_ptr(),
-                    all_base_p_at_x.len(),
-                    all_ext_p_at_z.as_ptr(),
-                    all_ext_p_at_z.len(),
-                    all_ext_alpha_pow.as_ptr(),
-                    all_ext_alpha_pow.len(),
-                    values.as_mut_ptr(),
-                    values.len(),
-                    instrs.len(),          //=instrucctions before extending 
-                    num_total_output_rows, //= instrucctions after extending 
-                    NUM_BATCH_FRI_PREPROCESSED_COLS,
-                );
-            } 
-            
         } else {
             println!("---cpu batch_fri _instructions---");
             let mut cpu_rows: Vec<[BabyBear; NUM_BATCH_FRI_PREPROCESSED_COLS]> = Vec::new();
@@ -337,11 +158,8 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for BatchFRIChip<DEGREE
             },
             NUM_BATCH_FRI_PREPROCESSED_COLS,
         );
-        let duration = start.elapsed();
-println!("-- batch_fri-instrs , duration:{:?}", duration);
-        println!("--batch_fri-instrs, trace_heigth:{}", trace.height());
         Some(trace)
-    }*/
+    }
 
     fn num_rows(&self, input: &Self::Record) -> Option<usize> {
         let events = &input.batch_fri_events;
@@ -359,8 +177,7 @@ println!("-- batch_fri-instrs , duration:{:?}", duration);
             std::any::TypeId::of::<BabyBear>(),
             "generate_trace only supports BabyBear field"
         );
-        //let start = std::time::Instant::now();
-
+        
         let events  = unsafe {
                 std::mem::transmute::<&Vec<BatchFRIEvent<F>>, &Vec<BatchFRIEvent<BabyBear>>>(
                     &input.batch_fri_events,
@@ -372,7 +189,6 @@ println!("-- batch_fri-instrs , duration:{:?}", duration);
         if cfg!(feature = "recursion_cuda") {
             values = Vec::new(); 
             values.resize(events.len() * NUM_BATCH_FRI_COLS, BabyBear::from_u32(0));
-            //println!("-- batch_fri-events, GPU, events.len:{}", events.len());
             unsafe {
                 crate::sys::process_batch_fri_events_gpu(
                     events.as_ptr(),
@@ -411,10 +227,7 @@ println!("-- batch_fri-instrs , duration:{:?}", duration);
             },
             NUM_BATCH_FRI_COLS,
         );
-        //let duration = start.elapsed();
-//println!("-- batch_fri-events, , duration:{:?}", duration);
-        
-        //println!("--batch_fri-events, trace_heigth:{}", trace.height());
+
         #[cfg(debug_assertions)]
         eprintln!(
             "batch fri trace dims is width: {:?}, height: {:?}",
@@ -548,7 +361,6 @@ mod tests {
         //init_gpu_context();
         let shard = test_fixtures::shard();
         let mut execution_record = test_fixtures::default_execution_record();
-        println!("batch_fri::tests:generate_trace ");
         let trace = BatchFRIChip::<DEGREE>.generate_trace(&shard, &mut execution_record);
         assert!(trace.height() >= test_fixtures::MIN_TEST_CASES);
 

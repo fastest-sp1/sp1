@@ -1,8 +1,9 @@
 use p3_air::{Air, BaseAir};
 use p3_baby_bear::BabyBear;
-use p3_commit::{LagrangeSelectors, Mmcs, PolynomialSpace};
+use p3_commit::{LagrangeSelectors, Mmcs, Pcs, PolynomialSpace};
 use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, Field, TwoAdicField, coset::TwoAdicMultiplicativeCoset};
 use p3_matrix::dense::RowMajorMatrix;
+use p3_challenger::{CanObserve, GrindingChallenger, FieldChallenger, CanSample};
 
 use sp1_recursion_compiler::ir::{
     Builder, Config, Ext, ExtConst, ExtensionOperand, Felt, SymbolicExt, SymbolicFelt,
@@ -11,9 +12,10 @@ use sp1_stark::{
     air::MachineAir, AirOpenedValues, ChipOpenedValues, GenericVerifierConstraintFolder,
     MachineChip, OpeningShapeError,
 };
-
+use serde::{Deserialize, Serialize};
 use crate::{
     domain::PolynomialSpaceVariable, stark::StarkVerifier, BabyBearFriConfigVariable, CircuitConfig,
+    EF, FriMmcs, 
 };
 
 pub type RecursiveVerifierConstraintFolder<'a, C> = GenericVerifierConstraintFolder<
@@ -32,6 +34,19 @@ where
     C: CircuitConfig<F = SC::Val>,
     <SC::ValMmcs as Mmcs<BabyBear>>::ProverData<RowMajorMatrix<BabyBear>>: Clone,
     A: MachineAir<C::F> + for<'a> Air<RecursiveVerifierConstraintFolder<'a, C>>,
+    //cuda
+    SC::Challenger: CanObserve<<SC::ValMmcs as Mmcs<BabyBear>>::Commitment>
+        + CanObserve<<FriMmcs<SC> as Mmcs<EF>>::Commitment>
+        + CanSample<EF>
+        + GrindingChallenger<Witness = BabyBear>
+        + FieldChallenger<BabyBear>,
+    SC::Pcs: Pcs<
+        EF,
+        SC::Challenger,
+        ProverData: Clone + Send + Sync,
+        Proof: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>,
+    >,
+    SC::ValMmcs: Mmcs<BabyBear, ProverData<RowMajorMatrix<BabyBear>> = SC::RowMajorProverData>,
 {
     #[allow(clippy::too_many_arguments)]
     #[allow(clippy::type_complexity)]

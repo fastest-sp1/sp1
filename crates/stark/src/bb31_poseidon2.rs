@@ -4,20 +4,27 @@ use crate::{Com, StarkGenericConfig, ZeroCommitment};
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_challenger::DuplexChallenger;
 use p3_commit::{BatchOpening, ExtensionMmcs};
-use p3_dft::Radix2DitParallel;
+
 use p3_field::{extension::BinomialExtensionField, PrimeCharacteristicRing, Field};
 use p3_fri::{
-    CommitPhaseProofStep, FriConfig, FriProof, QueryProof, TwoAdicFriPcs,
-    TwoAdicFriPcsProof,
+    CommitPhaseProofStep, FriConfig, FriProof, QueryProof, 
+    TwoAdicFriPcsProof, 
 };
-use p3_merkle_tree::MerkleTreeMmcs;
-//use p3_poseidon2::Poseidon2;
+
 use p3_symmetric::{Hash, PaddingFreeSponge, TruncatedPermutation};
 use serde::{Deserialize, Serialize};
 use sp1_primitives::poseidon2_init;
 
 #[cfg(feature = "recursion_cuda")]
-use crate::gpu::dft::CudaDft; 
+use crate::gpu::dft::GpuDft; 
+
+#[cfg(not(feature = "recursion_cuda"))]
+use p3_merkle_tree::MerkleTreeMmcs;
+
+#[cfg(not(feature = "recursion_cuda"))]
+use p3_dft::Radix2DitParallel;
+#[cfg(not(feature = "recursion_cuda"))]
+use p3_fri::TwoAdicFriPcs;
 
 pub const DIGEST_SIZE: usize = 8;
 
@@ -29,6 +36,8 @@ pub type InnerHash = PaddingFreeSponge<InnerPerm, 16, 8, DIGEST_SIZE>;
 pub type InnerDigestHash = Hash<InnerVal, InnerVal, DIGEST_SIZE>;
 pub type InnerDigest = [InnerVal; DIGEST_SIZE];
 pub type InnerCompress = TruncatedPermutation<InnerPerm, 2, 8, 16>;
+
+#[cfg(not(feature = "recursion_cuda"))]
 pub type InnerValMmcs = MerkleTreeMmcs<
     <InnerVal as Field>::Packing,
     <InnerVal as Field>::Packing,
@@ -36,10 +45,29 @@ pub type InnerValMmcs = MerkleTreeMmcs<
     InnerCompress,
     8,
 >;
+#[cfg(feature = "recursion_cuda")]
+pub type InnerValMmcs =  crate::gpu::merkle::GpuMerkleTreeMmcs<
+    <InnerVal as Field>::Packing,
+    <InnerVal as Field>::Packing,
+    InnerHash,
+    InnerCompress,
+    8,
+>;
+
 pub type InnerChallengeMmcs = ExtensionMmcs<InnerVal, InnerChallenge, InnerValMmcs>;
 pub type InnerChallenger = DuplexChallenger<InnerVal, InnerPerm, 16, 8>;
+//pub type InnerDft = Radix2DitParallel<InnerVal>;
+#[cfg(not(feature = "recursion_cuda"))]
 pub type InnerDft = Radix2DitParallel<InnerVal>;
+#[cfg(feature = "recursion_cuda")]
+pub type InnerDft = GpuDft; // GpuDft's performace is not good , if the matrix height is <262144
+
+//pub type InnerPcs = TwoAdicFriPcs<InnerVal, InnerDft, InnerValMmcs, InnerChallengeMmcs>;
+#[cfg(not(feature = "recursion_cuda"))]
 pub type InnerPcs = TwoAdicFriPcs<InnerVal, InnerDft, InnerValMmcs, InnerChallengeMmcs>;
+#[cfg(feature = "recursion_cuda")]
+pub type InnerPcs = crate::gpu::pcs::GpuFriPcs<InnerVal, InnerDft, InnerValMmcs, InnerChallengeMmcs>;
+
 pub type InnerQueryProof = QueryProof<InnerChallenge, InnerChallengeMmcs>;
 pub type InnerCommitPhaseStep = CommitPhaseProofStep<InnerChallenge, InnerChallengeMmcs>;
 pub type InnerFriProof = FriProof<InnerChallenge, InnerChallengeMmcs, InnerVal>;
@@ -177,6 +205,14 @@ pub mod baby_bear_poseidon2 {
     pub type MyHash = PaddingFreeSponge<Perm, 16, 8, DIGEST_SIZE>;
     pub type DigestHash = Hash<Val, Val, DIGEST_SIZE>;
     pub type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
+
+    #[cfg(not(feature = "recursion_cuda"))]
+    pub type BabyBearPoseidon2 = StarkConfigCpu;
+
+    #[cfg(feature = "recursion_cuda")]
+    pub type BabyBearPoseidon2 = crate::gpu::gpu_config::StarkConfigGpu;
+
+    
     pub type ValMmcs = MerkleTreeMmcs<
         <Val as Field>::Packing,
         <Val as Field>::Packing,
@@ -184,12 +220,9 @@ pub mod baby_bear_poseidon2 {
         MyCompress,
         8,
     >;
+
     pub type ChallengeMmcs = ExtensionMmcs<Val, Challenge, ValMmcs>;
-    //pub type Dft = Radix2DitParallel<Val>;
-    #[cfg(not(feature = "recursion_cuda"))]
-    pub type Dft = p3_dft::Radix2DitParallel<Val>;
-    #[cfg(feature = "recursion_cuda")]
-    pub type Dft = crate::gpu::dft::CudaDft;
+    pub type Dft = Radix2DitParallel<Val>;
 
     pub type Challenger = DuplexChallenger<Val, Perm, 16, 8>;
     type Pcs = TwoAdicFriPcs<Val, Dft, ValMmcs, ChallengeMmcs>;
@@ -254,21 +287,21 @@ pub mod baby_bear_poseidon2 {
         FriConfig { log_blowup: 3, log_final_poly_len:0, num_queries, proof_of_work_bits: 16, mmcs: challenge_mmcs }
     }
 
-    enum BabyBearPoseidon2Type {
+    pub enum BabyBearPoseidon2Type {
         Default,
         Compressed,
     }
 
     #[derive(Deserialize)]
-    #[serde(from = "std::marker::PhantomData<BabyBearPoseidon2>")]
-    pub struct BabyBearPoseidon2 {
+    #[serde(from = "std::marker::PhantomData<StarkConfigCpu>")]
+    pub struct StarkConfigCpu {
         pub perm: Perm,
         pcs: Pcs,
         challenger: Challenger,
         config_type: BabyBearPoseidon2Type,
     }
 
-    impl BabyBearPoseidon2 {
+    impl StarkConfigCpu {
         #[must_use]
         pub fn new() -> Self {
             let perm = my_perm();
@@ -309,7 +342,7 @@ pub mod baby_bear_poseidon2 {
         }
     }
 
-    impl Clone for BabyBearPoseidon2 {
+    impl Clone for StarkConfigCpu {
         fn clone(&self) -> Self {
             match self.config_type {
                 BabyBearPoseidon2Type::Default => Self::new(),
@@ -318,29 +351,29 @@ pub mod baby_bear_poseidon2 {
         }
     }
 
-    impl Default for BabyBearPoseidon2 {
+    impl Default for StarkConfigCpu {
         fn default() -> Self {
             Self::new()
         }
     }
 
     /// Implement serialization manually instead of using serde to avoid cloing the config.
-    impl Serialize for BabyBearPoseidon2 {
+    impl Serialize for StarkConfigCpu {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where
             S: serde::Serializer,
         {
-            std::marker::PhantomData::<BabyBearPoseidon2>.serialize(serializer)
+            std::marker::PhantomData::<StarkConfigCpu>.serialize(serializer)
         }
     }
 
-    impl From<std::marker::PhantomData<BabyBearPoseidon2>> for BabyBearPoseidon2 {
-        fn from(_: std::marker::PhantomData<BabyBearPoseidon2>) -> Self {
+    impl From<std::marker::PhantomData<StarkConfigCpu>> for StarkConfigCpu {
+        fn from(_: std::marker::PhantomData<StarkConfigCpu>) -> Self {
             Self::new()
         }
     }
 
-    impl StarkGenericConfig for BabyBearPoseidon2 {
+    impl StarkGenericConfig for StarkConfigCpu {
         type Val = BabyBear;
         type Domain = <Pcs as p3_commit::Pcs<Challenge, Challenger>>::Domain;
         type Pcs = Pcs;
@@ -356,12 +389,13 @@ pub mod baby_bear_poseidon2 {
         }
     }
 
-    impl ZeroCommitment<BabyBearPoseidon2> for Pcs {
-        fn zero_commitment(&self) -> Com<BabyBearPoseidon2> {
+    impl ZeroCommitment<StarkConfigCpu> for Pcs {
+        fn zero_commitment(&self) -> Com<StarkConfigCpu> {
             DigestHash::from([Val::ZERO; DIGEST_SIZE])
         }
     }
 }
+
 
 
 #[cfg(test)]
@@ -377,7 +411,7 @@ mod tests {
 
     //use p3_baby_bear::PackedBabyBearAVX2;
     //use crate::baby_bear_poseidon2::{Val, MyHash, MyCompress, ChallengeMmcs, ValMmcs, Dft, my_perm,default_fri_config};
-    type SC = baby_bear_poseidon2::BabyBearPoseidon2;
+    type SC = baby_bear_poseidon2::StarkConfigCpu;
     type F = <SC as StarkGenericConfig>::Val;
     type EF = <SC as StarkGenericConfig>::Challenge;
    

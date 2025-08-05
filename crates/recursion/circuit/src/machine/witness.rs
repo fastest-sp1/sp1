@@ -3,15 +3,22 @@ use std::borrow::Borrow;
 use p3_baby_bear::BabyBear;
 use p3_challenger::DuplexChallenger;
 use p3_symmetric::Hash;
-
+use p3_matrix::dense::RowMajorMatrix;
+use p3_challenger::{CanObserve, GrindingChallenger, FieldChallenger, CanSample};
+use p3_commit::{Mmcs, Pcs};
 use p3_field::PrimeCharacteristicRing;
+
+use p3_field::coset::TwoAdicMultiplicativeCoset;
+
 use sp1_recursion_compiler::ir::Builder;
 use sp1_stark::{
     baby_bear_poseidon2::BabyBearPoseidon2, Com, InnerChallenge, InnerPerm, InnerVal, OpeningProof,
-    StarkVerifyingKey, Word,
+    StarkVerifyingKey, Word,StarkGenericConfig,  ShardCommitment, ShardOpenedValues, 
+    Val, Challenge, 
 };
+use serde::{Deserialize, Serialize};
 
-use sp1_recursion_compiler::ir::Felt;
+use sp1_recursion_compiler::ir::{Felt,Ext,};
 
 use crate::{
     challenger::DuplexChallengerVariable,
@@ -20,6 +27,7 @@ use crate::{
     stark::MerkleProofVariable,
     witness::{WitnessWriter, Witnessable},
     BabyBearFriConfigVariable, CircuitConfig, TwoAdicPcsProofVariable, VerifyingKeyVariable,
+    EF, FriMmcs,  
 };
 
 use super::{
@@ -83,6 +91,20 @@ impl<C: CircuitConfig<F = InnerVal, EF = InnerChallenge>, SC: BabyBearFriConfigV
 where
     Com<SC>: Witnessable<C, WitnessVariable = <SC as FieldHasherVariable<C>>::DigestVariable>,
     OpeningProof<SC>: Witnessable<C, WitnessVariable = TwoAdicPcsProofVariable<C, SC>>,
+    SC::Challenger: CanObserve<<SC::ValMmcs as Mmcs<BabyBear>>::Commitment>
+        + CanObserve<<FriMmcs<SC> as Mmcs<EF>>::Commitment>
+        + CanSample<EF>
+        + GrindingChallenger<Witness = BabyBear>
+        + FieldChallenger<BabyBear>,
+    SC::Pcs: Pcs<
+        EF,
+        SC::Challenger,
+        ProverData: Clone + Send + Sync,
+        Proof: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>,
+    >,
+    SC::ValMmcs: Mmcs<BabyBear, ProverData<RowMajorMatrix<BabyBear>> = SC::RowMajorProverData>,
+    <SC as StarkGenericConfig>::Domain: Borrow<TwoAdicMultiplicativeCoset<C::F>>,
+    TwoAdicMultiplicativeCoset<C::F>: Clone,
 {
     type WitnessVariable = VerifyingKeyVariable<C, SC>;
 
@@ -90,7 +112,17 @@ where
         let commitment = self.commit.read(builder);
         let pc_start = self.pc_start.read(builder);
         let initial_global_cumulative_sum = self.initial_global_cumulative_sum.read(builder);
-        let chip_information = self.chip_information.clone();
+
+        //let chip_information = self.chip_information.clone();
+        let chip_information = self
+            .chip_information
+            .iter()
+            .map(|(name, domain, dims)| {
+                let concrete_coset: &TwoAdicMultiplicativeCoset<C::F> = domain.borrow();
+                (name.clone(), concrete_coset.clone(), *dims)
+            })
+            .collect();
+
         let chip_ordering = self.chip_ordering.clone();
         VerifyingKeyVariable {
             commitment,
@@ -107,6 +139,58 @@ where
         self.initial_global_cumulative_sum.write(witness);
     }
 }
+
+/*
+//cuda
+impl<C: CircuitConfig<F = InnerVal, EF = InnerChallenge>, SC: BabyBearFriConfigVariable<C>>
+    Witnessable<C> for ShardProof<SC>
+where
+    SC::Challenger: CanObserve<<SC::ValMmcs as Mmcs<BabyBear>>::Commitment>
+        + CanObserve<<FriMmcs<SC> as Mmcs<EF>>::Commitment>
+        + CanSample<EF>
+        + GrindingChallenger<Witness = BabyBear>
+        + FieldChallenger<BabyBear>,
+    SC::Pcs: Pcs<
+        EF,
+        SC::Challenger,
+        ProverData: Clone + Send + Sync,
+        Proof: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>,
+    >,
+    SC::ValMmcs: Mmcs<BabyBear, ProverData<RowMajorMatrix<BabyBear>> = SC::RowMajorProverData>,
+    <SC as StarkGenericConfig>::Domain: Borrow<TwoAdicMultiplicativeCoset<C::F>>,
+    TwoAdicMultiplicativeCoset<C::F>: Clone,
+
+    ShardCommitment<Com<SC>>: Witnessable<C, WitnessVariable = ShardCommitmentVariable<C>>,
+    ShardOpenedValues<Val<SC>, Challenge<SC>>: Witnessable<C, WitnessVariable = ShardOpenedValuesVariable<C>>,
+    OpeningProof<SC>: Witnessable<C, WitnessVariable = TwoAdicPcsProofVariable<C, SC>>,
+    Vec<Val<SC>>: Witnessable<C, WitnessVariable = Vec<Felt<C::F>>>,
+{
+    type WitnessVariable = ShardProofVariable<C, SC>;
+
+    fn read(&self, builder: &mut Builder<C>) -> Self::WitnessVariable {
+        let commitment = self.commitment.read(builder);
+        let opened_values = self.opened_values.read(builder);
+        let opening_proof = self.opening_proof.read(builder);
+        let public_values = self.public_values.read(builder);
+        let chip_ordering = self.chip_ordering.clone();
+
+        ShardProofVariable {
+            commitment,
+            opened_values,
+            opening_proof,
+            chip_ordering,
+            public_values,
+        }
+    }
+
+    fn write(&self, witness: &mut impl WitnessWriter<C>) {
+        self.commitment.write(witness);
+        self.opened_values.write(witness);
+        self.opening_proof.write(witness);
+        //self.chip_ordering.write(witness);
+        self.public_values.write(witness);
+    }
+} */
 
 impl<C> Witnessable<C> for SP1RecursionWitnessValues<BabyBearPoseidon2>
 where
@@ -144,8 +228,42 @@ where
 impl<C: CircuitConfig<F = InnerVal, EF = InnerChallenge>, SC: BabyBearFriConfigVariable<C>>
     Witnessable<C> for SP1CompressWitnessValues<SC>
 where
-    Com<SC>: Witnessable<C, WitnessVariable = <SC as FieldHasherVariable<C>>::DigestVariable>,
-    OpeningProof<SC>: Witnessable<C, WitnessVariable = TwoAdicPcsProofVariable<C, SC>>,
+    C: CircuitConfig<F = InnerVal, EF = InnerChallenge>,
+    SC: BabyBearFriConfigVariable<C> + FieldHasher<BabyBear>,
+
+    // Transitive constraints from the BabyBearFriConfigVariable trait chain
+    SC::Challenger: CanObserve<<SC::ValMmcs as Mmcs<BabyBear>>::Commitment>
+        + CanObserve<<FriMmcs<SC> as Mmcs<EF>>::Commitment>
+        + CanSample<EF>
+        + GrindingChallenger<Witness = BabyBear>
+        + FieldChallenger<BabyBear>,
+    SC::Pcs: Pcs<
+        EF,
+        SC::Challenger,
+        ProverData: Clone + Send + Sync,
+        Proof: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>,
+    >,
+    SC::ValMmcs: Mmcs<BabyBear, ProverData<RowMajorMatrix<BabyBear>> = SC::RowMajorProverData>,
+
+    <SC as StarkGenericConfig>::Domain: Borrow<TwoAdicMultiplicativeCoset<C::F>>,
+    TwoAdicMultiplicativeCoset<C::F>: Clone,
+
+    ShardCommitment<Com<SC>>: Witnessable<C, 
+        WitnessVariable = ShardCommitment<<SC as FieldHasherVariable<C>>::DigestVariable>
+    >,
+    ShardOpenedValues<Val<SC>, Challenge<SC>>: Witnessable<C, 
+        WitnessVariable = ShardOpenedValues<Felt<C::F>, Ext<C::F, C::EF>>
+    >,
+    OpeningProof<SC>: Witnessable<C, 
+        WitnessVariable = TwoAdicPcsProofVariable<C, SC>>,
+    Vec<Val<SC>>: Witnessable<C, 
+        WitnessVariable = Vec<Felt<C::F>>
+    >,
+
+    Com<SC>: Witnessable<C, 
+        WitnessVariable = <SC as FieldHasherVariable<C>>::DigestVariable>,
+
+    bool: Witnessable<C, WitnessVariable = C::Bit>,
 {
     type WitnessVariable = SP1CompressWitnessVariable<C, SC>;
 
@@ -250,6 +368,35 @@ where
     // This trait bound is redundant, but Rust-Analyzer is not able to infer it.
     SC: FieldHasher<BabyBear>,
     <SC as FieldHasher<BabyBear>>::Digest: Witnessable<C, WitnessVariable = SC::DigestVariable>,
+    SC: BabyBearFriConfigVariable<C>,
+    Com<SC>: Witnessable<C, WitnessVariable = <SC as FieldHasherVariable<C>>::DigestVariable>,
+    OpeningProof<SC>: Witnessable<C, WitnessVariable = TwoAdicPcsProofVariable<C, SC>>,
+    SC::Challenger: CanObserve<<SC::ValMmcs as Mmcs<BabyBear>>::Commitment>
+        + CanObserve<<FriMmcs<SC> as Mmcs<EF>>::Commitment>
+        + CanSample<EF>
+        + GrindingChallenger<Witness = BabyBear>
+        + FieldChallenger<BabyBear>,
+    SC::Pcs: Pcs<
+        EF,
+        SC::Challenger,
+        ProverData: Clone + Send + Sync,
+        Proof: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>,
+    >,
+    SC::ValMmcs: Mmcs<BabyBear, ProverData<RowMajorMatrix<BabyBear>> = SC::RowMajorProverData>,
+
+    //
+    // Com<SC>: Witnessable<C, WitnessVariable = <SC as FieldHasherVariable<C>>::DigestVariable>,
+    <SC as StarkGenericConfig>::Domain: Borrow<TwoAdicMultiplicativeCoset<C::F>>,
+    TwoAdicMultiplicativeCoset<C::F>: Clone,
+
+    // 2. Bounds for `ShardProof<SC>: Witnessable<C>` (these come from the impl we just wrote)
+    ShardCommitment<Com<SC>>: Witnessable<C>,
+    ShardOpenedValues<Val<SC>, Challenge<SC>>: Witnessable<C>,
+    //OpeningProof<SC>: Witnessable<C, WitnessVariable = TwoAdicPcsProofVariable<C, SC>>, // This bound is needed for both parts
+    Vec<Val<SC>>: Witnessable<C, WitnessVariable = Vec<Felt<C::F>>>,
+
+    // 3. Bound for the `is_complete` field
+    bool: Witnessable<C, WitnessVariable = C::Bit>,
 {
     type WitnessVariable = SP1MerkleProofWitnessVariable<C, SC>;
 

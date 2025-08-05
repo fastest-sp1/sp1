@@ -17,7 +17,7 @@ __global__ void kernel_process_poseidon2_skinny_events_gpu(
                 const Poseidon2Event<BabyBear>* events_d,
                 BabyBear* output_d,
                 uint32_t num_events,
-                uint32_t num_cols_per_row
+                uint32_t cols_per_row
 ) {
     // Global thread index
     uint32_t idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -25,7 +25,7 @@ __global__ void kernel_process_poseidon2_skinny_events_gpu(
     // Process one event per thread if within bounds
     if (idx < num_events) {
         const Poseidon2Event<BabyBear>& event = events_d[idx];        
-        BabyBear* target_output_ptr = output_d + idx * num_cols_per_row ;
+        BabyBear* target_output_ptr = output_d + idx * cols_per_row ;
 
         //Poseidon2<BabyBear>& cols = *reinterpret_cast<Poseidon2<BabyBear>*>(target_output_ptr);
         Poseidon2<BabyBear>* cols = reinterpret_cast<Poseidon2<BabyBear>*>(target_output_ptr);
@@ -40,7 +40,7 @@ __global__ void kernel_process_poseidon2_skinny_instructions_gpu(
                 BabyBear* output_d,
                 uint32_t total_rows,
                 uint32_t rows_per_instr,  // each instruction generates rows (NUM_EXTERNAL_ROUNDS + 3)
-                uint32_t num_cols_per_row,
+                uint32_t cols_per_row,
                 uint32_t original_instrs 
 ) {
 
@@ -60,7 +60,7 @@ __global__ void kernel_process_poseidon2_skinny_instructions_gpu(
         // get the instruction for the idx thread
         const Poseidon2Instr<BabyBear>& instr = instrs_d[instr_idx];
         
-        BabyBear* target_output_ptr = output_d + idx * num_cols_per_row;
+        BabyBear* target_output_ptr = output_d + idx * cols_per_row;
 
         Poseidon2PreprocessedColsSkinny<BabyBear>& cols = 
             *reinterpret_cast<Poseidon2PreprocessedColsSkinny<BabyBear>*>(target_output_ptr);
@@ -75,7 +75,7 @@ extern "C" void process_poseidon2_skinny_events_gpu(
         uint32_t events_len,  
         BabyBear* output_h, 
         uint32_t output_len,  
-        uint32_t num_cols_per_row                    
+        uint32_t cols_per_row                    
 ) {
     if (events_len == 0) return; // Nothing to process
     
@@ -99,7 +99,7 @@ extern "C" void process_poseidon2_skinny_events_gpu(
     if (err != cudaSuccess) { fprintf(stderr, "_poseidon2_skinny_events: cudaMemcpy events_h to events_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
     // 3. Allocate device memory for output
-    output_size_bytes = (uint32_t)events_len * num_cols_per_row * sizeof(BabyBear); // Assignment here
+    output_size_bytes = (uint32_t)events_len * cols_per_row * sizeof(BabyBear); // Assignment here
     err = cudaMalloc(&output_d, output_size_bytes);
     if (err != cudaSuccess) { fprintf(stderr, "_poseidon2_skinny_events: cudaMalloc output_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
     
@@ -116,7 +116,7 @@ extern "C" void process_poseidon2_skinny_events_gpu(
         events_d, 
         output_d, 
         events_len, 
-        num_cols_per_row);
+        cols_per_row);
     err = cudaGetLastError(); // Check for kernel launch errors
     if (err != cudaSuccess) { fprintf(stderr, "kernel_process_poseidon2_skinny_events_gpu launch failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
@@ -142,7 +142,7 @@ extern "C" void process_poseidon2_skinny_instructions_gpu(
         BabyBear* output_h, 
         uint32_t output_len,  
         uint32_t rows_per_instr,            
-        uint32_t num_cols_per_row                        
+        uint32_t cols_per_row                        
 ) {
     if (instrs_len == 0) return; // Nothing to process
 
@@ -167,7 +167,7 @@ extern "C" void process_poseidon2_skinny_instructions_gpu(
     if (err != cudaSuccess) { fprintf(stderr, "_poseidon2_skinny_instructions: cudaMemcpy instructions_h to instructions_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
     // 3. Allocate device memory for output
-    output_size_bytes = total_output_rows * num_cols_per_row * sizeof(BabyBear); // Assignment here
+    output_size_bytes = total_output_rows * cols_per_row * sizeof(BabyBear); // Assignment here
     err = cudaMalloc(&output_d, output_size_bytes);
     if (err != cudaSuccess) { fprintf(stderr, "_poseidon2_skinny_instructions: cudaMalloc output_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
@@ -180,7 +180,7 @@ extern "C" void process_poseidon2_skinny_instructions_gpu(
 
     // 4. Launch the kernel
     kernel_process_poseidon2_skinny_instructions_gpu<<<num_blocks, threads_per_block>>>(
-        instructions_d, output_d, total_output_rows , rows_per_instr, num_cols_per_row, instrs_len);
+        instructions_d, output_d, total_output_rows , rows_per_instr, cols_per_row, instrs_len);
     err = cudaGetLastError(); // Check for kernel launch errors
     if (err != cudaSuccess) { fprintf(stderr, "kernel_process_poseidon2_skinny_instructions_gpu launch failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 

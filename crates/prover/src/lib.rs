@@ -667,7 +667,8 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
             let proofs_tx = Arc::new(Mutex::new(proofs_tx));
             let proofs_rx = Arc::new(Mutex::new(proofs_rx));
             let mut prover_handles = Vec::new();
-            for _ in 0..opts.recursion_opts.shard_batch_size {
+            for _ in 0..opts.recursion_opts.shard_batch_size {//debug
+            //for _ in 0..1 {
                 let prover_sync = Arc::clone(&proofs_sync);
                 let record_and_trace_rx = Arc::clone(&record_and_trace_rx);
                 let proofs_tx = Arc::clone(&proofs_tx);
@@ -679,6 +680,9 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
                         if let Ok((index, height, TracesOrInput::ProgramRecordTraces(boxed_prt))) =
                             received
                         {
+                            //debug
+                            let start = std::time::Instant::now();
+
                             let (program, record, traces) = *boxed_prt;
                             tracing::debug_span!("batch").in_scope(|| {
                                 // Get the keys.
@@ -690,6 +694,9 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
                                 tracing::debug_span!("observe proving key").in_scope(|| {
                                     pk.observe_into(&mut challenger);
                                 });
+                                //debug
+                                 let duration = start.elapsed();
+                                println!("-- compress_prover.setup , duration:{:?}", duration);
 
                                 #[cfg(feature = "debug")]
                                 self.compress_prover.debug_constraints(
@@ -702,10 +709,17 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
                                 let data = tracing::debug_span!("commit")
                                     .in_scope(|| self.compress_prover.commit(&record, traces));
 
+                                //debug
+                                 let duration = start.elapsed();
+                                println!("-- compress_prover.commit , duration:{:?}", duration);
+
                                 // Generate the proof.
                                 let proof = tracing::debug_span!("open").in_scope(|| {
                                     self.compress_prover.open(&pk, data, &mut challenger).unwrap()
                                 });
+                                //debug
+                                 let duration = start.elapsed();
+                                println!("-- compress_prover.open , duration:{:?}", duration);
 
                                 // Verify the proof.
                                 #[cfg(feature = "debug")]

@@ -95,6 +95,7 @@ impl<F: PrimeField32> MachineAir<F> for BaseAluChip {
             std::any::TypeId::of::<BabyBear>(),
             "generate_preprocessed_trace only supports BabyBear field"
         );
+        //let start = std::time::Instant::now();
 
         let instrs = unsafe {
             std::mem::transmute::<Vec<&BaseAluInstr<F>>, Vec<&BaseAluInstr<BabyBear>>>(
@@ -126,6 +127,7 @@ impl<F: PrimeField32> MachineAir<F> for BaseAluChip {
                 .iter()
                 .map(|&instr_ref| *instr_ref)
                 .collect_vec();
+            //println!("--alu_base instr GPU, instrs.len:{}, padded_nb_rows:{}", instrs_for_gpu.len(), padded_nb_rows);
             unsafe {
                 crate::sys::process_alu_base_instructions_gpu(
                     instrs_for_gpu.as_ptr(), 
@@ -137,6 +139,7 @@ impl<F: PrimeField32> MachineAir<F> for BaseAluChip {
             }
         } else {
             // CPU fallback (existing code)
+            //println!("--alu_base instr CPU, instrs.len:{}, padded_nb_rows:{}", instrs.len(), padded_nb_rows);
             let populate_len = instrs.len() * NUM_BASE_ALU_ACCESS_COLS;
             values[..populate_len].par_chunks_mut(NUM_BASE_ALU_ACCESS_COLS).zip_eq(instrs).for_each(
                 |(row, instr)| {
@@ -148,12 +151,15 @@ impl<F: PrimeField32> MachineAir<F> for BaseAluChip {
             );
         };
 
+        //println!("----alu_base instr, values:{:?}", &values[..50]);
         // Convert the trace to a row major matrix.
         let trace = RowMajorMatrix::new(
             unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
             NUM_BASE_ALU_PREPROCESSED_COLS,
         );
-
+        //let duration = start.elapsed();
+//println!("-- alu-base-instrs , duration:{:?}", duration);
+        //println!("--alu-base-instrs, trace_heigth:{}", trace.height());
         Some(trace)
     }
 
@@ -176,7 +182,10 @@ impl<F: PrimeField32> MachineAir<F> for BaseAluChip {
             std::any::TypeId::of::<BabyBear>(),
             "generate_trace only supports BabyBear field"
         );
-        
+        //let start = std::time::Instant::now();
+
+
+
         let events = unsafe {
             std::mem::transmute::<&Vec<BaseAluIo<F>>, &Vec<BaseAluIo<BabyBear>>>(
                 &input.base_alu_events,
@@ -193,7 +202,10 @@ impl<F: PrimeField32> MachineAir<F> for BaseAluChip {
             );
         }
  
+    
+        // using GPU (via the new alu_trace module)
         if cfg!(feature = "recursion_cuda") {
+            //println!("--alu_base use GPU, events_num:{}, padded_nb_rows:{}", events.len(), padded_nb_rows);
             unsafe {
                 crate::sys::process_alu_base_events_gpu(
                     events.as_ptr(),
@@ -204,8 +216,10 @@ impl<F: PrimeField32> MachineAir<F> for BaseAluChip {
                 );
             }
         } else {
-            // CPU 
+            // CPU fallback (existing code)
+            //println!("--alu_base use CPU, events_num:{}, padded_nb_rows:{}", events.len(), padded_nb_rows);
             let populate_len = events.len() * NUM_BASE_ALU_VALUE_COLS;
+            //println!("--alu_base use CPU, NUM_BASE_ALU_COLS:{}, NUM_BASE_ALU_VALUE_COLS:{}", NUM_BASE_ALU_COLS, NUM_BASE_ALU_VALUE_COLS);
             values[..populate_len].par_chunks_mut(NUM_BASE_ALU_VALUE_COLS).zip_eq(events).for_each(
                 |(row, &vals)| {
                     let cols: &mut BaseAluValueCols<_> = row.borrow_mut();
@@ -221,7 +235,9 @@ impl<F: PrimeField32> MachineAir<F> for BaseAluChip {
             unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
             NUM_BASE_ALU_COLS,
         );
-        
+        //let duration = start.elapsed();
+//println!("-- alu-base-events , duration:{:?}", duration);
+        //println!("--alu-base-events, trace_heigth:{}", trace.height());
         trace
     }
 

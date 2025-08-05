@@ -4,7 +4,7 @@ use crate::{
 use p3_air::BaseAir;
 use p3_baby_bear::BabyBear;
 use p3_field::{PrimeCharacteristicRing, PrimeField32};
-use p3_matrix::{dense::RowMajorMatrix, Matrix};
+use p3_matrix::{dense::RowMajorMatrix, };
 use p3_maybe_rayon::prelude::*;
 use sp1_core_machine::{operations::poseidon2::WIDTH, utils::next_power_of_two};
 use sp1_stark::air::MachineAir;
@@ -12,6 +12,9 @@ use std::{borrow::BorrowMut, mem::size_of};
 use tracing::instrument;
 use itertools::Itertools;
 use super::{columns::preprocessed::Poseidon2PreprocessedColsWide, Poseidon2WideChip};
+
+//GPU
+//use crate::gpu::poseidon2_wide_trace::{process_p2_wide_events_gpu, process_p2_wide_instructions_gpu};
 
 const PREPROCESSED_POSEIDON2_WIDTH: usize = size_of::<Poseidon2PreprocessedColsWide<u8>>();
 
@@ -47,7 +50,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for Poseidon2WideChip<D
             std::any::TypeId::of::<BabyBear>(),
             "generate_trace only supports BabyBear field"
         );
-
+        //let start = std::time::Instant::now();
         let events = unsafe {
             std::mem::transmute::<&Vec<Poseidon2Io<F>>, &Vec<Poseidon2Io<BabyBear>>>(
                 &input.poseidon2_events,
@@ -62,6 +65,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for Poseidon2WideChip<D
 
         //
         if cfg!(feature = "recursion_cuda") {
+             //println!("poseidon2_wide GPU,  events.len :{}, total_len:{}", events.len(), padded_nb_rows);
             unsafe {
                 crate::sys::process_poseidon2_wide_events_gpu(
                     events.as_ptr(),
@@ -107,7 +111,9 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for Poseidon2WideChip<D
             unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
             num_columns,
         );
-        
+        //let duration = start.elapsed();
+        //println!("--poseidon2_wide_events, duration:{:?}", duration);
+        //println!("--p2-wide-events, trace_heigth:{}", trace.height());
         trace
     }
 
@@ -136,7 +142,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for Poseidon2WideChip<D
             std::any::TypeId::of::<BabyBear>(),
             "generate_preprocessed_trace only supports BabyBear field"
         );
-        
+        //let start = std::time::Instant::now();
         // Allocating an intermediate `Vec` is faster.
         let instrs: Vec<&Poseidon2SkinnyInstr<BabyBear>> =
             program
@@ -162,12 +168,13 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for Poseidon2WideChip<D
             ));
         }
     
-        // Using GPU 
+        // Using GPU (via the new alu_trace module)
         if cfg!(feature = "recursion_cuda") {
             let instrs_for_gpu: Vec<Poseidon2SkinnyInstr<BabyBear>> = instrs
                 .iter()
                 .map(|&instr_ref| *instr_ref)
                 .collect_vec();
+            //println!("--poseidon2 wide instr GPU, instrs.len:{}, total_len:{}", instrs_for_gpu.len(), padded_nb_rows);
             unsafe {
                 crate::sys::process_poseidon2_wide_instructions_gpu(
                     instrs_for_gpu.as_ptr(), 
@@ -179,6 +186,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for Poseidon2WideChip<D
             }
         } else {
             // CPU 
+            //println!("---cpu p2_wide _instructions---");
             let populate_len = instrs.len() * PREPROCESSED_POSEIDON2_WIDTH;
             values[..populate_len]
                 .par_chunks_mut(PREPROCESSED_POSEIDON2_WIDTH)
@@ -195,7 +203,9 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for Poseidon2WideChip<D
             unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
             PREPROCESSED_POSEIDON2_WIDTH,
         );
-        
+        //let duration = start.elapsed();
+        //println!("-- p2-wide-instrs , duration:{:?}", duration);
+        //println!("--p2-wide-instrs, trace_heigth:{}", trace.height());
         Some(trace)
     }
 }

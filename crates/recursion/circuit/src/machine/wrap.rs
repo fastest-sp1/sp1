@@ -2,9 +2,13 @@ use std::{borrow::Borrow, marker::PhantomData};
 
 use p3_air::Air;
 use p3_baby_bear::BabyBear;
-use p3_commit::Mmcs;
+use p3_commit::{Mmcs,Pcs};
 use p3_field::PrimeCharacteristicRing;
+use p3_field::coset::TwoAdicMultiplicativeCoset;
 use p3_matrix::dense::RowMajorMatrix;
+use p3_challenger::{CanObserve, GrindingChallenger, FieldChallenger, CanSample};
+use serde::{Deserialize, Serialize};
+
 use sp1_recursion_compiler::ir::{Builder, Felt};
 use sp1_stark::{air::MachineAir, StarkMachine};
 
@@ -13,7 +17,7 @@ use crate::{
     constraints::RecursiveVerifierConstraintFolder,
     machine::{assert_root_public_values_valid, RootPublicValues},
     stark::StarkVerifier,
-    BabyBearFriConfigVariable, CircuitConfig,
+    BabyBearFriConfigVariable, CircuitConfig, EF, FriMmcs, 
 };
 
 use super::{assert_complete, SP1CompressWitnessVariable};
@@ -30,6 +34,20 @@ where
     C: CircuitConfig<F = SC::Val, EF = SC::Challenge>,
     <SC::ValMmcs as Mmcs<BabyBear>>::ProverData<RowMajorMatrix<BabyBear>>: Clone,
     A: MachineAir<SC::Val> + for<'a> Air<RecursiveVerifierConstraintFolder<'a, C>>,
+    //cuda
+    SC::Challenger: CanObserve<<SC::ValMmcs as Mmcs<BabyBear>>::Commitment>
+        + CanObserve<<FriMmcs<SC> as Mmcs<EF>>::Commitment>
+        + CanSample<EF>
+        + GrindingChallenger<Witness = BabyBear>
+        + FieldChallenger<BabyBear>,
+    SC::Pcs: Pcs<
+        EF,
+        SC::Challenger,
+        ProverData: Clone + Send + Sync,
+        Proof: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>,
+        Domain = TwoAdicMultiplicativeCoset<C::F>,
+    >,
+    SC::ValMmcs: Mmcs<BabyBear, ProverData<RowMajorMatrix<BabyBear>> = SC::RowMajorProverData>,
 {
     /// Verify a batch of recursive proofs and aggregate their public values.
     ///

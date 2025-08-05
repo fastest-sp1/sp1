@@ -9,13 +9,15 @@ use crate::{
 use itertools::Itertools;
 use p3_baby_bear::BabyBear;
 use p3_field::{PrimeCharacteristicRing, PrimeField32};
-use p3_matrix::{dense::RowMajorMatrix, Matrix};
+use p3_matrix::{dense::RowMajorMatrix, };
 use sp1_core_machine::utils::next_power_of_two;
 use sp1_stark::air::MachineAir;
 use std::{borrow::BorrowMut, mem::size_of};
 use tracing::instrument;
 
 use super::columns::preprocessed::Poseidon2PreprocessedCols;
+
+//use crate::gpu::poseidon2_skinny_trace::{process_p2_skinny_events_gpu, process_p2_skinny_instructions_gpu};
 
 const PREPROCESSED_POSEIDON2_WIDTH: usize = size_of::<Poseidon2PreprocessedCols<u8>>();
 pub const OUTPUT_ROUND_IDX: usize = NUM_EXTERNAL_ROUNDS + 2;
@@ -49,7 +51,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for Poseidon2SkinnyChip
             std::any::TypeId::of::<BabyBear>(),
             "generate_trace only supports BabyBear field"
         );
-        
+        //let start = std::time::Instant::now();
         let mut rows = Vec::new();
 
         let events = unsafe {
@@ -72,7 +74,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for Poseidon2SkinnyChip
             values = Vec::new(); 
             values.resize(events.len() * columns_len, BabyBear::from_u32(0));
              
-            println!("poseidon2_skinny_event GPU,  events.len :{}", events.len());
+            //println!("poseidon2_skinny_event GPU,  events.len :{}", events.len());
             unsafe {
                 crate::sys::process_poseidon2_skinny_events_gpu(
                     events.as_ptr(),
@@ -84,6 +86,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for Poseidon2SkinnyChip
             }
         } else {
             //CPU
+            //println!("---cpu p2_skinny event ---");
             for event in events {
                 let mut row_add = [[BabyBear::ZERO; NUM_POSEIDON2_COLS]; NUM_EXTERNAL_ROUNDS + 3];
                 unsafe {
@@ -102,6 +105,9 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for Poseidon2SkinnyChip
         let target_len = padded_num_rows * NUM_POSEIDON2_COLS;
         values.resize(target_len, BabyBear::ZERO);
 
+        //let duration = start.elapsed();
+        //println!("--poseidon2_skinny_event, duration:{:?}", duration);
+        //println!("--poseidon2_skinny_event ,  padded.len :{}", padded_num_rows);
         RowMajorMatrix::new(
            unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
             NUM_POSEIDON2_COLS,
@@ -126,7 +132,8 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for Poseidon2SkinnyChip
             std::any::TypeId::of::<BabyBear>(),
             "generate_preprocessed_trace only supports BabyBear field"
         );
-        
+        //let start = std::time::Instant::now();
+
         let instructions: Vec<&Poseidon2SkinnyInstr<BabyBear>> = program
             .inner
             .iter()
@@ -146,12 +153,13 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for Poseidon2SkinnyChip
         
         let mut values = vec![BabyBear::ZERO; num_instructions * PREPROCESSED_POSEIDON2_WIDTH * (NUM_EXTERNAL_ROUNDS + 3)];
         
+        // Generate the trace rows & corresponding records for each chunk of events in parallel.
         if cfg!(feature = "recursion_cuda") {
             let instrs_for_gpu: Vec<Poseidon2SkinnyInstr<BabyBear>> = instructions
                 .iter()
                 .map(|&instr_ref| *instr_ref)
                 .collect_vec();
-            
+            //println!("--poseidon2 skinny instr GPU, instrs.len:{}, total_rows:{}", instrs_for_gpu.len(), num_instructions*(NUM_EXTERNAL_ROUNDS + 3));
             unsafe {
                 crate::sys::process_poseidon2_skinny_instructions_gpu(
                     instrs_for_gpu.as_ptr(), 
@@ -164,6 +172,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for Poseidon2SkinnyChip
             }
         } else {
             //CPU
+            //println!("---cpu p2_skinny _instructions---");
             let mut rows_cpu: Vec<[BabyBear; PREPROCESSED_POSEIDON2_WIDTH]> = Vec::new(); 
 
             instructions.iter().for_each(|instruction| { 
@@ -193,7 +202,9 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for Poseidon2SkinnyChip
             unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
             PREPROCESSED_POSEIDON2_WIDTH,
         );
-        
+        //let duration = start.elapsed();
+        //println!("--poseidon2_skinny_instrs, duration:{:?}", duration);
+        //println!("--p2-skinny-instr, trace_heigth:{}", trace.height());
         Some(trace)
             
     }

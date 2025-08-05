@@ -17,14 +17,14 @@ __global__ void kernel_process_public_values_events_gpu(
                 const CommitPublicValuesEvent<BabyBear>* events_d,  
                 BabyBear* output_d,        
                 uint32_t digit_size,            
-                uint32_t num_cols_per_row ) {
+                uint32_t num_value_cols ) {
     // Global thread index
     uint32_t idx = blockIdx.x * blockDim.x + threadIdx.x;
 
     // Process one event per thread if within bounds
     if (idx < digit_size) {
         CommitPublicValuesEvent<BabyBear> event = events_d[0];        
-        BabyBear* target_output_ptr = output_d + idx * num_cols_per_row;
+        BabyBear* target_output_ptr = output_d + idx * num_value_cols;
 
         PublicValuesCols<BabyBear>& cols = *reinterpret_cast<PublicValuesCols<BabyBear>*>(target_output_ptr);
 
@@ -38,14 +38,14 @@ __global__ void kernel_process_public_values_instructions_gpu(
                 const CommitPublicValuesInstr<BabyBear>* instrs_d,  
                 BabyBear* output_d, 
                 uint32_t digit_size,              
-                uint32_t num_cols_per_row ) {
+                uint32_t num_value_cols ) {
     // Global thread index
     uint32_t idx = blockIdx.x * blockDim.x + threadIdx.x;
 
     // Process one instruction per thread if within bounds
     if (idx < digit_size) {
         CommitPublicValuesInstr<BabyBear> instr = instrs_d[0];        
-        BabyBear* target_output_ptr = output_d + idx * num_cols_per_row;
+        BabyBear* target_output_ptr = output_d + idx * num_value_cols;
 
         PublicValuesPreprocessedCols<BabyBear>& cols = *reinterpret_cast<PublicValuesPreprocessedCols<BabyBear>*>(target_output_ptr);
 
@@ -60,7 +60,7 @@ extern "C" void process_public_values_events_gpu(
         BabyBear* output_h, 
         size_t output_len, 
         size_t digit_size,             
-        size_t num_cols_per_row                        
+        size_t num_value_cols                        
 ) {
     if (events_len == 0) return; // Nothing to process
     CommitPublicValuesEvent<BabyBear> *events_d = nullptr; 
@@ -83,7 +83,7 @@ extern "C" void process_public_values_events_gpu(
     if (err != cudaSuccess) { fprintf(stderr, "_public_values_events: cudaMemcpy events_h to events_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
     // 3. Allocate device memory for output
-    output_size_bytes = (size_t)digit_size * num_cols_per_row * sizeof(BabyBear); 
+    output_size_bytes = (size_t)digit_size * num_value_cols * sizeof(BabyBear); 
     err = cudaMalloc(&output_d, output_size_bytes);
     if (err != cudaSuccess) { fprintf(stderr, "_public_values_events: cudaMalloc output_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
     
@@ -96,7 +96,7 @@ extern "C" void process_public_values_events_gpu(
 
     // 4. Launch the kernel
     kernel_process_public_values_events_gpu<<<num_blocks, threads_per_block>>>(
-        events_d, output_d, digit_size, num_cols_per_row);
+        events_d, output_d, digit_size, num_value_cols);
     err = cudaGetLastError(); // Check for kernel launch errors
     if (err != cudaSuccess) { fprintf(stderr, "kernel_process_alu_base_events_gpu launch failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
@@ -122,7 +122,7 @@ extern "C" void process_public_values_instructions_gpu(
         BabyBear* output_h, 
         size_t output_len,
         size_t digit_size,             
-        int num_cols_per_row                        
+        int num_value_cols                        
 ) {
     if (instrs_len == 0) return; 
     CommitPublicValuesInstr<BabyBear> *instructions_d = nullptr;
@@ -145,7 +145,7 @@ extern "C" void process_public_values_instructions_gpu(
     if (err != cudaSuccess) { fprintf(stderr, "_public_values_instrs: cudaMemcpy instructions_h to instructions_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
     // 3. Allocate device memory for output
-    output_size_bytes = digit_size * num_cols_per_row * sizeof(BabyBear); // Assignment here
+    output_size_bytes = digit_size * num_value_cols * sizeof(BabyBear); // Assignment here
     err = cudaMalloc(&output_d, output_size_bytes);
     if (err != cudaSuccess) { fprintf(stderr, "_public_values_instrs: cudaMalloc output_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
@@ -158,7 +158,7 @@ extern "C" void process_public_values_instructions_gpu(
 
     // 4. Launch the kernel
     kernel_process_public_values_instructions_gpu<<<num_blocks, threads_per_block>>>(
-        instructions_d, output_d, digit_size, num_cols_per_row);
+        instructions_d, output_d, digit_size, num_value_cols);
     err = cudaGetLastError(); // Check for kernel launch errors
     if (err != cudaSuccess) { fprintf(stderr, "kernel_process_public_values_instructions_gpu launch failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 

@@ -7,9 +7,12 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use p3_air::Air;
 use p3_baby_bear::BabyBear;
-use p3_commit::Mmcs;
+use p3_commit::{Mmcs, Pcs};
 use p3_field::PrimeCharacteristicRing;
+use p3_field::coset::TwoAdicMultiplicativeCoset;
 use p3_matrix::dense::RowMajorMatrix;
+use p3_challenger::{CanObserve, GrindingChallenger, FieldChallenger, CanSample};
+
 use sp1_primitives::consts::WORD_SIZE;
 use sp1_recursion_compiler::ir::{Builder, Felt};
 use sp1_stark::{
@@ -31,8 +34,10 @@ use crate::{
     hash::{FieldHasher, FieldHasherVariable},
     machine::assert_recursion_public_values_valid,
     stark::{ShardProofVariable, StarkVerifier},
-    BabyBearFriConfig, BabyBearFriConfigVariable, CircuitConfig, VerifyingKeyVariable,
+    BabyBearFriConfig,  BabyBearFriConfigVariable, CircuitConfig, VerifyingKeyVariable,
+    EF, FriMmcs,
 };
+//use sp1_stark::BabyBearFriConfig;//cuda
 
 use super::{
     assert_complete, recursion_public_values_digest, SP1CompressShape, SP1CompressWitnessValues,
@@ -56,7 +61,22 @@ pub struct SP1DeferredShape {
 #[serde(bound(
     deserialize = "SC::Challenger: Deserialize<'de>, ShardProof<SC>: Deserialize<'de>, Dom<SC>: DeserializeOwned, [SC::Val; DIGEST_SIZE]: Deserialize<'de>, SC::Digest: Deserialize<'de>"
 ))]
-pub struct SP1DeferredWitnessValues<SC: BabyBearFriConfig + FieldHasher<BabyBear>> {
+pub struct SP1DeferredWitnessValues<SC: BabyBearFriConfig + FieldHasher<BabyBear>> 
+where
+     SC::Challenger: CanObserve<<SC::ValMmcs as Mmcs<BabyBear>>::Commitment>
+        + CanObserve<<FriMmcs<SC> as Mmcs<EF>>::Commitment>
+        + CanSample<EF>
+        + GrindingChallenger<Witness = BabyBear>
+        + FieldChallenger<BabyBear>,
+    SC::Pcs: Pcs<
+        EF,
+        SC::Challenger,
+        ProverData: Clone + Send + Sync,
+        Proof: Clone + Send + Sync + Serialize ,
+
+    >,
+    SC::ValMmcs: Mmcs<BabyBear, ProverData<RowMajorMatrix<BabyBear>> = SC::RowMajorProverData>, 
+{
     pub vks_and_proofs: Vec<(StarkVerifyingKey<SC>, ShardProof<SC>)>,
     pub vk_merkle_data: SP1MerkleProofWitnessValues<SC>,
     pub start_reconstruct_deferred_digest: [SC::Val; POSEIDON_NUM_WORDS],
@@ -73,8 +93,21 @@ pub struct SP1DeferredWitnessValues<SC: BabyBearFriConfig + FieldHasher<BabyBear
 
 pub struct SP1DeferredWitnessVariable<
     C: CircuitConfig<F = BabyBear>,
-    SC: FieldHasherVariable<C> + BabyBearFriConfigVariable<C>,
-> {
+    SC: FieldHasherVariable<C> + BabyBearFriConfigVariable<C>,>
+where
+    SC::Challenger: CanObserve<<SC::ValMmcs as Mmcs<BabyBear>>::Commitment>
+        + CanObserve<<FriMmcs<SC> as Mmcs<EF>>::Commitment>
+        + CanSample<EF>
+        + GrindingChallenger<Witness = BabyBear>
+        + FieldChallenger<BabyBear>,
+    SC::Pcs: Pcs<
+        EF,
+        SC::Challenger,
+        ProverData: Clone + Send + Sync,
+        Proof: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>,
+    >,
+    SC::ValMmcs: Mmcs<BabyBear, ProverData<RowMajorMatrix<BabyBear>> = SC::RowMajorProverData>,
+{
     pub vks_and_proofs: Vec<(VerifyingKeyVariable<C, SC>, ShardProofVariable<C, SC>)>,
     pub vk_merkle_data: SP1MerkleProofWitnessVariable<C, SC>,
     pub start_reconstruct_deferred_digest: [Felt<C::F>; POSEIDON_NUM_WORDS],
@@ -91,7 +124,7 @@ pub struct SP1DeferredWitnessVariable<
 
 impl<C, SC, A> SP1DeferredVerifier<C, SC, A>
 where
-    SC: BabyBearFriConfigVariable<
+   SC: BabyBearFriConfigVariable<
         C,
         FriChallengerVariable = DuplexChallengerVariable<C>,
         DigestVariable = [Felt<BabyBear>; DIGEST_SIZE],
@@ -99,6 +132,19 @@ where
     C: CircuitConfig<F = SC::Val, EF = SC::Challenge, Bit = Felt<BabyBear>>,
     <SC::ValMmcs as Mmcs<BabyBear>>::ProverData<RowMajorMatrix<BabyBear>>: Clone,
     A: MachineAir<SC::Val> + for<'a> Air<RecursiveVerifierConstraintFolder<'a, C>>,
+    SC::Challenger: CanObserve<<SC::ValMmcs as Mmcs<BabyBear>>::Commitment>
+        + CanObserve<<FriMmcs<SC> as Mmcs<EF>>::Commitment>
+        + CanSample<EF>
+        + GrindingChallenger<Witness = BabyBear>
+        + FieldChallenger<BabyBear>,
+    SC::Pcs: Pcs<
+        EF,
+        SC::Challenger,
+        ProverData: Clone + Send + Sync,
+        Proof: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>,
+        Domain = TwoAdicMultiplicativeCoset<C::F>,
+    >,
+    SC::ValMmcs: Mmcs<BabyBear, ProverData<RowMajorMatrix<BabyBear>> = SC::RowMajorProverData>,
 {
     /// Verify a batch of deferred proofs.
     ///

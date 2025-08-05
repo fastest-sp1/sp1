@@ -47,6 +47,11 @@ __global__ void kernel_process_alu_base_instructions_gpu(
         BaseAluInstr<BabyBear> instr = instrs_d[idx];        
         BabyBear* target_output_ptr = output_d + idx * num_cols_per_row;
 
+        //if (idx==0){
+        //    printf("****alu_base_kernl, op_code:%u, mult:%u, out:%u", instr.opcode, instr.mult,instr.addrs.out);
+
+       // }
+
         BaseAluAccessCols<BabyBear>& cols = *reinterpret_cast<BaseAluAccessCols<BabyBear>*>(target_output_ptr);
 
         sp1_recursion_core_sys::alu_base::instr_to_row<BabyBear>(instr, cols);
@@ -61,10 +66,10 @@ extern "C" void process_alu_base_events_gpu(
         size_t output_len,              
         int num_cols_per_row                        
 ) {
-    if (events_len == 0) return; 
-    BaseAluIo<BabyBear> *events_d = nullptr; 
-    BabyBear *output_d = nullptr; 
-    cudaError_t err = cudaSuccess; 
+    if (events_len == 0) return; // Nothing to process
+    BaseAluIo<BabyBear> *events_d = nullptr; // Declare at top
+    BabyBear *output_d = nullptr; // Declare at top
+    cudaError_t err = cudaSuccess; // Initialize err at top
 
     // Declare all other variables that might be bypassed by goto
     size_t input_size_bytes;
@@ -123,7 +128,7 @@ extern "C" void process_alu_base_instructions_gpu(
         int num_cols_per_row                        
 ) {
     if (instrs_len == 0) return; // Nothing to process
-
+//printf("----alu_base_cpp, op_code:%u, mult:%u, out:%u", instrs_h[0].opcode, instrs_h[0].mult,instrs_h[0].addrs.out);
     BaseAluInstr<BabyBear> *instructions_d = nullptr;
     BabyBear *output_d = nullptr;
     cudaError_t err = cudaSuccess;

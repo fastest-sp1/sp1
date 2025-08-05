@@ -1,6 +1,11 @@
 use hashbrown::HashMap;
 use p3_field::{PrimeCharacteristicRing, TwoAdicField, coset::TwoAdicMultiplicativeCoset};
 use p3_matrix::Dimensions;
+use p3_baby_bear::BabyBear;
+use p3_matrix::dense::RowMajorMatrix;
+use p3_commit::{ Mmcs, Pcs, };
+use p3_challenger::{CanObserve, GrindingChallenger, FieldChallenger, CanSample};
+use serde::{Deserialize, Serialize};
 use sp1_stark::septic_digest::SepticDigest;
 
 use sp1_recursion_compiler::ir::{Builder, Ext, Felt};
@@ -9,12 +14,28 @@ use sp1_recursion_core::DIGEST_SIZE;
 
 use crate::{
     challenger::CanObserveVariable, hash::FieldHasherVariable, BabyBearFriConfigVariable,
-    CircuitConfig,
+    CircuitConfig, EF, FriMmcs, 
 };
 
 /// Reference: [sp1_core::stark::StarkVerifyingKey]
 #[derive(Clone)]
-pub struct VerifyingKeyVariable<C: CircuitConfig<F = SC::Val>, SC: BabyBearFriConfigVariable<C>> {
+pub struct VerifyingKeyVariable<C, SC> 
+where
+    C: CircuitConfig<F = SC::Val>, 
+    SC: BabyBearFriConfigVariable<C>,
+    SC::Challenger: CanObserve<<SC::ValMmcs as Mmcs<BabyBear>>::Commitment>
+        + CanObserve<<FriMmcs<SC> as Mmcs<EF>>::Commitment>
+        + CanSample<EF>
+        + GrindingChallenger<Witness = BabyBear>
+        + FieldChallenger<BabyBear>,
+    SC::Pcs: Pcs<
+        EF,
+        SC::Challenger,
+        ProverData: Clone + Send + Sync,
+        Proof: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>,
+    >,
+    SC::ValMmcs: Mmcs<BabyBear, ProverData<RowMajorMatrix<BabyBear>> = SC::RowMajorProverData>,
+{
     pub commitment: SC::DigestVariable,
     pub pc_start: Felt<C::F>,
     pub initial_global_cumulative_sum: SepticDigest<Felt<C::F>>,
@@ -75,7 +96,23 @@ pub struct TwoAdicPcsMatsVariable<C: CircuitConfig> {
     pub values: Vec<Vec<Ext<C::F, C::EF>>>,
 }
 
-impl<C: CircuitConfig<F = SC::Val>, SC: BabyBearFriConfigVariable<C>> VerifyingKeyVariable<C, SC> {
+impl<C, SC> VerifyingKeyVariable<C, SC> 
+where
+    C: CircuitConfig<F = SC::Val>, 
+    SC: BabyBearFriConfigVariable<C>,
+    SC::Challenger: CanObserve<<SC::ValMmcs as Mmcs<BabyBear>>::Commitment>
+        + CanObserve<<FriMmcs<SC> as Mmcs<EF>>::Commitment>
+        + CanSample<EF>
+        + GrindingChallenger<Witness = BabyBear>
+        + FieldChallenger<BabyBear>,
+    SC::Pcs: Pcs<
+        EF,
+        SC::Challenger,
+        ProverData: Clone + Send + Sync,
+        Proof: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>,
+    >,
+    SC::ValMmcs: Mmcs<BabyBear, ProverData<RowMajorMatrix<BabyBear>> = SC::RowMajorProverData>, 
+{
     pub fn observe_into<Challenger>(&self, builder: &mut Builder<C>, challenger: &mut Challenger)
     where
         Challenger: CanObserveVariable<C, Felt<C::F>> + CanObserveVariable<C, SC::DigestVariable>,

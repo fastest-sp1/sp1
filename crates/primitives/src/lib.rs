@@ -884,6 +884,9 @@ mod tests {
 
     use p3_fri::{FriConfig,   TwoAdicFriPcs};
     use p3_merkle_tree::MerkleTreeMmcs;
+    use rand_xoshiro::Xoroshiro128Plus;
+    use rand::{Rng, SeedableRng};
+    use rand_xoshiro::Xoroshiro128Plus;
 
     type Val = BabyBear;
     type Challenge = BinomialExtensionField<Val, 4>;
@@ -899,6 +902,38 @@ mod tests {
     type Dft = Radix2DitParallel<Val>;
     type Challenger = DuplexChallenger<Val, Perm, 16, 8>;
     type MyPcs = TwoAdicFriPcs<Val, Dft, ValMmcs, ChallengeMmcs>;
+
+    // Redefine types for testing
+    type F = BabyBear;
+    //type Perm = Poseidon2BabyBear<16>;
+    type H = MyHash;
+    type C = MyCompress;
+    type P = <F as Field>::Packing;
+    type PW = <F as Field>::Packing;
+
+    #[test]
+    fn test_merkle_commit() {
+        let perm = poseidon2_init();
+        let hash = MyHash::new(perm.clone());
+        let compress = MyCompress::new(perm.clone());
+        
+        // Create CPU and GPU versions of the MMCS
+        let cpu_mmcs = p3_merkle_tree::MerkleTreeMmcs::<P, PW, H, C, DIGEST_SIZE>::new(hash.clone(), compress.clone());
+
+
+        // Create some test matrices
+        let mut rng = Xoroshiro128Plus::seed_from_u64(1);
+        let mat1 = RowMajorMatrix::<F>::rand(&mut rng, 512, 32);
+        let mat2 = RowMajorMatrix::<F>::rand(&mut rng, 65536, 18);
+        let mat3 = RowMajorMatrix::<F>::rand(&mut rng, 16384, 39);
+        let mat4 = RowMajorMatrix::<F>::rand(&mut rng, 8192, 412);
+       
+        let start = std::time::Instant::now();
+        let (cpu_root, _) = cpu_mmcs.commit(vec![mat1.clone(), mat2.clone(), mat3.clone(), mat4.clone()]);
+         let duration = start.elapsed();
+        println!("-- cpu commit , duration:{:?}", duration);
+       
+    }
 
     #[test]
     fn test_pcs_commit() {
@@ -1018,7 +1053,7 @@ mod tests {
     collections::{BTreeMap, BTreeSet, HashSet},
     fs::File,};
 
-    type F = BabyBear;
+    //type F = BabyBear;
     
     #[test]
     fn test_verify_vk_map() -> anyhow::Result<()> {

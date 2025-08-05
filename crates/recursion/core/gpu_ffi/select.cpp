@@ -16,14 +16,15 @@ __global__ void kernel_process_select_events_gpu(
                 const SelectEvent<BabyBear>* events_d,  
                 BabyBear* output_d,        
                 uint32_t num_events,            
-                uint32_t num_cols_per_row ) {
+                uint32_t num_value_cols ) {
     // Global thread index
     uint32_t idx = blockIdx.x * blockDim.x + threadIdx.x;
 
     // Process one event per thread if within bounds
     if (idx < num_events) {
+        //uint32_t row_idx = idx ;
         SelectEvent<BabyBear> event = events_d[idx];        
-        BabyBear* target_output_ptr = output_d + idx * num_cols_per_row;
+        BabyBear* target_output_ptr = output_d + idx * num_value_cols;
 
         SelectCols<BabyBear>& cols = *reinterpret_cast<SelectCols<BabyBear>*>(target_output_ptr);
 
@@ -37,14 +38,14 @@ __global__ void kernel_process_select_instructions_gpu(
                 const SelectInstr<BabyBear>* instrs_d,  
                 BabyBear* output_d, 
                 uint32_t num_instrs,              
-                uint32_t num_cols_per_row ) {
+                uint32_t num_value_cols ) {
     // Global thread index
     uint32_t idx = blockIdx.x * blockDim.x + threadIdx.x;
 
     // Process one instruction per thread if within bounds
     if (idx < num_instrs) {
         SelectInstr<BabyBear> instr = instrs_d[idx];        
-        BabyBear* target_output_ptr = output_d + idx * num_cols_per_row;
+        BabyBear* target_output_ptr = output_d + idx * num_value_cols;
 
         SelectPreprocessedCols<BabyBear>& cols = *reinterpret_cast<SelectPreprocessedCols<BabyBear>*>(target_output_ptr);
 
@@ -58,7 +59,7 @@ extern "C" void process_select_events_gpu(
         uint32_t events_len,  
         BabyBear* output_h, 
         uint32_t output_len,              
-        int num_cols_per_row                        
+        int num_value_cols                        
 ) {
     if (events_len == 0) return; // Nothing to process
     SelectEvent<BabyBear> *events_d = nullptr; // Declare at top
@@ -81,7 +82,7 @@ extern "C" void process_select_events_gpu(
     if (err != cudaSuccess) { fprintf(stderr, "_select_events: cudaMemcpy events_h to events_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
     // 3. Allocate device memory for output
-    output_size_bytes = (uint32_t)events_len * num_cols_per_row * sizeof(BabyBear); // Assignment here
+    output_size_bytes = (uint32_t)events_len * num_value_cols * sizeof(BabyBear); // Assignment here
     err = cudaMalloc(&output_d, output_size_bytes);
     if (err != cudaSuccess) { fprintf(stderr, "_select_events: cudaMalloc output_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
     
@@ -94,7 +95,7 @@ extern "C" void process_select_events_gpu(
 
     // 4. Launch the kernel
     kernel_process_select_events_gpu<<<num_blocks, threads_per_block>>>(
-        events_d, output_d, events_len, num_cols_per_row);
+        events_d, output_d, events_len, num_value_cols);
     err = cudaGetLastError(); // Check for kernel launch errors
     if (err != cudaSuccess) { fprintf(stderr, "kernel_process_select_events_gpu launch failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
@@ -119,7 +120,7 @@ extern "C" void process_select_instructions_gpu(
         uint32_t instrs_len,  
         BabyBear* output_h, 
         uint32_t output_len,              
-        int num_cols_per_row                        
+        int num_value_cols                        
 ) {
     if (instrs_len == 0) return;
 
@@ -143,7 +144,7 @@ extern "C" void process_select_instructions_gpu(
     if (err != cudaSuccess) { fprintf(stderr, "_select_instrs: cudaMemcpy instructions_h to instructions_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
     // 3. Allocate device memory for output
-    output_size_bytes = instrs_len * num_cols_per_row * sizeof(BabyBear); // Assignment here
+    output_size_bytes = instrs_len * num_value_cols * sizeof(BabyBear); // Assignment here
     err = cudaMalloc(&output_d, output_size_bytes);
     if (err != cudaSuccess) { fprintf(stderr, "_select_instrs: cudaMalloc output_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
@@ -156,7 +157,7 @@ extern "C" void process_select_instructions_gpu(
 
     // 4. Launch the kernel
     kernel_process_select_instructions_gpu<<<num_blocks, threads_per_block>>>(
-        instructions_d, output_d, instrs_len, num_cols_per_row);
+        instructions_d, output_d, instrs_len, num_value_cols);
     err = cudaGetLastError(); // Check for kernel launch errors
     if (err != cudaSuccess) { fprintf(stderr, "kernel_process_select_instructions_gpu launch failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 

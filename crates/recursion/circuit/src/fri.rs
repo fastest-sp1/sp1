@@ -1,12 +1,15 @@
 use itertools::{izip, Itertools};
 use p3_baby_bear::BabyBear;
-use p3_commit::{BatchOpening, PolynomialSpace};
+use p3_commit::{BatchOpening, Mmcs, Pcs, };
 use p3_field::{PrimeCharacteristicRing, TwoAdicField};
 use p3_fri::{
     CommitPhaseProofStep, FriConfig, FriProof, QueryProof, TwoAdicFriPcsProof,
 };
+use p3_challenger::{CanObserve, GrindingChallenger, FieldChallenger, CanSample};
 use p3_symmetric::Hash;
 use p3_util::log2_strict_usize;
+use p3_matrix::dense::RowMajorMatrix;
+
 use sp1_recursion_compiler::ir::{Builder, DslIr, Felt, IrIter, SymbolicExt};
 use sp1_recursion_core::DIGEST_SIZE;
 use sp1_stark::{InnerChallenge, InnerChallengeMmcs, InnerPcsProof, InnerVal};
@@ -15,11 +18,12 @@ use std::{
     iter::{once, repeat_with, zip},
     mem,
 };
-
+use serde::{Deserialize, Serialize};
 use crate::{
     challenger::{CanSampleBitsVariable, FieldChallengerVariable},
     BabyBearFriConfigVariable, CanObserveVariable, CircuitConfig, Ext, FriChallenges, FriMmcs,
     FriProofVariable, FriQueryProofVariable, TwoAdicPcsProofVariable, TwoAdicPcsRoundVariable,
+    EF, 
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -34,15 +38,28 @@ pub struct PolynomialBatchShape {
     pub shapes: Vec<PolynomialShape>,
 }
 
-pub fn verify_shape_and_sample_challenges<
-    C: CircuitConfig<F = BabyBear>,
-    SC: BabyBearFriConfigVariable<C>,
->(
+pub fn verify_shape_and_sample_challenges<C,SC,>(
     builder: &mut Builder<C>,
     config: &FriConfig<FriMmcs<SC>>,
     proof: &FriProofVariable<C, SC>,
     challenger: &mut SC::FriChallengerVariable,
-) -> FriChallenges<C> {
+) -> FriChallenges<C> 
+where
+    C: CircuitConfig<F = BabyBear>,
+    SC: BabyBearFriConfigVariable<C>,
+    SC::Challenger: CanObserve<<SC::ValMmcs as Mmcs<BabyBear>>::Commitment>
+        + CanObserve<<FriMmcs<SC> as Mmcs<EF>>::Commitment>
+        + CanSample<EF>
+        + GrindingChallenger<Witness = BabyBear>
+        + FieldChallenger<BabyBear>,
+    SC::Pcs: Pcs<
+        EF,
+        SC::Challenger,
+        ProverData: Clone + Send + Sync,
+        Proof: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>,
+    >,
+    SC::ValMmcs: Mmcs<BabyBear, ProverData<RowMajorMatrix<BabyBear>> = SC::RowMajorProverData>,
+{
     let betas = proof
         .commit_phase_commits
         .iter()
@@ -70,13 +87,29 @@ pub fn verify_shape_and_sample_challenges<
     FriChallenges { query_indices, betas }
 }
 
-pub fn verify_two_adic_pcs<C: CircuitConfig<F = SC::Val>, SC: BabyBearFriConfigVariable<C>>(
+pub fn verify_two_adic_pcs<C, SC>(
     builder: &mut Builder<C>,
     config: &FriConfig<FriMmcs<SC>>,
     proof: &TwoAdicPcsProofVariable<C, SC>,
     challenger: &mut SC::FriChallengerVariable,
     rounds: Vec<TwoAdicPcsRoundVariable<C, SC>>,
-) {
+)
+where
+    C: CircuitConfig<F = SC::Val>, 
+    SC: BabyBearFriConfigVariable<C>,
+    SC::Challenger: CanObserve<<SC::ValMmcs as Mmcs<BabyBear>>::Commitment>
+        + CanObserve<<FriMmcs<SC> as Mmcs<EF>>::Commitment>
+        + CanSample<EF>
+        + GrindingChallenger<Witness = BabyBear>
+        + FieldChallenger<BabyBear>,
+    SC::Pcs: Pcs<
+        EF,
+        SC::Challenger,
+        ProverData: Clone + Send + Sync,
+        Proof: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>,
+    >,
+    SC::ValMmcs: Mmcs<BabyBear, ProverData<RowMajorMatrix<BabyBear>> = SC::RowMajorProverData>,
+ {
     // Write the polynomial evaluations to the challenger.
     for round in rounds.iter() {
         for mat in round.domains_points_and_opens.iter() {
@@ -240,13 +273,29 @@ pub fn verify_two_adic_pcs<C: CircuitConfig<F = SC::Val>, SC: BabyBearFriConfigV
     });
 }
 
-pub fn verify_challenges<C: CircuitConfig<F = SC::Val>, SC: BabyBearFriConfigVariable<C>>(
+pub fn verify_challenges<C, SC>(
     builder: &mut Builder<C>,
     config: &FriConfig<FriMmcs<SC>>,
     proof: FriProofVariable<C, SC>,
     challenges: &FriChallenges<C>,
     reduced_openings: Vec<[Ext<C::F, C::EF>; 32]>,
-) {
+)
+where
+    C: CircuitConfig<F = SC::Val>, 
+    SC: BabyBearFriConfigVariable<C>,
+    SC::Challenger: CanObserve<<SC::ValMmcs as Mmcs<BabyBear>>::Commitment>
+        + CanObserve<<FriMmcs<SC> as Mmcs<EF>>::Commitment>
+        + CanSample<EF>
+        + GrindingChallenger<Witness = BabyBear>
+        + FieldChallenger<BabyBear>,
+    SC::Pcs: Pcs<
+        EF,
+        SC::Challenger,
+        ProverData: Clone + Send + Sync,
+        Proof: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>,
+    >,
+    SC::ValMmcs: Mmcs<BabyBear, ProverData<RowMajorMatrix<BabyBear>> = SC::RowMajorProverData>, 
+{
     let log_max_height = proof.commit_phase_commits.len() + config.log_blowup;
     challenges
         .query_indices
@@ -268,7 +317,7 @@ pub fn verify_challenges<C: CircuitConfig<F = SC::Val>, SC: BabyBearFriConfigVar
         });
 }
 
-pub fn verify_query<C: CircuitConfig<F = SC::Val>, SC: BabyBearFriConfigVariable<C>>(
+pub fn verify_query<C, SC>(
     builder: &mut Builder<C>,
     commit_phase_commits: &[SC::DigestVariable],
     index_bits: &[C::Bit],
@@ -276,7 +325,23 @@ pub fn verify_query<C: CircuitConfig<F = SC::Val>, SC: BabyBearFriConfigVariable
     betas: &[Ext<C::F, C::EF>],
     reduced_openings: [Ext<C::F, C::EF>; 32],
     log_max_height: usize,
-) -> Ext<C::F, C::EF> {
+) -> Ext<C::F, C::EF> 
+where
+    C: CircuitConfig<F = SC::Val>, 
+    SC: BabyBearFriConfigVariable<C>,
+    SC::Challenger: CanObserve<<SC::ValMmcs as Mmcs<BabyBear>>::Commitment>
+        + CanObserve<<FriMmcs<SC> as Mmcs<EF>>::Commitment>
+        + CanSample<EF>
+        + GrindingChallenger<Witness = BabyBear>
+        + FieldChallenger<BabyBear>,
+    SC::Pcs: Pcs<
+        EF,
+        SC::Challenger,
+        ProverData: Clone + Send + Sync,
+        Proof: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>,
+    >,
+    SC::ValMmcs: Mmcs<BabyBear, ProverData<RowMajorMatrix<BabyBear>> = SC::RowMajorProverData>,
+{
     let mut folded_eval: Ext<_, _> = builder.constant(C::EF::ZERO);
     let two_adic_generator: Felt<_> = builder.constant(C::F::two_adic_generator(log_max_height));
 
@@ -363,14 +428,30 @@ pub fn verify_query<C: CircuitConfig<F = SC::Val>, SC: BabyBearFriConfigVariable
     folded_eval
 }
 
-pub fn verify_batch<C: CircuitConfig<F = SC::Val>, SC: BabyBearFriConfigVariable<C>>(
+pub fn verify_batch<C, SC>(
     builder: &mut Builder<C>,
     commit: SC::DigestVariable,
     heights: &[usize],
     index_bits: &[C::Bit],
     opened_values: Vec<Vec<Vec<Felt<C::F>>>>,
     proof: Vec<SC::DigestVariable>,
-) {
+) 
+where
+    C: CircuitConfig<F = SC::Val>, 
+    SC: BabyBearFriConfigVariable<C>,
+    SC::Challenger: CanObserve<<SC::ValMmcs as Mmcs<BabyBear>>::Commitment>
+        + CanObserve<<FriMmcs<SC> as Mmcs<EF>>::Commitment>
+        + CanSample<EF>
+        + GrindingChallenger<Witness = BabyBear>
+        + FieldChallenger<BabyBear>,
+    SC::Pcs: Pcs<
+        EF,
+        SC::Challenger,
+        ProverData: Clone + Send + Sync,
+        Proof: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>,
+    >,
+    SC::ValMmcs: Mmcs<BabyBear, ProverData<RowMajorMatrix<BabyBear>> = SC::RowMajorProverData>,
+{
     let mut heights_tallest_first =
         heights.iter().enumerate().sorted_by_key(|(_, height)| Reverse(*height)).peekable();
 

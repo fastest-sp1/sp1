@@ -2,15 +2,18 @@ use std::marker::PhantomData;
 
 use p3_air::Air;
 use p3_baby_bear::BabyBear;
-use p3_commit::Mmcs;
+use p3_commit::{Mmcs, Pcs};
+use p3_challenger::{CanObserve, GrindingChallenger, FieldChallenger, CanSample};
 use p3_field::PrimeCharacteristicRing;
 use p3_matrix::dense::RowMajorMatrix;
+use p3_field::coset::TwoAdicMultiplicativeCoset;
+//use std::borrow::Borrow;
 use serde::{Deserialize, Serialize};
 use sp1_recursion_compiler::ir::{Builder, Felt};
 use sp1_recursion_core::DIGEST_SIZE;
 use sp1_stark::{
-    air::MachineAir, baby_bear_poseidon2::BabyBearPoseidon2, Com, InnerChallenge, OpeningProof,
-    StarkGenericConfig, StarkMachine,
+    air::MachineAir, baby_bear_poseidon2::BabyBearPoseidon2, InnerChallenge,
+    StarkGenericConfig, StarkMachine, InnerVal,
 };
 
 use crate::{
@@ -20,8 +23,10 @@ use crate::{
     merkle_tree::{verify, MerkleProof},
     stark::MerkleProofVariable,
     witness::{WitnessWriter, Witnessable},
-    BabyBearFriConfig, BabyBearFriConfigVariable, CircuitConfig, TwoAdicPcsProofVariable,
+    BabyBearFriConfig, BabyBearFriConfigVariable, CircuitConfig, 
+    EF, FriMmcs,
 };
+//use sp1_stark::BabyBearFriConfig;//cuda
 
 use super::{
     PublicValuesOutputDigest, SP1CompressShape, SP1CompressVerifier, SP1CompressWitnessValues,
@@ -44,8 +49,21 @@ pub struct SP1CompressWithVkeyShape {
 /// Witness layout for the compress stage verifier.
 pub struct SP1MerkleProofWitnessVariable<
     C: CircuitConfig<F = BabyBear>,
-    SC: FieldHasherVariable<C> + BabyBearFriConfigVariable<C>,
-> {
+    SC: FieldHasherVariable<C> + BabyBearFriConfigVariable<C>,> 
+where
+    SC::Challenger: CanObserve<<SC::ValMmcs as Mmcs<BabyBear>>::Commitment>
+        + CanObserve<<FriMmcs<SC> as Mmcs<EF>>::Commitment>
+        + CanSample<EF>
+        + GrindingChallenger<Witness = BabyBear>
+        + FieldChallenger<BabyBear>,
+    SC::Pcs: Pcs<
+        EF,
+        SC::Challenger,
+        ProverData: Clone + Send + Sync,
+        Proof: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>,
+    >,
+    SC::ValMmcs: Mmcs<BabyBear, ProverData<RowMajorMatrix<BabyBear>> = SC::RowMajorProverData>,
+{
     /// The shard proofs to verify.
     pub vk_merkle_proofs: Vec<MerkleProofVariable<C, SC>>,
     /// Hinted values to enable dummy digests.
@@ -68,6 +86,19 @@ impl<C, SC> SP1MerkleProofVerifier<C, SC>
 where
     SC: BabyBearFriConfigVariable<C>,
     C: CircuitConfig<F = SC::Val, EF = SC::Challenge>,
+    SC::Challenger: CanObserve<<SC::ValMmcs as Mmcs<BabyBear>>::Commitment>
+        + CanObserve<<FriMmcs<SC> as Mmcs<EF>>::Commitment>
+        + CanSample<EF>
+        + GrindingChallenger<Witness = BabyBear>
+        + FieldChallenger<BabyBear>,
+    SC::Pcs: Pcs<
+        EF,
+        SC::Challenger,
+        ProverData: Clone + Send + Sync,
+        Proof: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>,
+        Domain = TwoAdicMultiplicativeCoset<C::F>,
+    >,
+    SC::ValMmcs: Mmcs<BabyBear, ProverData<RowMajorMatrix<BabyBear>> = SC::RowMajorProverData>,
 {
     /// Verify (via Merkle tree) that the vkey digests of a proof belong to a specified set (encoded
     /// the Merkle tree proofs in input).
@@ -100,7 +131,21 @@ pub struct SP1CompressWithVKeyVerifier<C, SC, A> {
 pub struct SP1CompressWithVKeyWitnessVariable<
     C: CircuitConfig<F = BabyBear>,
     SC: BabyBearFriConfigVariable<C>,
-> {
+> 
+where
+    SC::Challenger: CanObserve<<SC::ValMmcs as Mmcs<BabyBear>>::Commitment>
+        + CanObserve<<FriMmcs<SC> as Mmcs<EF>>::Commitment>
+        + CanSample<EF>
+        + GrindingChallenger<Witness = BabyBear>
+        + FieldChallenger<BabyBear>,
+    SC::Pcs: Pcs<
+        EF,
+        SC::Challenger,
+        ProverData: Clone + Send + Sync,
+        Proof: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>,
+    >,
+    SC::ValMmcs: Mmcs<BabyBear, ProverData<RowMajorMatrix<BabyBear>> = SC::RowMajorProverData>,
+{
     pub compress_var: SP1CompressWitnessVariable<C, SC>,
     pub merkle_var: SP1MerkleProofWitnessVariable<C, SC>,
 }
@@ -121,6 +166,19 @@ where
     C: CircuitConfig<F = SC::Val, EF = SC::Challenge, Bit = Felt<BabyBear>>,
     <SC::ValMmcs as Mmcs<BabyBear>>::ProverData<RowMajorMatrix<BabyBear>>: Clone,
     A: MachineAir<SC::Val> + for<'a> Air<RecursiveVerifierConstraintFolder<'a, C>>,
+    SC::Challenger: CanObserve<<SC::ValMmcs as Mmcs<BabyBear>>::Commitment>
+        + CanObserve<<FriMmcs<SC> as Mmcs<EF>>::Commitment>
+        + CanSample<EF>
+        + GrindingChallenger<Witness = BabyBear>
+        + FieldChallenger<BabyBear>,
+    SC::Pcs: Pcs<
+        EF,
+        SC::Challenger,
+        ProverData: Clone + Send + Sync,
+        Proof: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>,
+        Domain = TwoAdicMultiplicativeCoset<C::F>,
+    >,
+    SC::ValMmcs: Mmcs<BabyBear, ProverData<RowMajorMatrix<BabyBear>> = SC::RowMajorProverData>,
 {
     /// Verify the proof shape phase of the compress stage.
     pub fn verify(
@@ -142,7 +200,21 @@ where
     }
 }
 
-impl<SC: BabyBearFriConfig + FieldHasher<BabyBear>> SP1CompressWithVKeyWitnessValues<SC> {
+impl<SC: BabyBearFriConfig + FieldHasher<BabyBear>> SP1CompressWithVKeyWitnessValues<SC> 
+where
+    SC::Challenger: CanObserve<<SC::ValMmcs as Mmcs<BabyBear>>::Commitment>
+        + CanObserve<<FriMmcs<SC> as Mmcs<EF>>::Commitment>
+        + CanSample<EF>
+        + GrindingChallenger<Witness = BabyBear>
+        + FieldChallenger<BabyBear>,
+    SC::Pcs: Pcs<
+        EF,
+        SC::Challenger,
+        ProverData: Clone + Send + Sync,
+        Proof: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>,
+    >,
+    SC::ValMmcs: Mmcs<BabyBear, ProverData<RowMajorMatrix<BabyBear>> = SC::RowMajorProverData>,
+{
     pub fn shape(&self) -> SP1CompressWithVkeyShape {
         let merkle_tree_height = self.merkle_val.vk_merkle_proofs.first().unwrap().path.len();
         SP1CompressWithVkeyShape { compress_shape: self.compress_val.shape(), merkle_tree_height }
@@ -176,14 +248,28 @@ impl SP1CompressWithVKeyWitnessValues<BabyBearPoseidon2> {
     }
 }
 
-impl<C: CircuitConfig<F = BabyBear, EF = InnerChallenge>, SC: BabyBearFriConfigVariable<C>>
+impl<C, SC>
     Witnessable<C> for SP1CompressWithVKeyWitnessValues<SC>
 where
-    Com<SC>: Witnessable<C, WitnessVariable = <SC as FieldHasherVariable<C>>::DigestVariable>,
-    // This trait bound is redundant, but Rust-Analyzer is not able to infer it.
-    SC: FieldHasher<BabyBear>,
-    <SC as FieldHasher<BabyBear>>::Digest: Witnessable<C, WitnessVariable = SC::DigestVariable>,
-    OpeningProof<SC>: Witnessable<C, WitnessVariable = TwoAdicPcsProofVariable<C, SC>>,
+    C: CircuitConfig<F = InnerVal, EF = InnerChallenge>,
+    SC: BabyBearFriConfigVariable<C> + FieldHasher<BabyBear>,
+
+    // Transitive constraints from the BabyBearFriConfigVariable trait chain
+    SC::Challenger: CanObserve<<SC::ValMmcs as Mmcs<BabyBear>>::Commitment>
+        + CanObserve<<FriMmcs<SC> as Mmcs<EF>>::Commitment>
+        + CanSample<EF>
+        + GrindingChallenger<Witness = BabyBear>
+        + FieldChallenger<BabyBear>,
+    SC::Pcs: Pcs<
+        EF,
+        SC::Challenger,
+        ProverData: Clone + Send + Sync,
+        Proof: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>,
+    >,
+    SC::ValMmcs: Mmcs<BabyBear, ProverData<RowMajorMatrix<BabyBear>> = SC::RowMajorProverData>,
+    SP1CompressWitnessValues<SC>: Witnessable<C, WitnessVariable = SP1CompressWitnessVariable<C, SC>>,
+    SP1MerkleProofWitnessValues<SC>: Witnessable<C, WitnessVariable = SP1MerkleProofWitnessVariable<C, SC>>,
+
 {
     type WitnessVariable = SP1CompressWithVKeyWitnessVariable<C, SC>;
 

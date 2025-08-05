@@ -103,7 +103,7 @@ native-gnark = ["sp1-recursion-gnark-ffi/native"]
 debug = ["sp1-core-machine/debug"]
 
 recursion_cuda = [
-    ##"sp1-recursion-core/recursion_cuda",
+    "sp1-recursion-core/recursion_cuda",
     "sp1-stark/recursion_cuda",
     "sp1-recursion-circuit/recursion_cuda",
 ]

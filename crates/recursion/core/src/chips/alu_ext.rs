@@ -88,7 +88,9 @@ impl<F: PrimeField32 + BinomiallyExtendable<D>> MachineAir<F> for ExtAluChip {
             std::any::TypeId::of::<BabyBear>(),
             "generate_preprocessed_trace only supports BabyBear field"
         );
-        
+        //let start = std::time::Instant::now();
+
+
         let instrs = unsafe {
             std::mem::transmute::<Vec<&ExtAluInstr<F>>, Vec<&ExtAluInstr<BabyBear>>>(
                 program
@@ -117,7 +119,7 @@ impl<F: PrimeField32 + BinomiallyExtendable<D>> MachineAir<F> for ExtAluChip {
                 .iter()
                 .map(|&instr_ref| *instr_ref)
                 .collect_vec();
-            
+            //println!("--alu_ext instr GPU, instrs.len:{}", instrs_for_gpu.len());
             unsafe {
                 crate::sys::process_alu_ext_instructions_gpu(
                     instrs_for_gpu.as_ptr(), 
@@ -129,7 +131,8 @@ impl<F: PrimeField32 + BinomiallyExtendable<D>> MachineAir<F> for ExtAluChip {
             }
             
         } else {
-            //CPU
+            //println!("---cpu alu_ext_instructions---, instrs.len:{}, NUM_EXT_ALU_ACCESS_COLS:{}", instrs.len(), NUM_EXT_ALU_ACCESS_COLS);
+            // Generate the trace rows & corresponding records for each chunk of events in parallel.
             let populate_len = instrs.len() * NUM_EXT_ALU_ACCESS_COLS;
             values[..populate_len].par_chunks_mut(NUM_EXT_ALU_ACCESS_COLS).zip_eq(instrs).for_each(
                 |(row, instr)| {
@@ -140,13 +143,17 @@ impl<F: PrimeField32 + BinomiallyExtendable<D>> MachineAir<F> for ExtAluChip {
                 },
             );
         }
-        
+        //
+        //println!("----alu_ext_instructions-values[..100]:{:?}", &values[..100]);
+
         // Convert the trace to a row major matrix.
         let trace = RowMajorMatrix::new(
             unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
             NUM_EXT_ALU_PREPROCESSED_COLS,
         );
-        
+        //let duration = start.elapsed();
+        //println!("--  p2-ale-ext-instrs, duration:{:?}", duration);
+        //println!("--p2-ale-ext-instrs, trace_heigth:{}", trace.height());
         Some(trace)
     }
 
@@ -170,7 +177,9 @@ impl<F: PrimeField32 + BinomiallyExtendable<D>> MachineAir<F> for ExtAluChip {
             std::any::TypeId::of::<BabyBear>(),
             "generate_trace only supports BabyBear field"
         );
-        
+        //let start = std::time::Instant::now();
+
+
         let events = unsafe {
             std::mem::transmute::<&Vec<ExtAluIo<Block<F>>>, &Vec<ExtAluIo<Block<BabyBear>>>>(
                 &input.ext_alu_events,
@@ -188,6 +197,7 @@ impl<F: PrimeField32 + BinomiallyExtendable<D>> MachineAir<F> for ExtAluChip {
     
         // using GPU (via the new alu_trace module)
         if cfg!(feature = "recursion_cuda") {
+            //println!("--alu_ext events GPU, events.len:{}, col_len:{}", events.len(), NUM_EXT_ALU_VALUE_COLS);
             unsafe {
                 crate::sys::process_alu_ext_events_gpu(
                     events.as_ptr(),
@@ -199,6 +209,7 @@ impl<F: PrimeField32 + BinomiallyExtendable<D>> MachineAir<F> for ExtAluChip {
             }
         } else {
             //CPU
+            // Generate the trace rows & corresponding records for each chunk of events in parallel.
             let populate_len = events.len() * NUM_EXT_ALU_VALUE_COLS;
             values[..populate_len].par_chunks_mut(NUM_EXT_ALU_VALUE_COLS).zip_eq(events).for_each(
                 |(row, &vals)| {
@@ -215,7 +226,9 @@ impl<F: PrimeField32 + BinomiallyExtendable<D>> MachineAir<F> for ExtAluChip {
             unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
             NUM_EXT_ALU_COLS,
         );
-        
+        //let duration = start.elapsed();
+//println!("-- p2-ale-ext-events , duration:{:?}", duration);
+        //println!("--p2-ale-ext-events, trace_heigth:{}", trace.height());
         trace
     }
 

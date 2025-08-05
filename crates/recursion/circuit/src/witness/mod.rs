@@ -1,19 +1,25 @@
 mod outer;
 mod stark;
 
+use p3_matrix::dense::RowMajorMatrix;
+use p3_baby_bear::BabyBear;
+use p3_commit::{Mmcs, Pcs};
+use p3_challenger::{CanObserve, GrindingChallenger, FieldChallenger, CanSample};
+
+use serde::{Deserialize, Serialize};
 use sp1_recursion_compiler::ir::{Builder, Ext, Felt};
 
 pub use outer::*;
 use sp1_stark::{
     septic_curve::SepticCurve, septic_digest::SepticDigest, septic_extension::SepticExtension,
     ChipOpenedValues, Com, InnerChallenge, InnerVal, OpeningProof, ShardCommitment,
-    ShardOpenedValues, ShardProof,
+    ShardOpenedValues, ShardProof, Challenge, Val,
 };
 pub use stark::*;
 
 use crate::{
-    hash::FieldHasherVariable, stark::ShardProofVariable, BabyBearFriConfigVariable, CircuitConfig,
-    TwoAdicPcsProofVariable,
+    hash::{FieldHasherVariable, FieldHasher}, stark::ShardProofVariable, BabyBearFriConfigVariable, CircuitConfig,
+    TwoAdicPcsProofVariable,  EF, FriMmcs, 
 };
 
 pub trait WitnessWriter<C: CircuitConfig>: Sized {
@@ -130,15 +136,37 @@ impl<C: CircuitConfig, T: Witnessable<C>> Witnessable<C> for Vec<T> {
     }
 }
 
-impl<C: CircuitConfig<F = InnerVal, EF = InnerChallenge>, SC: BabyBearFriConfigVariable<C>>
+impl<C: CircuitConfig<F = InnerVal, EF = InnerChallenge>, SC: BabyBearFriConfigVariable<C>  + FieldHasher<BabyBear>>
     Witnessable<C> for ShardProof<SC>
 where
+    SC: BabyBearFriConfigVariable<C>,
     Com<SC>: Witnessable<C, WitnessVariable = <SC as FieldHasherVariable<C>>::DigestVariable>,
     OpeningProof<SC>: Witnessable<C, WitnessVariable = TwoAdicPcsProofVariable<C, SC>>,
+    SC::Challenger: CanObserve<<SC::ValMmcs as Mmcs<BabyBear>>::Commitment>
+        + CanObserve<<FriMmcs<SC> as Mmcs<EF>>::Commitment>
+        + CanSample<EF>
+        + GrindingChallenger<Witness = BabyBear>
+        + FieldChallenger<BabyBear>,
+    SC::Pcs: Pcs<
+        EF,
+        SC::Challenger,
+        ProverData: Clone + Send + Sync,
+        Proof: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>,
+    >,
+    SC::ValMmcs: Mmcs<BabyBear, ProverData<RowMajorMatrix<BabyBear>> = SC::RowMajorProverData>,
+    //ShardCommitment<Com<SC>>: Witnessable<C>,
+    ShardCommitment<Com<SC>>: Witnessable<C, 
+        WitnessVariable = ShardCommitment<<SC as FieldHasherVariable<C>>::DigestVariable>>,
+    //ShardOpenedValues<Val<SC>, Challenge<SC>>: Witnessable<C>,
+    ShardOpenedValues<Val<SC>, Challenge<SC>>: Witnessable<C, 
+        WitnessVariable = ShardOpenedValues<Felt<C::F>, Ext<C::F, C::EF>>>,
+    Vec<Val<SC>>: Witnessable<C, WitnessVariable = Vec<Felt<C::F>>>,
 {
     type WitnessVariable = ShardProofVariable<C, SC>;
 
     fn read(&self, builder: &mut Builder<C>) -> Self::WitnessVariable {
+        //let commitment: <ShardCommitment<Com<SC>> as Witnessable<C>>::WitnessVariable = self.commitment.read(builder);
+        //let opened_values: <ShardOpenedValues<Val<SC>, Challenge<SC>> as Witnessable<C>>::WitnessVariable = self.opened_values.read(builder);
         let commitment = self.commitment.read(builder);
         let opened_values = self.opened_values.read(builder);
         let opening_proof = self.opening_proof.read(builder);
@@ -244,3 +272,25 @@ impl<C: CircuitConfig<F = InnerVal, EF = InnerChallenge>> Witnessable<C>
         self.local_cumulative_sum.write(witness);
     }
 }
+
+/*
+impl<C, F, P> Witnessable<C> for Hash<F, P, DIGEST_SIZE>
+where
+    C: CircuitConfig<F = F>, // Ensure circuit field matches the hash field
+    F: PrimeCharacteristicRing,
+    P: Witnessable<C, WitnessVariable = C::Felt>, // The elements of the hash must be witnessable
+    [P; DIGEST_SIZE]: Witnessable<C, WitnessVariable = [C::Felt; DIGEST_SIZE]>, // The inner array must be witnessable
+{
+    // The variable for a hash is just an array of field elements in the circuit.
+    type WitnessVariable = [C::Felt; DIGEST_SIZE];
+
+    fn read(&self, builder: &mut Builder<C>) -> Self::WitnessVariable {
+        // We read the inner array `self.0`.
+        self.value.read(builder)
+    }
+
+    fn write(&self, witness: &mut impl WitnessWriter<C>) {
+        // We write the inner array `self.0`.
+        self.value.write(witness);
+    }
+}*/

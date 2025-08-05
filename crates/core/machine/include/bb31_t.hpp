@@ -8,6 +8,9 @@
 #include <cassert>
 #include <cstdint>
 
+//test
+#include <stdio.h>
+
 #ifdef __CUDA_ARCH__
 
 #define inline __device__ __forceinline__
@@ -539,6 +542,12 @@ class bb31_t {
     val = monty_reduce(long_prod);
     return *this;
   }
+
+  //G
+  inline bb31_t operator-() const {
+        if (val == 0) return bb31_t(0);
+        return bb31_t(MOD - val);
+    }
 
   inline bb31_t square() { return *this * *this; }
 

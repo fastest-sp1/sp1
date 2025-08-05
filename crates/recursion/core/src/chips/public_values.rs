@@ -12,7 +12,7 @@ use p3_matrix::{dense::RowMajorMatrix, Matrix};
 use sp1_derive::AlignedBorrow;
 use sp1_stark::air::MachineAir;
 use std::borrow::{Borrow, BorrowMut};
-use itertools::Itertools;
+//use itertools::Itertools;
 use super::mem::MemoryAccessColsChips;
 
 pub const NUM_PUBLIC_VALUES_COLS: usize = core::mem::size_of::<PublicValuesCols<u8>>();
@@ -68,7 +68,9 @@ impl<F: PrimeField32> MachineAir<F> for PublicValuesChip {
             std::any::TypeId::of::<BabyBear>(),
             "generate_preprocessed_trace only supports BabyBear field"
         );
-        
+        //let start = std::time::Instant::now();
+
+
         let mut rows: Vec<[BabyBear; NUM_PUBLIC_VALUES_PREPROCESSED_COLS]> = Vec::new();
         let commit_pv_hash_instrs: Vec<&Box<CommitPublicValuesInstr<BabyBear>>> = program
             .inner
@@ -109,6 +111,7 @@ impl<F: PrimeField32> MachineAir<F> for PublicValuesChip {
             }
         } else {
             //CPU
+            //println!("---cpu public_values _instructions---");
             for i in 0..DIGEST_SIZE {
                 let mut row = [BabyBear::ZERO; NUM_PUBLIC_VALUES_PREPROCESSED_COLS];
                 let cols: &mut PublicValuesPreprocessedCols<BabyBear> =
@@ -135,7 +138,9 @@ impl<F: PrimeField32> MachineAir<F> for PublicValuesChip {
             },
             NUM_PUBLIC_VALUES_PREPROCESSED_COLS,
         );
-        
+        //let duration = start.elapsed();
+//println!("-- public-val-instr , duration:{:?}", duration);
+        //println!("--public-val-instr, trace_heigth:{}", trace.height());
         Some(trace)
     }
 
@@ -149,7 +154,9 @@ impl<F: PrimeField32> MachineAir<F> for PublicValuesChip {
             std::any::TypeId::of::<BabyBear>(),
             "generate_trace only supports BabyBear field"
         );
-        
+        //let start = std::time::Instant::now();
+
+
         if input.commit_pv_hash_events.len() != 1 {
             tracing::warn!("Expected exactly one CommitPVHash event.");
         }
@@ -165,6 +172,7 @@ impl<F: PrimeField32> MachineAir<F> for PublicValuesChip {
 
         values = vec![BabyBear::ZERO; DIGEST_SIZE];
         if cfg!(feature = "recursion_cuda") {
+            //println!("public values event- GPU,  NUM_PUBLIC_VALUES_COLS:{}", NUM_PUBLIC_VALUES_COLS);
             unsafe {
                 crate::sys::process_public_values_events_gpu(
                     &*event,
@@ -200,7 +208,9 @@ impl<F: PrimeField32> MachineAir<F> for PublicValuesChip {
             },
             NUM_PUBLIC_VALUES_COLS,
         );
-        
+        //let duration = start.elapsed();
+//println!("-- public-val-events , duration:{:?}", duration);
+        //println!("--public-val-events, trace_heigth:{}", trace.height());
         trace
     }
 

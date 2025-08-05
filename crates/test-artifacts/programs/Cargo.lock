@@ -638,6 +638,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cudarc"
+version = "0.16.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f9574894139a982bf26fbb44473a9d416c015e779c51ef0fbc0789f1a1c17b25"
+dependencies = [
+ "libloading",
+]
+
+[[package]]
 name = "curve25519-dalek"
 version = "4.1.3"
 source = "git+https://github.com/sp1-patches/curve25519-dalek?branch=patch-curve25519-v4.1.3#a9d46282f5660dfb7e3850ef957fe884089daeda"
@@ -1488,6 +1497,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d750af042f7ef4f724306de029d18836c26c1765a54a6a3f094cbd23a7267ffa"
 
 [[package]]
+name = "libloading"
+version = "0.8.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "07033963ba89ebaf1584d767badaa2e8fcec21aedea6b8c0346d487d49c28667"
+dependencies = [
+ "cfg-if",
+ "windows-targets",
+]
+
+[[package]]
 name = "libm"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1697,6 +1716,7 @@ dependencies = [
 name = "p3-baby-bear"
 version = "0.1.0"
 dependencies = [
+ "cudarc",
  "p3-field",
  "p3-mds",
  "p3-monty-31",
@@ -1838,6 +1858,7 @@ dependencies = [
 name = "p3-monty-31"
 version = "0.1.0"
 dependencies = [
+ "cudarc",
  "itertools 0.14.0",
  "num-bigint",
  "p3-dft",

@@ -8,6 +8,9 @@ use p3_baby_bear::BabyBear;
 use p3_commit::{Mmcs, Pcs, PolynomialSpace};
 use p3_field::{PrimeCharacteristicRing, ExtensionField, Field, TwoAdicField, coset::TwoAdicMultiplicativeCoset};
 use p3_matrix::{dense::RowMajorMatrix, Dimensions};
+use p3_challenger::{CanObserve, GrindingChallenger, FieldChallenger, CanSample};
+use serde::{Deserialize, Serialize};
+
 use sp1_recursion_compiler::{
     circuit::CircuitV2Builder,
     ir::{Builder, Config, Ext, ExtConst},
@@ -27,7 +30,9 @@ use crate::{
     fri::{dummy_hash, dummy_pcs_proof, PolynomialBatchShape, PolynomialShape},
     hash::FieldHasherVariable,
     BabyBearFriConfig, CircuitConfig, TwoAdicPcsMatsVariable, TwoAdicPcsProofVariable,
+    EF, FriMmcs, 
 };
+//use sp1_stark::BabyBearFriConfig;//cuda
 
 use crate::{
     challenger::FieldChallengerVariable, constraints::RecursiveVerifierConstraintFolder,
@@ -39,7 +44,21 @@ use sp1_stark::septic_digest::SepticDigest;
 /// Reference: [sp1_core::stark::ShardProof]
 #[allow(clippy::type_complexity)]
 #[derive(Clone)]
-pub struct ShardProofVariable<C: CircuitConfig<F = SC::Val>, SC: BabyBearFriConfigVariable<C>> {
+pub struct ShardProofVariable<C: CircuitConfig<F = SC::Val>, SC: BabyBearFriConfigVariable<C>> 
+where
+     SC::Challenger: CanObserve<<SC::ValMmcs as Mmcs<BabyBear>>::Commitment>
+        + CanObserve<<FriMmcs<SC> as Mmcs<EF>>::Commitment>
+        + CanSample<EF>
+        + GrindingChallenger<Witness = BabyBear>
+        + FieldChallenger<BabyBear>,
+    SC::Pcs: Pcs<
+        EF,
+        SC::Challenger,
+        ProverData: Clone + Send + Sync,
+        Proof: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>,
+    >,
+    SC::ValMmcs: Mmcs<BabyBear, ProverData<RowMajorMatrix<BabyBear>> = SC::RowMajorProverData>,
+{
     pub commitment: ShardCommitment<SC::DigestVariable>,
     pub opened_values: ShardOpenedValues<Felt<C::F>, Ext<C::F, C::EF>>,
     pub opening_proof: TwoAdicPcsProofVariable<C, SC>,
@@ -234,15 +253,30 @@ where
     SC: BabyBearFriConfigVariable<C>,
     <SC::ValMmcs as Mmcs<BabyBear>>::ProverData<RowMajorMatrix<BabyBear>>: Clone,
     A: MachineAir<Val<SC>>,
+    //cuda
+    SC::Challenger: CanObserve<<SC::ValMmcs as Mmcs<BabyBear>>::Commitment>
+        + CanObserve<<FriMmcs<SC> as Mmcs<EF>>::Commitment>
+        + CanSample<EF>
+        + GrindingChallenger<Witness = BabyBear>
+        + FieldChallenger<BabyBear>,
+    SC::Pcs: Pcs<
+        EF,
+        SC::Challenger,
+        ProverData: Clone + Send + Sync,
+        Proof: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>,
+        Domain = TwoAdicMultiplicativeCoset<C::F>,
+    >,
+    SC::ValMmcs: Mmcs<BabyBear, ProverData<RowMajorMatrix<BabyBear>> = SC::RowMajorProverData>,
 {
     pub fn natural_domain_for_degree(
         config: &SC,
         degree: usize,
     ) -> TwoAdicMultiplicativeCoset<C::F> {
-        <SC::Pcs as Pcs<SC::Challenge, SC::FriChallenger>>::natural_domain_for_degree(
+        <SC::Pcs as Pcs<SC::Challenge, SC::Challenger>>::natural_domain_for_degree(
             config.pcs(),
             degree,
         )
+        //config.pcs().natural_domain_for_degree(degree)
     }
 
     pub fn verify_shard(
@@ -485,7 +519,23 @@ where
     }
 }
 
-impl<C: CircuitConfig<F = SC::Val>, SC: BabyBearFriConfigVariable<C>> ShardProofVariable<C, SC> {
+impl<C, SC> ShardProofVariable<C, SC> 
+where
+    C: CircuitConfig<F = SC::Val>, 
+    SC: BabyBearFriConfigVariable<C>,
+    SC::Challenger: CanObserve<<SC::ValMmcs as Mmcs<BabyBear>>::Commitment>
+        + CanObserve<<FriMmcs<SC> as Mmcs<EF>>::Commitment>
+        + CanSample<EF>
+        + GrindingChallenger<Witness = BabyBear>
+        + FieldChallenger<BabyBear>,
+    SC::Pcs: Pcs<
+        EF,
+        SC::Challenger,
+        ProverData: Clone + Send + Sync,
+        Proof: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>,
+    >,
+    SC::ValMmcs: Mmcs<BabyBear, ProverData<RowMajorMatrix<BabyBear>> = SC::RowMajorProverData>, 
+{
     pub fn contains_cpu(&self) -> bool {
         self.chip_ordering.contains_key("Cpu")
     }
@@ -511,9 +561,10 @@ pub mod tests {
 
     use crate::{
         challenger::{CanCopyChallenger, CanObserveVariable, DuplexChallengerVariable},
-        utils::tests::run_test_recursion_with_prover,
-        BabyBearFriConfig,
+        utils::tests::run_test_recursion_with_prover, BabyBearFriConfig, 
+        
     };
+    //use sp1_stark::BabyBearFriConfig;//cuda
 
     use sp1_core_executor::Program;
     use sp1_core_machine::{

@@ -31,6 +31,8 @@ p3-dft = { workspace = true }
 p3-fri = { workspace = true }
 p3-merkle-tree = { workspace = true }
 anyhow =  "1.0.98"
+rand = "0.8.5" 
+rand_xoshiro = "0.6.0"
 
 [lints]
 workspace = true

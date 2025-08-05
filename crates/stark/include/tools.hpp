@@ -18,8 +18,7 @@ __constant__ bb31_t DEVICE_TWO_ADIC_GENERATORS[28];
 
 
 
-//Must be called once in host
-void init_two_adic_generators() {
+inline  void init_two_adic_generators() {
 #ifdef __CUDACC__
     cudaMemcpyToSymbol(DEVICE_TWO_ADIC_GENERATORS, 
                       HOST_TWO_ADIC_GENERATORS, 
@@ -27,7 +26,7 @@ void init_two_adic_generators() {
 #endif
 }
 
-__host__ __device__ bb31_t two_adic_generator(int bits) {
+__host__ __device__  inline  bb31_t two_adic_generator(int bits) {
     assert(bits <= 27); //p3 babybear is 27
 #ifdef __CUDA_ARCH__
     return DEVICE_TWO_ADIC_GENERATORS[bits]; //device
@@ -71,4 +70,28 @@ __host__ __device__ F exp_u64(F base, uint64_t power) {
     }
     
     return result;
+}
+
+inline int integer_log2(int n) {
+    if (n <= 0) return -1;
+    int log = 0;
+    while ((1 << log) < n) { log++; }
+    if ((1 << log) != n) return -1; // Ensure power of 2
+    return log;
+}
+
+// --- Kernel Implementations (Optimized) ---
+__device__ inline unsigned int reverse_bits(unsigned int v, int log_n) {
+    unsigned int r = 0;
+    for (int i = 0; i < log_n; i++) {
+        if ((v >> i) & 1) {
+            r |= 1 << (log_n - 1 - i);
+        }
+    }
+    return r;
+}
+
+inline int next_power_of_two(int n) {
+    if (n == 0) return 1;
+    return 1 << (integer_log2(n - 1) + 1);
 }

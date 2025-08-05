@@ -13,7 +13,7 @@ use crate::{
     },
     BaseAluInstr, BaseAluIo, BatchFRIEvent, BatchFRIInstrFFI, CommitPublicValuesEvent,
     CommitPublicValuesInstr, ExpReverseBitsEventFFI, ExpReverseBitsInstrFFI, ExtAluInstr, ExtAluIo,
-    FriFoldEvent, FriFoldInstrFFI, Poseidon2Event, Poseidon2Instr, SelectEvent, SelectInstr,BatchFRIInstrRowFFI,
+    FriFoldEvent, FriFoldInstrFFI, Poseidon2Event, Poseidon2Instr, SelectEvent, SelectInstr,
     BatchFRIInstrFlat, InstrsFlatIdex, Address, FriFoldInstrFlat, ExpReverseBitsFlatIdex, 
     ExpReverseBitsEventFlatFFI, ExpReverseBitsInstrFlatFFI, Poseidon2SkinnyInstr, 
 };

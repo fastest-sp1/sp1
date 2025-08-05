@@ -1,5 +1,3 @@
-//! Copied from [`sp1_recursion_program`].
-
 use challenger::{
     CanCopyChallenger, CanObserveVariable, DuplexChallengerVariable, FieldChallengerVariable,
     MultiField32ChallengerVariable, SpongeChallengerShape,
@@ -30,23 +28,26 @@ pub(crate) mod utils;
 pub mod witness;
 
 use sp1_stark::{
-    baby_bear_poseidon2::{BabyBearPoseidon2, ValMmcs},
-    StarkGenericConfig, CudaDft, 
+    baby_bear_poseidon2::{BabyBearPoseidon2, ValMmcs, StarkConfigCpu,  },
+    StarkGenericConfig, InnerDft, StarkConfigGpu, GpuValMmcs,  
 };
 pub use types::*;
 
 use p3_challenger::{CanObserve, CanSample, FieldChallenger, GrindingChallenger};
-use p3_commit::{ExtensionMmcs, Mmcs};
-use p3_dft::Radix2DitParallel;
-use p3_fri::{FriConfig, TwoAdicFriPcs};
+use p3_commit::{ExtensionMmcs, Mmcs, Pcs};
+use p3_dft::{Radix2DitParallel, TwoAdicSubgroupDft};
+use p3_fri::{FriConfig, };
+use p3_baby_bear::BabyBear;
+
 use sp1_recursion_core::{
     air::RecursionPublicValues,
-    stark::{BabyBearPoseidon2Outer, OuterValMmcs},
+    stark::{BabyBearPoseidon2Outer, OuterValMmcs, OuterDft, },
     D,
 };
 
-use p3_baby_bear::BabyBear;
 use utils::{felt_bytes_to_bn254_var, felts_to_bn254_var, words_to_bytes};
+use serde::{Serialize, Deserialize};
+//use sp1_stark::{BabyBearFriConfig};//cuda
 
 type EF = <BabyBearPoseidon2 as StarkGenericConfig>::Challenge;
 
@@ -62,40 +63,124 @@ pub type Digest<C, SC> = <SC as FieldHasherVariable<C>>::DigestVariable;
 
 pub type FriMmcs<C> = ExtensionMmcs<BabyBear, EF, <C as BabyBearFriConfig>::ValMmcs>;
 
-#[cfg(not(feature = "recursion_cuda"))]
-pub type Dft = Radix2DitParallel<BabyBear>;
-#[cfg(feature = "recursion_cuda")]
-pub type Dft = CudaDft;
-
 pub trait BabyBearFriConfig:
     StarkGenericConfig<
-    Val = BabyBear,
-    Challenge = EF,
-    Challenger = Self::FriChallenger,
-    Pcs = TwoAdicFriPcs<
-        BabyBear,
-        Dft,
-        Self::ValMmcs,
-        ExtensionMmcs<BabyBear, EF, Self::ValMmcs>,
-    >,
->
-{
-    type ValMmcs: Mmcs<BabyBear, ProverData<RowMajorMatrix<BabyBear>> = Self::RowMajorProverData>
-        + Send
-        + Sync;
-    type RowMajorProverData: Clone + Send + Sync;
-    type FriChallenger: CanObserve<<Self::ValMmcs as Mmcs<BabyBear>>::Commitment>
+        Val = BabyBear,
+        Challenge = EF,
+    > + Clone + Send + Sync + 'static
+where
+    Self::Challenger: CanObserve<<Self::ValMmcs as Mmcs<BabyBear>>::Commitment>
+        + CanObserve<<FriMmcs<Self> as Mmcs<EF>>::Commitment> 
         + CanSample<EF>
         + GrindingChallenger<Witness = BabyBear>
-        + FieldChallenger<BabyBear>;
+        + FieldChallenger<BabyBear>,
+    Self::Pcs: Pcs<
+        EF,
+        Self::Challenger,
+        ProverData: Clone + Send + Sync,
+        Proof: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>,
+    >,
+    Self::ValMmcs: Mmcs<BabyBear, ProverData<RowMajorMatrix<BabyBear>> = Self::RowMajorProverData>,
+{
+    type Dft: TwoAdicSubgroupDft<BabyBear> + Send + Sync;
+    type ValMmcs: Mmcs<BabyBear> + Send + Sync;
+    
+   
+    type RowMajorProverData: Clone + Send + Sync;
+
 
     fn fri_config(&self) -> &FriConfig<FriMmcs<Self>>;
-
-    fn challenger_shape(challenger: &Self::FriChallenger) -> SpongeChallengerShape;
+    
+    fn challenger_shape(challenger: &Self::Challenger) -> SpongeChallengerShape;
 }
+
+// impl for StarkConfigGpu
+impl BabyBearFriConfig for StarkConfigGpu {
+    type Dft = InnerDft;
+    type ValMmcs = GpuValMmcs;
+    type RowMajorProverData = <GpuValMmcs as Mmcs<BabyBear>>::ProverData<RowMajorMatrix<BabyBear>>;
+
+    fn fri_config(&self) -> &FriConfig<FriMmcs<Self>> {
+        self.pcs.inner_pcs.fri_config()
+    }
+
+    fn challenger_shape(challenger: &Self::Challenger) -> SpongeChallengerShape {
+        SpongeChallengerShape {
+            input_buffer_len: challenger.input_buffer.len(),
+            output_buffer_len: challenger.output_buffer.len(),
+        }
+    }
+}
+
+// impl for StarkConfigCpu
+impl BabyBearFriConfig for StarkConfigCpu {
+    type Dft = Radix2DitParallel<BabyBear>;
+    type ValMmcs = ValMmcs;
+    type RowMajorProverData = <ValMmcs as Mmcs<BabyBear>>::ProverData<RowMajorMatrix<BabyBear>>;
+
+    fn fri_config(&self) -> &FriConfig<FriMmcs<Self>> {
+        self.pcs().fri_config()
+    }
+
+    fn challenger_shape(challenger: &Self::Challenger) -> SpongeChallengerShape {
+        SpongeChallengerShape {
+            input_buffer_len: challenger.input_buffer.len(),
+            output_buffer_len: challenger.output_buffer.len(),
+        }
+    }
+}
+
+// impl for BabyBearPoseidon2Outer
+impl BabyBearFriConfig for BabyBearPoseidon2Outer {
+    type Dft = OuterDft;
+    type ValMmcs = OuterValMmcs;
+    type RowMajorProverData =
+        <OuterValMmcs as Mmcs<BabyBear>>::ProverData<RowMajorMatrix<BabyBear>>;
+
+    fn fri_config(&self) -> &FriConfig<FriMmcs<Self>> {
+        self.pcs().fri_config()
+    }
+
+    fn challenger_shape(_challenger: &Self::Challenger) -> SpongeChallengerShape {
+        unimplemented!("Shape not supported for outer fri challenger");
+    }
+}
+/*
+//issue
+#[macro_export]
+macro_rules! baby_bear_fri_config_variable_bounds {
+    ($SC:ty, $C:ty) => {
+        <$SC as $crate::stark::StarkGenericConfig>::Challenger: p3_challenger::CanObserve<<<$SC as $crate::BabyBearFriConfig>::ValMmcs as p3_commit::Mmcs<$crate::stark::BabyBear>>::Commitment>
+            + p3_challenger::CanObserve<<$crate::FriMmcs<$SC> as p3_commit::Mmcs<$crate::EF>>::Commitment>
+            + p3_challenger::CanSample<$crate::EF>
+            + p3_challenger::GrindingChallenger<Witness = $crate::stark::BabyBear>
+            + p3_challenger::FieldChallenger<$crate::stark::BabyBear>,
+        <$SC as $crate::stark::StarkGenericConfig>::Pcs: p3_commit::Pcs<
+            $crate::EF,
+            <$SC as $crate::stark::StarkGenericConfig>::Challenger,
+            ProverData: Clone + Send + Sync,
+            Proof: Clone + Send + Sync + serde::Serialize + for<'de> serde::Deserialize<'de>,
+        >,
+        <$SC as $crate::BabyBearFriConfig>::ValMmcs: p3_commit::Mmcs<$crate::stark::BabyBear, ProverData<p3_matrix::dense::RowMajorMatrix<$crate::stark::BabyBear>> = <$SC as $crate::BabyBearFriConfig>::RowMajorProverData>,
+        $C: $crate::CircuitConfig<F = <$SC as $crate::stark::StarkGenericConfig>::Val>,
+    };
+}*/
 
 pub trait BabyBearFriConfigVariable<C: CircuitConfig<F = BabyBear>>:
     BabyBearFriConfig + FieldHasherVariable<C> + Posedion2BabyBearHasherVariable<C>
+   where
+     Self::Challenger: CanObserve<<Self::ValMmcs as Mmcs<BabyBear>>::Commitment>
+        + CanObserve<<FriMmcs<Self> as Mmcs<EF>>::Commitment>
+        + CanSample<EF>
+        + GrindingChallenger<Witness = BabyBear>
+        + FieldChallenger<BabyBear>,
+    Self::Pcs: Pcs<
+        EF,
+        Self::Challenger,
+        ProverData: Clone + Send + Sync,
+        Proof: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>,
+    >,
+    Self::ValMmcs: Mmcs<BabyBear, ProverData<RowMajorMatrix<BabyBear>> = Self::RowMajorProverData>,
 {
     type FriChallengerVariable: FieldChallengerVariable<C, <C as CircuitConfig>::Bit>
         + CanObserveVariable<C, <Self as FieldHasherVariable<C>>::DigestVariable>
@@ -582,38 +667,6 @@ impl CircuitConfig for OuterConfig {
     }
 }
 
-impl BabyBearFriConfig for BabyBearPoseidon2 {
-    type ValMmcs = ValMmcs;
-    type FriChallenger = <Self as StarkGenericConfig>::Challenger;
-    type RowMajorProverData = <ValMmcs as Mmcs<BabyBear>>::ProverData<RowMajorMatrix<BabyBear>>;
-
-    fn fri_config(&self) -> &FriConfig<FriMmcs<Self>> {
-        self.pcs().fri_config()
-    }
-
-    fn challenger_shape(challenger: &Self::FriChallenger) -> SpongeChallengerShape {
-        SpongeChallengerShape {
-            input_buffer_len: challenger.input_buffer.len(),
-            output_buffer_len: challenger.output_buffer.len(),
-        }
-    }
-}
-
-impl BabyBearFriConfig for BabyBearPoseidon2Outer {
-    type ValMmcs = OuterValMmcs;
-    type FriChallenger = <Self as StarkGenericConfig>::Challenger;
-
-    type RowMajorProverData =
-        <OuterValMmcs as Mmcs<BabyBear>>::ProverData<RowMajorMatrix<BabyBear>>;
-
-    fn fri_config(&self) -> &FriConfig<FriMmcs<Self>> {
-        self.pcs().fri_config()
-    }
-
-    fn challenger_shape(_challenger: &Self::FriChallenger) -> SpongeChallengerShape {
-        unimplemented!("Shape not supported for outer fri challenger");
-    }
-}
 
 impl<C: CircuitConfig<F = BabyBear, Bit = Felt<BabyBear>>> BabyBearFriConfigVariable<C>
     for BabyBearPoseidon2

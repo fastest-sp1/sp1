@@ -79,6 +79,19 @@ fn main() {
         
     println!("cargo:warning=Using hardcoded relative path for sp1-core-machine include: {}", core_machine_include_path.to_string_lossy());
 
+    let recursion_core_include_path = crate_dir
+            .parent() // Move from 'stark' up to 'crates'
+            .unwrap()
+            .join("recursion")
+            .join("core")
+            .join("include");
+
+    if !recursion_core_include_path.exists() {
+        panic!("Could not find sp1-core-machine include directory at hardcoded path: {:?}", recursion_core_include_path);
+    }
+        
+    println!("cargo:warning=Using hardcoded relative path for sp1-core-machine include: {}", recursion_core_include_path.to_string_lossy());
+
 
     // --- 3. Source File Discovery ---
 
@@ -115,7 +128,8 @@ fn main() {
             "--expt-relaxed-constexpr",
             // Include paths for our own headers and any dependency headers.
             &format!("-I{}", target_include_dir.to_str().unwrap()),
-             &format!("-I{}", core_machine_include_path.to_str().unwrap()),
+            &format!("-I{}", core_machine_include_path.to_str().unwrap()),
+            &format!("-I{}", recursion_core_include_path.to_str().unwrap()),
         ];
 
     let mut object_files = Vec::new();
@@ -159,9 +173,7 @@ fn main() {
             panic!("Failed to create static library with ar.");
     }
 
-    let lib_path = out_dir.join(format!("lib{}.a", LIB_NAME));
-        
-    // --- Linker Instructions ---
+     // --- Linker Instructions ---
     println!("cargo:rustc-link-search=native={}", out_dir.to_str().unwrap());
     println!("cargo:rustc-link-lib=static={}", LIB_NAME);
         

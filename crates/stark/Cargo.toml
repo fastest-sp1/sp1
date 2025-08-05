@@ -17,6 +17,7 @@ sp1-primitives = { workspace = true }
 spin = "0.9.8"
 
 # p3
+p3-monty-31 = { workspace = true }
 p3-air = { workspace = true }
 p3-field = { workspace = true }
 p3-matrix = { workspace = true }
@@ -31,7 +32,9 @@ p3-fri = { workspace = true }
 p3-merkle-tree = { workspace = true }
 p3-symmetric = { workspace = true }
 p3-poseidon2 = { workspace = true }
+p3-interpolation = { workspace = true }
 
+serde_json = "1.0" #debug
 # misc
 serde = { workspace = true, features = ["derive"] }
 hashbrown = { version = "0.14.5", features = ["serde", "inline-more"] }
@@ -53,6 +56,12 @@ recursion_cuda = []
 [dev-dependencies]
 sp1-zkvm = { path = "../zkvm/entrypoint" }
 rand = "0.8.5" 
+rand_xoshiro = "0.6.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+p3-field = { workspace = true }
+p3-baby-bear = { workspace = true }
+rayon = "1.8"
 
 [build-dependencies]
 p3-baby-bear = { workspace = true }

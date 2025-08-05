@@ -10,9 +10,11 @@ use itertools::{izip, Itertools};
 use p3_air::Air;
 use p3_baby_bear::BabyBear;
 
-use p3_commit::Mmcs;
-use p3_field::PrimeCharacteristicRing;
 use p3_matrix::dense::RowMajorMatrix;
+use p3_challenger::{CanObserve, GrindingChallenger, FieldChallenger, CanSample};
+use p3_commit::{Mmcs, Pcs};
+use p3_field::coset::TwoAdicMultiplicativeCoset;
+use p3_field::PrimeCharacteristicRing;
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sp1_recursion_compiler::ir::{Builder, Felt, SymbolicFelt};
@@ -34,8 +36,10 @@ use crate::{
         root_public_values_digest,
     },
     stark::{dummy_vk_and_shard_proof, ShardProofVariable, StarkVerifier},
-    BabyBearFriConfig, BabyBearFriConfigVariable, CircuitConfig, VerifyingKeyVariable,
+    BabyBearFriConfig,  BabyBearFriConfigVariable, CircuitConfig, VerifyingKeyVariable,
+    EF, FriMmcs, 
 };
+//use sp1_stark::BabyBearFriConfig;//cuda
 
 use sp1_recursion_compiler::circuit::CircuitV2Builder;
 /// A program to verify a batch of recursive proofs and aggregate their public values.
@@ -53,7 +57,21 @@ pub enum PublicValuesOutputDigest {
 pub struct SP1CompressWitnessVariable<
     C: CircuitConfig<F = BabyBear>,
     SC: BabyBearFriConfigVariable<C>,
-> {
+> 
+where
+    SC::Challenger: CanObserve<<SC::ValMmcs as Mmcs<BabyBear>>::Commitment>
+        + CanObserve<<FriMmcs<SC> as Mmcs<EF>>::Commitment>
+        + CanSample<EF>
+        + GrindingChallenger<Witness = BabyBear>
+        + FieldChallenger<BabyBear>,
+    SC::Pcs: Pcs<
+        EF,
+        SC::Challenger,
+        ProverData: Clone + Send + Sync,
+        Proof: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>,
+    >,
+    SC::ValMmcs: Mmcs<BabyBear, ProverData<RowMajorMatrix<BabyBear>> = SC::RowMajorProverData>,
+{
     /// The shard proofs to verify.
     pub vks_and_proofs: Vec<(VerifyingKeyVariable<C, SC>, ShardProofVariable<C, SC>)>,
     pub is_complete: Felt<C::F>,
@@ -79,6 +97,19 @@ where
     C: CircuitConfig<F = SC::Val, EF = SC::Challenge>,
     <SC::ValMmcs as Mmcs<BabyBear>>::ProverData<RowMajorMatrix<BabyBear>>: Clone,
     A: MachineAir<SC::Val> + for<'a> Air<RecursiveVerifierConstraintFolder<'a, C>>,
+    SC::Challenger: CanObserve<<SC::ValMmcs as Mmcs<BabyBear>>::Commitment>
+        + CanObserve<<FriMmcs<SC> as Mmcs<EF>>::Commitment>
+        + CanSample<EF>
+        + GrindingChallenger<Witness = BabyBear>
+        + FieldChallenger<BabyBear>,
+    SC::Pcs: Pcs<
+        EF,
+        SC::Challenger,
+        ProverData: Clone + Send + Sync,
+        Proof: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>,
+        Domain = TwoAdicMultiplicativeCoset<C::F>,
+    >,
+    SC::ValMmcs: Mmcs<BabyBear, ProverData<RowMajorMatrix<BabyBear>> = SC::RowMajorProverData>,
 {
     /// Verify a batch of recursive proofs and aggregate their public values.
     ///
@@ -500,7 +531,21 @@ where
     }
 }
 
-impl<SC: BabyBearFriConfig> SP1CompressWitnessValues<SC> {
+impl<SC: BabyBearFriConfig> SP1CompressWitnessValues<SC> 
+where
+    SC::Challenger: CanObserve<<SC::ValMmcs as Mmcs<BabyBear>>::Commitment>
+        + CanObserve<<FriMmcs<SC> as Mmcs<EF>>::Commitment>
+        + CanSample<EF>
+        + GrindingChallenger<Witness = BabyBear>
+        + FieldChallenger<BabyBear>,
+    SC::Pcs: Pcs<
+        EF,
+        SC::Challenger,
+        ProverData: Clone + Send + Sync,
+        Proof: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>,
+    >,
+    SC::ValMmcs: Mmcs<BabyBear, ProverData<RowMajorMatrix<BabyBear>> = SC::RowMajorProverData>,
+{
     pub fn shape(&self) -> SP1CompressShape {
         let proof_shapes = self.vks_and_proofs.iter().map(|(_, proof)| proof.shape()).collect();
         SP1CompressShape { proof_shapes }
