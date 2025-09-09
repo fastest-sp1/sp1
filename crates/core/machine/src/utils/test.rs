@@ -2,6 +2,7 @@ use p3_air::Air;
 use p3_baby_bear::BabyBear;
 use p3_matrix::dense::RowMajorMatrix;
 use p3_uni_stark::SymbolicAirBuilder;
+use p3_field::{ TwoAdicField, coset::TwoAdicMultiplicativeCoset};
 use serde::{de::DeserializeOwned, Serialize};
 use sp1_core_executor::{ExecutionRecord, Executor, Program, SP1Context};
 use sp1_primitives::io::SP1PublicValues;
@@ -10,7 +11,7 @@ use sp1_stark::{
     DebugConstraintBuilder, InteractionBuilder, MachineProof, MachineProver, MachineRecord,
     MachineVerificationError, OpeningProof, PcsProverData, ProverConstraintFolder, SP1CoreOpts,
     StarkGenericConfig, StarkMachine, StarkProvingKey, StarkVerifyingKey, Val,
-    VerifierConstraintFolder,
+    VerifierConstraintFolder, InnerVal, InnerChallenge,
 };
 
 use crate::{io::SP1Stdin, riscv::RiscvAir, shape::CoreShapeConfig};
@@ -181,6 +182,11 @@ where
     Com<SC>: Send + Sync,
     PcsProverData<SC>: Send + Sync + Serialize + DeserializeOwned,
     OpeningProof<SC>: Send + Sync,
+    //GPU
+    <SC as StarkGenericConfig>::Domain: Into<TwoAdicMultiplicativeCoset<SC::Val>>,
+    <SC as StarkGenericConfig>::Val: TwoAdicField,
+    <SC as StarkGenericConfig>::Val: Into<InnerVal>, 
+    <SC as StarkGenericConfig>::Challenge: Into<InnerChallenge>,
 {
     let prover = CpuProver::new(machine);
     run_test_machine_with_prover::<SC, A, CpuProver<_, _>>(&prover, records, pk, vk)

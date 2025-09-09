@@ -90,34 +90,6 @@ impl Pcs<Challenge, Challenger> for GpuPcs {
         )
     }
 
-    #[cfg(feature = "recursion_cuda")]
-    fn commit(
-        &self,
-        evaluations: impl IntoIterator<Item = (Self::Domain, RowMajorMatrix<Val>)>,
-    ) -> (Self::Commitment, Self::ProverData) {
-        let lde_requests: Vec<_> = evaluations
-                .into_iter()
-                .map(|(domain, evals)| {
-                    let shift = Val::GENERATOR / domain.shift();
-                    (evals, self.inner_pcs.fri_config().log_blowup, shift)
-                })
-                .collect();
-    
-        // 2. Perform batched LDE, with results staying on the GPU.
-        //let lde_gpu_handle = self.inner_pcs.dft.batch_coset_lde_on_gpu(lde_requests);
-        let lde_gpu_handle = GpuDft::batch_coset_lde_on_gpu(&self.inner_pcs.dft, lde_requests);
-        
-        // 3. Download the LDE results to CPU *once* for ProverData storage.
-        //let ldes_for_prover_data = self.inner_pcs.dft.download_lde_batch(&lde_gpu_handle);
-        let ldes_for_prover_data = GpuDft::download_lde_batch(&self.inner_pcs.dft, &lde_gpu_handle);
-
-        // 4. Commit to the data that is already on the GPU.
-        // This is the key step that avoids the Host-to-Device copy.
-        self.inner_pcs.mmcs.commit_on_gpu(lde_gpu_handle, ldes_for_prover_data)
-
-    }
-
-    #[cfg(not(feature = "recursion_cuda"))]
     fn commit(
         &self,
         evaluations: impl IntoIterator<Item = (Self::Domain, RowMajorMatrix<Val>)>,
@@ -143,13 +115,8 @@ impl Pcs<Challenge, Challenger> for GpuPcs {
         rounds: Vec<(&Self::ProverData, Vec<Vec<Challenge>>)>,
         challenger: &mut Challenger,
     ) -> (OpenedValues<Challenge>, Self::Proof) {
-        
-        //debug
-        let start = std::time::Instant::now();
-        println!("INFO: Using  GPU-accelerated `open` method!, rounds.len:{}", rounds.len());
         // This entire function body is a carefully adapted version of the original
         // `TwoAdicFriPcs::open` method.
-
         let mats_and_points = rounds
             .iter()
             .map(|(data, points)| {
@@ -232,10 +199,6 @@ impl Pcs<Challenge, Challenger> for GpuPcs {
         //no packing
         let alpha_powers: Vec<Challenge> = alpha.powers().take(global_max_width).collect();
 
-        //debug
-        let duration = start.elapsed();
-        println!("-- GPU-open-stage-1 , duration:{:?}", duration);
-
         // --- GPU-accelerated Quotient Polynomial Computation ---
         // --- Group matrices by log_height ---
         let mut matrices_by_log_height: BTreeMap<usize, Vec<FfiMatrixData<Val, Challenge>>> = BTreeMap::new();
@@ -295,21 +258,13 @@ impl Pcs<Challenge, Challenger> for GpuPcs {
             reduced_openings[log_height] = Some(quotient_evals);
         }
 
-        //debug
-        let duration = start.elapsed();
-        println!("-- GPU-open-stage-2 , duration:{:?}", duration);
-
         let (fri_proof, query_indices) = prove_gpu(
             &self.inner_pcs.fri,
             &reduced_openings,
             challenger,
         );
         
-        // Then do the batched query phase...
-         //debug
-        let duration = start.elapsed();
-        println!("-- GPU-open-stage-3 , duration:{:?}", duration);
-            
+        // Then do the batched query phase...    
        // Step 1: Collect all queries into a map.
         let mut queries_by_data: BatchedQueries = BTreeMap::new(); //save <Self::ProverData>
         for index in &query_indices {
@@ -359,10 +314,6 @@ impl Pcs<Challenge, Challenger> for GpuPcs {
             })
             .collect();
         
-        //debug
-        let duration = start.elapsed();
-        println!("-- GPU-open-stage-4 , duration:{:?}", duration);
-
         (
             all_opened_values,
             TwoAdicFriPcsProof {

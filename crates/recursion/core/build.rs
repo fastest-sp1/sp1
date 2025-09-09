@@ -123,6 +123,7 @@ mod sys {
             .exclude_item("fri_pcs_compute_quotient_for_height_gpu") //sp1-stark/src/gpu/ffi function
             .exclude_item("fold_even_odd_gpu")
             .exclude_item("fri_commit_on_gpu")
+            .exclude_item("quotient_values_gpu")
             .exclude_item("fri_fold_on_gpu")
             .exclude_item("fri_injection_gpu")
             .exclude_item("compute_and_accumulate_quotient_gpu")

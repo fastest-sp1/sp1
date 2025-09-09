@@ -92,7 +92,8 @@ __global__ void apply_coset_shift_kernel(F* data, int h, int w, F shift) {
 
     // Decompose the flat index `idx` into row `r` and column `c`.
     int r = idx / w;
-     
+    //int c = idx % w;
+    
     // Calculate the power for the current row `r`.
     // Each thread calculates its required power independently.
     F shift_power = shift ^ (uint32_t)r;
@@ -127,6 +128,235 @@ __global__ void transpose_kernel(const F* in, F* out, int h, int w) {
     // Write the transposed tile from shared `tile` memory to global `out` memory
     if (x < h && y < w) {
         out[(size_t)y * h + x] = tile[threadIdx.x][threadIdx.y];
+    }
+}
+
+
+// --- KERNEL 2: Fused LDE on a single, contiguous row ---
+// This kernel performs the entire LDE process for one row (original column).
+//limit: the matrix height <=4096
+template <typename F>
+__global__ void fused_row_lde_kernel(
+    const F* transposed_in, // Input: w x h matrix (rows are original columns)
+    F* transposed_out,      // Output: w x lde_h matrix
+    int h, int w, int log_h,
+    int lde_h, int log_lde_h, F shift,
+    const F* inv_twiddles, const F* fwd_twiddles)
+{
+    // Each block handles one row of the transposed matrix (an original column)
+    int r_new = blockIdx.x; 
+    if (r_new >= w) return;
+    
+    // Shared memory for one entire row, which will be expanded to lde_h.
+    // The FFI function must allocate enough shared memory for lde_h.
+    extern __shared__ F sh_data[];
+    
+    const F* row_in = transposed_in + (size_t)r_new * h;
+    F* row_out = transposed_out + (size_t)r_new * lde_h;
+
+    // --- Stage A: IDFT in Shared Memory ---
+    // A.1: Load one row (original column) into shared memory. This is a coalesced read.
+    for(int i = threadIdx.x; i < h; i += blockDim.x) {
+        sh_data[i] = row_in[i];
+    }
+    __syncthreads();
+
+    // A.2: Perform DIT IFFT (bit_rev -> layers -> bit_rev -> scale) on `sh_data`.
+    // bit-reverse
+    for(int i = threadIdx.x; i < h; i += blockDim.x) {
+        int rev_i = reverse_bits(i, log_h);
+        if (i < rev_i) { F temp = sh_data[i]; sh_data[i] = sh_data[rev_i]; sh_data[rev_i] = temp; }
+    }
+    __syncthreads();
+
+    // butterfly layers
+    for (int layer = 0; layer < log_h; ++layer) {
+        int m = 1 << layer, m2 = 2 * m;
+        for (int j = threadIdx.x; j < m; j += blockDim.x) {
+            F twiddle = inv_twiddles[j * (h / m2)];
+            for (int k = 0; k < h; k += m2) {
+                int idx1 = k + j;
+                int idx2 = idx1 + m;
+                F u = sh_data[idx1], v = sh_data[idx2] * twiddle;
+                sh_data[idx1] = u + v;
+                sh_data[idx2] = u - v;
+            }
+        }
+        __syncthreads();
+    }
+/*
+    // bit-reverse again for natural order
+    for(int i = threadIdx.x; i < h; i += blockDim.x) {
+        int rev_i = reverse_bits(i, log_h);
+        if (i < rev_i) { F temp = sh_data[i]; sh_data[i] = sh_data[rev_i]; sh_data[rev_i] = temp; }
+    }
+    __syncthreads(); */
+    
+    // scale
+    F h_inv = F(F::to_monty(h)).reciprocal();
+    for(int i = threadIdx.x; i < h; i += blockDim.x) {
+        sh_data[i] = sh_data[i] * h_inv;
+    }
+    // `sh_data` (first h elements) now contains natural order coefficients.
+
+    // --- Stage B: Pad and Shift in Shared Memory ---
+    // Pad the rest of the shared memory with zeros.
+    for(int i = threadIdx.x; i < lde_h; i += blockDim.x) {
+        if (i >= h) sh_data[i] = F(0);
+    }
+    __syncthreads();
+
+    // Apply shift to all lde_h coefficients.
+    if (shift != F(F::to_monty(1))) {
+        for(int i = threadIdx.x; i < lde_h; i += blockDim.x) {
+            sh_data[i] = sh_data[i] * (shift ^ (uint32_t)i);
+        }
+        __syncthreads();
+    }
+
+    // --- Stage C: Forward DFT in Shared Memory ---
+    // Perform DIT FFT (bit_rev -> layers) on the full `sh_data` buffer.
+    // The result will be natural order LDE evaluations.
+    for(int i = threadIdx.x; i < lde_h; i += blockDim.x) {
+        int rev_i = reverse_bits(i, log_lde_h);
+        if (i < rev_i) { F temp = sh_data[i]; sh_data[i] = sh_data[rev_i]; sh_data[rev_i] = temp; }
+    }
+    __syncthreads();
+    
+    for (int layer = 0; layer < log_lde_h; ++layer) {
+        int m = 1 << layer, m2 = 2 * m;
+        for (int j = threadIdx.x; j < m; j += blockDim.x) {
+            F twiddle = fwd_twiddles[j * (lde_h / m2)];
+            for (int k = 0; k < lde_h; k += m2) {
+                int idx1 = k + j;
+                int idx2 = idx1 + m;
+                F u = sh_data[idx1], v = sh_data[idx2] * twiddle;
+                sh_data[idx1] = u + v;
+                sh_data[idx2] = u - v;
+            }
+        }
+        __syncthreads();
+    }
+    // `sh_data` now contains natural order LDE evaluations.
+
+    // --- Stage D: Write back to global memory ---
+    // The final output needs to be natural order to match NaiveDft, or
+    // bit-reversed to match Radix2DitParallel. Let's assume natural for now.
+    for(int i = threadIdx.x; i < lde_h; i += blockDim.x) {
+        row_out[i] = sh_data[i];
+    }
+}
+
+//v2
+template <typename F>
+__global__ void fused_row_lde_kernel_global_mem(
+    const F* transposed_in, // Input: w x h matrix (rows are original columns)
+    F* transposed_out,      // Output: w x lde_h matrix
+    F* temp_buffer,         // A temporary buffer of size lde_h per column
+    int h, int w, int log_h,
+    int lde_h, int log_lde_h, F shift,
+    const F* inv_twiddles, const F* fwd_twiddles)
+{
+    // Each block handles one row of the transposed matrix (an original column)
+    int c = blockIdx.x; 
+    if (c >= w) return;
+    
+    const F* row_in = transposed_in + (size_t)c * h;
+    F* row_out = transposed_out + (size_t)c * lde_h;
+    F* temp_row = temp_buffer + (size_t)c * lde_h; // Each column gets its own temp space
+
+    // --- Stage A: IDFT ---
+    // A.1: Load one row into the temporary global buffer. This is a coalesced read.
+    for(int i = threadIdx.x; i < h; i += blockDim.x) {
+        temp_row[i] = row_in[i];
+    }
+    // No __syncthreads() needed yet, as we are writing to distinct parts of temp_row.
+    // However, it is good practice to sync after a data loading phase.
+    __syncthreads();
+
+
+    // A.2: Perform DIT IFFT (bit_rev -> layers -> bit_rev -> scale) on `temp_row`.
+    // bit-reverse
+    for(int i = threadIdx.x; i < h; i += blockDim.x) {
+        int rev_i = reverse_bits(i, log_h);
+        if (i < rev_i) { F temp = temp_row[i]; temp_row[i] = temp_row[rev_i]; temp_row[rev_i] = temp; }
+    }
+    __syncthreads();
+
+    // butterfly layers
+    for (int layer = 0; layer < log_h; ++layer) {
+        int m = 1 << layer, m2 = 2 * m;
+        for (int j = threadIdx.x; j < h / 2; j += blockDim.x) {
+            int k = (j / m) * m2;
+            int j_in_block = j % m;
+            F twiddle = inv_twiddles[j_in_block * (h / m2)];
+            int idx1 = k + j_in_block;
+            int idx2 = idx1 + m;
+            F u = temp_row[idx1], v = temp_row[idx2] * twiddle;
+            temp_row[idx1] = u + v;
+            temp_row[idx2] = u - v;
+        }
+        __syncthreads(); // Crucial: sync after each layer is complete
+    }
+
+    // bit-reverse again for natural order
+    /*for(int i = threadIdx.x; i < h; i += blockDim.x) {
+        int rev_i = reverse_bits(i, log_h);
+        if (i < rev_i) { F temp = temp_row[i]; temp_row[i] = temp_row[rev_i]; temp_row[rev_i] = temp; }
+    }
+    __syncthreads(); */
+    
+    // scale
+    F h_inv = F(F::to_monty(h)).reciprocal();
+    for(int i = threadIdx.x; i < h; i += blockDim.x) {
+        temp_row[i] = temp_row[i] * h_inv;
+    }
+    // `temp_row` (first h elements) now contains natural order coefficients.
+
+    // --- Stage B: Pad and Shift ---
+    // Pad the rest of the temporary buffer with zeros.
+    for(int i = threadIdx.x; i < lde_h; i += blockDim.x) {
+        if (i >= h) temp_row[i] = F(0);
+    }
+    __syncthreads();
+
+    // Apply shift to all lde_h coefficients.
+    if (shift != F(F::to_monty(1))) {
+        for(int i = threadIdx.x; i < lde_h; i += blockDim.x) {
+            temp_row[i] = temp_row[i] * (shift ^ (uint32_t)i);
+        }
+        __syncthreads();
+    }
+
+    // --- Stage C: Forward DFT ---
+    // Perform DIT FFT (bit_rev -> layers) on the full `temp_row` buffer.
+    // Result will be natural order LDE evaluations.
+    for(int i = threadIdx.x; i < lde_h; i += blockDim.x) {
+        int rev_i = reverse_bits(i, log_lde_h);
+        if (i < rev_i) { F temp = temp_row[i]; temp_row[i] = temp_row[rev_i]; temp_row[rev_i] = temp; }
+    }
+    __syncthreads();
+    
+    for (int layer = 0; layer < log_lde_h; ++layer) {
+        int m = 1 << layer, m2 = 2 * m;
+        for (int j = threadIdx.x; j < lde_h / 2; j += blockDim.x) {
+             int k = (j / m) * m2;
+             int j_in_block = j % m;
+             F twiddle = fwd_twiddles[j_in_block * (lde_h / m2)];
+             int idx1 = k + j_in_block;
+             int idx2 = idx1 + m;
+             F u = temp_row[idx1], v = temp_row[idx2] * twiddle;
+             temp_row[idx1] = u + v;
+             temp_row[idx2] = u - v;
+        }
+        __syncthreads();
+    }
+
+    // --- Stage D: Write final result to output buffer ---
+    // The final output should be bit-reversed to match Radix2DitParallel
+    for(int i = threadIdx.x; i < lde_h; i += blockDim.x) {
+        //row_out[reverse_bits(i, log_lde_h)] = temp_row[i];
+        row_out[i] = temp_row[i];
     }
 }
 
@@ -268,6 +498,15 @@ extern "C" int fast_coset_lde_batch_gpu(//pass
 
     scale_by_inv_h_kernel<bb31_t><<<grid_dim_flat_h, block_dim>>>(d_data, h, w); //the result is ok.(=idft)
 
+   /* //test
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(data, d_data, h * w * sizeof(bb31_t), cudaMemcpyDeviceToHost));
+    printf("---CUDA coeffs:");
+    for(int i=0; i< h*w; ++i){
+        printf(" %u ", data[i].as_canonical_u32());
+    }*/
+
+
     // === Stage 2: Zero-Padding ===
     // This must happen BEFORE the shift, as the shift applies to padded coefficients.
     if (added_bits > 0) {
@@ -329,340 +568,95 @@ extern "C" int stark_transpose_gpu(
     return 0;
 }
 
-
-// It works on pre-allocated device pointers and runs on a specific stream.
-void run_single_lde_from_evals_async(
-    const bb31_t* d_evals_in,      // Input: device pointer to evaluations
-    bb31_t* d_lde_out,             // Output: device pointer for LDE results
-    int h, int w, int log_h,
-    int lde_h, int log_lde_h, bb31_t shift,
-    const bb31_t* d_inv_twiddles,
-    const bb31_t* d_fwd_twiddles,
-    cudaStream_t stream
-) {
-    // We use `d_lde_out` as our scratch space. It must be large enough for the LDE.
-    bb31_t* d_temp_buffer = d_lde_out;
-
-    int num_threads = 256;
-    dim3 block_dim(num_threads);
-    dim3 grid_dim_flat_h(((size_t)h * w + num_threads - 1) / num_threads);
-    dim3 grid_dim_cols_h(w);
-
-    // Copy the input evals into the temp buffer to start.
-    CUDA_CHECK(cudaMemcpyAsync(d_temp_buffer, d_evals_in, (size_t)h * w * sizeof(bb31_t), cudaMemcpyDeviceToDevice, stream));
-
-    // === Stage 1: IDFT to get coefficients (in-place on `d_temp_buffer`) ===
-    bit_reverse_rows_kernel<bb31_t><<<grid_dim_flat_h, block_dim, 0, stream>>>(d_temp_buffer, h, w, log_h);
-    for (int layer = 0; layer < log_h; ++layer) {
-        fft_layer_row_major_kernel<bb31_t><<<grid_dim_cols_h, block_dim, 0, stream>>>(d_temp_buffer, h, w, layer, d_inv_twiddles);
-    }
-    scale_by_inv_h_kernel<bb31_t><<<grid_dim_flat_h, block_dim, 0, stream>>>(d_temp_buffer, h, w);
+extern "C" int op_fast_coset_lde_batch_gpu(
+    bb31_t* data, 
+    int h, 
+    int w, 
+    int added_bits, 
+    bb31_t shift,
+    const bb31_t* inverse_twiddles, 
+    const bb31_t* forward_twiddles_lde)
+{
+    if (h == 0 || w == 0) return 0;
     
-    // `d_temp_buffer` now contains coefficients up to h*w.
+    int log_h = integer_log2(h);
+    int log_lde_h = log_h + added_bits;
+    size_t lde_h = 1 << log_lde_h;
+
+    // --- 1. GPU Memory Allocation ---
+    bb31_t *d_in, *d_out, *d_transposed_in, *d_transposed_out, *d_inv_twiddles, *d_fwd_twiddles;
+    CUDA_CHECK(cudaMalloc(&d_in, (size_t)h * w * sizeof(bb31_t)));
+    CUDA_CHECK(cudaMalloc(&d_out, lde_h * w * sizeof(bb31_t)));
+    CUDA_CHECK(cudaMalloc(&d_transposed_in, (size_t)w * h * sizeof(bb31_t))); // Note transposed dimensions
+    CUDA_CHECK(cudaMalloc(&d_transposed_out, (size_t)w * lde_h * sizeof(bb31_t)));
     
-    // === Stage 2: Pad with zeros and apply shift (in-place) ===
-    if (lde_h > h) {
-        CUDA_CHECK(cudaMemsetAsync(d_temp_buffer + (size_t)h * w, 0, (size_t)(lde_h - h) * w * sizeof(bb31_t), stream));
-    }
-    if (shift != bb31_t(bb31_t::to_monty(1))) {
-        dim3 grid_dim_shift(((size_t)lde_h * w + num_threads - 1) / num_threads);
-        apply_coset_shift_kernel<bb31_t><<<grid_dim_shift, block_dim, 0, stream>>>(d_temp_buffer, lde_h, w, shift);
-    }
+    CUDA_CHECK(cudaMalloc(&d_inv_twiddles, (size_t)h / 2 * sizeof(bb31_t)));
+    CUDA_CHECK(cudaMalloc(&d_fwd_twiddles, (size_t)lde_h / 2 * sizeof(bb31_t)));
 
-    // === Stage 3: Forward DFT to get final LDEs (in-place) ===
-    dim3 grid_dim_flat_lde(((size_t)lde_h * w + num_threads - 1) / num_threads);
-    dim3 grid_dim_cols_lde(w);
-    bit_reverse_rows_kernel<bb31_t><<<grid_dim_flat_lde, block_dim, 0, stream>>>(d_temp_buffer, lde_h, w, log_lde_h);
-    for (int layer = 0; layer < log_lde_h; ++layer) {
-        fft_layer_row_major_kernel<bb31_t><<<grid_dim_cols_lde, block_dim, 0, stream>>>(d_temp_buffer, lde_h, w, layer, d_fwd_twiddles);
-    }
-    // Final bit reversal to match Radix2DitParallel
-    bit_reverse_rows_kernel<bb31_t><<<grid_dim_flat_lde, block_dim, 0, stream>>>(d_temp_buffer, lde_h, w, log_lde_h);
-}
+    bb31_t *d_temp_buffer;
+    CUDA_CHECK(cudaMalloc(&d_temp_buffer, (size_t)w * lde_h * sizeof(bb31_t)));
+
+    CUDA_CHECK(cudaMemcpy(d_inv_twiddles, inverse_twiddles, (size_t)h / 2 * sizeof(bb31_t), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_fwd_twiddles, forward_twiddles_lde, (size_t)lde_h / 2 * sizeof(bb31_t), cudaMemcpyHostToDevice));
 
 
-//sync
-void run_single_lde_from_evals(
-    const bb31_t* d_evals_in,      // Input: device pointer to evaluations
-    bb31_t* d_lde_out,             // Output: device pointer for LDE results
-    int h, int w, int log_h,
-    int lde_h, int log_lde_h, bb31_t shift,
-    const bb31_t* d_inv_twiddles,
-    const bb31_t* d_fwd_twiddles
-) {
-    // We use `d_lde_out` as our scratch space. It must be large enough for the LDE.
-    bb31_t* d_temp_buffer = d_lde_out;
+    CUDA_CHECK(cudaMemcpy(d_in, data, (size_t)h * w * sizeof(bb31_t), cudaMemcpyHostToDevice));
 
-    int num_threads = 256;
-    dim3 block_dim(num_threads);
-    dim3 grid_dim_flat_h(((size_t)h * w + num_threads - 1) / num_threads);
-    dim3 grid_dim_cols_h(w);
+    // --- 2. Transpose h x w -> w x h ---
+    dim3 grid_dim_t1((w + TILE_DIM - 1) / TILE_DIM, (h + TILE_DIM - 1) / TILE_DIM);
+    dim3 block_dim_t(TILE_DIM, TILE_DIM);
+    transpose_kernel<bb31_t><<<grid_dim_t1, block_dim_t>>>(d_in, d_transposed_in, h, w);
+    CUDA_CHECK(cudaGetLastError());
 
-    // Copy the input evals into the temp buffer to start.
-    CUDA_CHECK(cudaMemcpy(d_temp_buffer, d_evals_in, (size_t)h * w * sizeof(bb31_t), cudaMemcpyDeviceToDevice));
-
-    // === Stage 1: IDFT to get coefficients (in-place on `d_temp_buffer`) ===
-    bit_reverse_rows_kernel<bb31_t><<<grid_dim_flat_h, block_dim, 0>>>(d_temp_buffer, h, w, log_h);
-    for (int layer = 0; layer < log_h; ++layer) {
-        fft_layer_row_major_kernel<bb31_t><<<grid_dim_cols_h, block_dim, 0>>>(d_temp_buffer, h, w, layer, d_inv_twiddles);
-    }
-    scale_by_inv_h_kernel<bb31_t><<<grid_dim_flat_h, block_dim, 0>>>(d_temp_buffer, h, w);
+    // --- 3. Launch the Fused LDE Kernel ---
     
-    // `d_temp_buffer` now contains coefficients up to h*w.
+    /* 
+    dim3 grid_dim_fused(w);      // w blocks, one for each row of the transposed matrix
+    dim3 block_dim_fused(256); // Threads per block, tunable
     
-    // === Stage 2: Pad with zeros and apply shift (in-place) ===
-    if (lde_h > h) {
-        CUDA_CHECK(cudaMemset(d_temp_buffer + (size_t)h * w, 0, (size_t)(lde_h - h) * w * sizeof(bb31_t)));
+    //if the height =8192, shmem_size may exceeds   device limit !
+    size_t shmem_size = lde_h * sizeof(bb31_t); // Shared memory for one full expanded column
+    // Check if shared memory request is valid
+    // This is a host-side check before launching the kernel
+    int max_shmem_per_block;
+    cudaDeviceGetAttribute(&max_shmem_per_block, cudaDevAttrMaxSharedMemoryPerBlock, 0);
+    if (shmem_size > max_shmem_per_block) {
+        fprintf(stderr, "Error: Requested shared memory size (%zu bytes) exceeds device limit (%d bytes).\n", shmem_size, max_shmem_per_block);
+        // ... cleanup and return error ...
+        return -1;
     }
-    if (shift != bb31_t(bb31_t::to_monty(1))) {
-        dim3 grid_dim_shift(((size_t)lde_h * w + num_threads - 1) / num_threads);
-        apply_coset_shift_kernel<bb31_t><<<grid_dim_shift, block_dim, 0>>>(d_temp_buffer, lde_h, w, shift);
-    }
+    
+    fused_row_lde_kernel<bb31_t><<<grid_dim_fused, block_dim_fused, shmem_size>>>(
+        d_transposed_in, d_transposed_out, h, w, log_h, lde_h, log_lde_h,
+        shift, d_inv_twiddles, d_fwd_twiddles); */
 
-    // === Stage 3: Forward DFT to get final LDEs (in-place) ===
-    dim3 grid_dim_flat_lde(((size_t)lde_h * w + num_threads - 1) / num_threads);
-    dim3 grid_dim_cols_lde(w);
-    bit_reverse_rows_kernel<bb31_t><<<grid_dim_flat_lde, block_dim, 0>>>(d_temp_buffer, lde_h, w, log_lde_h);
-    for (int layer = 0; layer < log_lde_h; ++layer) {
-        fft_layer_row_major_kernel<bb31_t><<<grid_dim_cols_lde, block_dim, 0>>>(d_temp_buffer, lde_h, w, layer, d_fwd_twiddles);
-    }
-    // Final bit reversal to match Radix2DitParallel
-    bit_reverse_rows_kernel<bb31_t><<<grid_dim_flat_lde, block_dim, 0>>>(d_temp_buffer, lde_h, w, log_lde_h);
-    CUDA_CHECK(cudaDeviceSynchronize());
+    //v2
+    dim3 grid_dim(w);
+    dim3 block_dim(256);
+    fused_row_lde_kernel_global_mem<bb31_t><<<grid_dim, block_dim>>>(
+        d_transposed_in, d_transposed_out, d_temp_buffer,
+        h, w, log_h, lde_h, log_lde_h,
+        shift, d_inv_twiddles, d_fwd_twiddles);
 
-}
 
-//async
-// The FFI function that orchestrates the batch.
-extern "C" int dft_batch_lde_on_gpu(
-    const bb31_t* h_evals_flat,
-    size_t total_evals_elements,
-    const int* h_poly_info,         // Array of [h, w, log_blowup] triples
-    const bb31_t* h_shifts,
-    int num_polys,
-
-    // ================== Twiddles for BOTH directions ==================
-    const bb31_t* h_all_inv_twiddles,
-    const int* h_inv_twiddle_offsets,
-    const bb31_t* h_all_fwd_twiddles,
-    const int* h_fwd_twiddle_offsets,
-    // ===============================================================
-
-    // Outputs
-    void** d_ldes_flat_out,
-    size_t* total_lde_elements_out
-) {
-    if (num_polys == 0) {
-        *d_ldes_flat_out = nullptr;
-        *total_lde_elements_out = 0;
-        return 0;
-    }
-
-    // --- 1. Calculate output size and other metadata ---
-    std::vector<size_t> lde_element_counts;
-    size_t total_lde_elements = 0;
-    int max_log_h = 0;
-    int max_log_lde_h = 0;
-    std::vector<int> log_hs;
-    std::vector<int> log_lde_hs;
-
-    for (int i = 0; i < num_polys; ++i) {
-        int h = h_poly_info[i * 3 + 0];
-        int w = h_poly_info[i * 3 + 1];
-        int log_blowup = h_poly_info[i * 3 + 2];
-        int log_h = integer_log2(h);
-        int log_lde_h = log_h + log_blowup;
-
-        log_hs.push_back(log_h);
-        log_lde_hs.push_back(log_lde_h);
-        if (log_h > max_log_h) max_log_h = log_h;
-        if (log_lde_h > max_log_lde_h) max_log_lde_h = log_lde_h;
-        
-        size_t lde_size = (size_t)(1 << log_lde_h) * w;
-        lde_element_counts.push_back(lde_size);
-        total_lde_elements += lde_size;
-    }
-
-    *total_lde_elements_out = total_lde_elements;
-    CUDA_CHECK(cudaMalloc(d_ldes_flat_out, total_lde_elements * sizeof(bb31_t)));
-
-    // --- 2. Upload all inputs to GPU ---
-    bb31_t* d_evals_flat;
-    CUDA_CHECK(cudaMalloc(&d_evals_flat, total_evals_elements * sizeof(bb31_t)));
-    CUDA_CHECK(cudaMemcpy(d_evals_flat, h_evals_flat, total_evals_elements * sizeof(bb31_t), cudaMemcpyHostToDevice));
-
-    // ================== COMPLETE TWIDDLE HANDLING ==================
-    bb31_t* d_all_inv_twiddles;
-    size_t total_inv_twiddles = h_inv_twiddle_offsets[max_log_h + 1];
-    CUDA_CHECK(cudaMalloc(&d_all_inv_twiddles, total_inv_twiddles * sizeof(bb31_t)));
-    CUDA_CHECK(cudaMemcpy(d_all_inv_twiddles, h_all_inv_twiddles, total_inv_twiddles * sizeof(bb31_t), cudaMemcpyHostToDevice));
-
-    bb31_t* d_all_fwd_twiddles;
-    size_t total_fwd_twiddles = h_fwd_twiddle_offsets[max_log_lde_h + 1];
-    CUDA_CHECK(cudaMalloc(&d_all_fwd_twiddles, total_fwd_twiddles * sizeof(bb31_t)));
-    CUDA_CHECK(cudaMemcpy(d_all_fwd_twiddles, h_all_fwd_twiddles, total_fwd_twiddles * sizeof(bb31_t), cudaMemcpyHostToDevice));
-    // ===============================================================
-
-    // --- 3. Create streams and launch tasks ---
-    std::vector<cudaStream_t> streams(num_polys);
-    for (int i = 0; i < num_polys; ++i) cudaStreamCreate(&streams[i]);
-
-    size_t current_eval_offset = 0;
-    size_t current_lde_offset = 0;
-    for (int i = 0; i < num_polys; ++i) {
-        int h = h_poly_info[i * 3 + 0];
-        int w = h_poly_info[i * 3 + 1];
-        int log_h = log_hs[i];
-        int log_lde_h = log_lde_hs[i];
-        size_t lde_h = 1 << log_lde_h;
-        bb31_t shift = h_shifts[i];
-        
-        const bb31_t* d_current_evals = d_evals_flat + current_eval_offset;
-        bb31_t* d_current_ldes = (bb31_t*)*d_ldes_flat_out + current_lde_offset;
-
-        // Get correct twiddle pointers for this specific size
-        const bb31_t* d_inv_twiddles_for_h = d_all_inv_twiddles + h_inv_twiddle_offsets[log_h];
-        const bb31_t* d_fwd_twiddles_for_lde_h = d_all_fwd_twiddles + h_fwd_twiddle_offsets[log_lde_h];
-
-        // Launch the helper function on this polynomial's stream
-        run_single_lde_from_evals_async(
-            d_current_evals,
-            d_current_ldes,
-            h, w, log_h,
-            lde_h, log_lde_h, shift,
-            d_inv_twiddles_for_h,
-            d_fwd_twiddles_for_lde_h,
-            streams[i]
-        );
-
-        current_eval_offset += (size_t)h * w;
-        current_lde_offset += lde_element_counts[i];
-    }
-
-    // --- 4. Sync and cleanup ---
-    for (int i = 0; i < num_polys; ++i) cudaStreamDestroy(streams[i]);
+    CUDA_CHECK(cudaGetLastError());
+    
+    // --- 4. Transpose back w x lde_h -> lde_h x w ---
+    dim3 grid_dim_t2((lde_h + TILE_DIM - 1) / TILE_DIM, (w + TILE_DIM - 1) / TILE_DIM);
+    transpose_kernel<bb31_t><<<grid_dim_t2, block_dim_t>>>(d_transposed_out, d_out, w, lde_h);
+    CUDA_CHECK(cudaGetLastError());
+    
     CUDA_CHECK(cudaDeviceSynchronize());
     
-    CUDA_CHECK(cudaFree(d_evals_flat));
-    CUDA_CHECK(cudaFree(d_all_inv_twiddles));
-    CUDA_CHECK(cudaFree(d_all_fwd_twiddles));
-    // Do NOT free `*d_ldes_flat_out`, it's the return value.
+    // --- 5. Copy Final Result Back ---
+    CUDA_CHECK(cudaMemcpy(data, d_out, lde_h * w * sizeof(bb31_t), cudaMemcpyDeviceToHost));
     
-    return 0;
-}
-
-//async
-// The FFI function that orchestrates the batch.
-extern "C" int dft_batch_lde_on_gpu_sync(
-    const bb31_t* h_evals_flat,
-    size_t total_evals_elements,
-    const int* h_poly_info,         // Array of [h, w, log_blowup] triples
-    const bb31_t* h_shifts,
-    int num_polys,
-
-    // ================== Twiddles for BOTH directions ==================
-    const bb31_t* h_all_inv_twiddles,
-    const int* h_inv_twiddle_offsets,
-    const bb31_t* h_all_fwd_twiddles,
-    const int* h_fwd_twiddle_offsets,
-    // ===============================================================
-
-    // Outputs
-    void** d_ldes_flat_out,
-    size_t* total_lde_elements_out
-) {
-    if (num_polys == 0) {
-        *d_ldes_flat_out = nullptr;
-        *total_lde_elements_out = 0;
-        return 0;
-    }
-
-    // --- 1. Calculate output size and other metadata ---
-    std::vector<size_t> lde_element_counts;
-    size_t total_lde_elements = 0;
-    int max_log_h = 0;
-    int max_log_lde_h = 0;
-    std::vector<int> log_hs;
-    std::vector<int> log_lde_hs;
-
-    for (int i = 0; i < num_polys; ++i) {
-        int h = h_poly_info[i * 3 + 0];
-        int w = h_poly_info[i * 3 + 1];
-        int log_blowup = h_poly_info[i * 3 + 2];
-        int log_h = integer_log2(h);
-        int log_lde_h = log_h + log_blowup;
-
-        log_hs.push_back(log_h);
-        log_lde_hs.push_back(log_lde_h);
-        if (log_h > max_log_h) max_log_h = log_h;
-        if (log_lde_h > max_log_lde_h) max_log_lde_h = log_lde_h;
-        
-        size_t lde_size = (size_t)(1 << log_lde_h) * w;
-        lde_element_counts.push_back(lde_size);
-        total_lde_elements += lde_size;
-    }
-
-    *total_lde_elements_out = total_lde_elements;
-    CUDA_CHECK(cudaMalloc(d_ldes_flat_out, total_lde_elements * sizeof(bb31_t)));
-
-    // --- 2. Upload all inputs to GPU ---
-    bb31_t* d_evals_flat;
-    CUDA_CHECK(cudaMalloc(&d_evals_flat, total_evals_elements * sizeof(bb31_t)));
-    CUDA_CHECK(cudaMemcpy(d_evals_flat, h_evals_flat, total_evals_elements * sizeof(bb31_t), cudaMemcpyHostToDevice));
-
-    // ================== COMPLETE TWIDDLE HANDLING ==================
-    bb31_t* d_all_inv_twiddles;
-    size_t total_inv_twiddles = h_inv_twiddle_offsets[max_log_h + 1];
-    CUDA_CHECK(cudaMalloc(&d_all_inv_twiddles, total_inv_twiddles * sizeof(bb31_t)));
-    CUDA_CHECK(cudaMemcpy(d_all_inv_twiddles, h_all_inv_twiddles, total_inv_twiddles * sizeof(bb31_t), cudaMemcpyHostToDevice));
-
-    bb31_t* d_all_fwd_twiddles;
-    size_t total_fwd_twiddles = h_fwd_twiddle_offsets[max_log_lde_h + 1];
-    CUDA_CHECK(cudaMalloc(&d_all_fwd_twiddles, total_fwd_twiddles * sizeof(bb31_t)));
-    CUDA_CHECK(cudaMemcpy(d_all_fwd_twiddles, h_all_fwd_twiddles, total_fwd_twiddles * sizeof(bb31_t), cudaMemcpyHostToDevice));
-    // ===============================================================
-
-    // --- 3. Create streams and launch tasks ---
-    //std::vector<cudaStream_t> streams(num_polys);
-    //for (int i = 0; i < num_polys; ++i) cudaStreamCreate(&streams[i]);
-
-    size_t current_eval_offset = 0;
-    size_t current_lde_offset = 0;
-    for (int i = 0; i < num_polys; ++i) {
-        int h = h_poly_info[i * 3 + 0];
-        int w = h_poly_info[i * 3 + 1];
-        int log_h = log_hs[i];
-        int log_lde_h = log_lde_hs[i];
-        size_t lde_h = 1 << log_lde_h;
-        bb31_t shift = h_shifts[i];
-        
-        const bb31_t* d_current_evals = d_evals_flat + current_eval_offset;
-        bb31_t* d_current_ldes = (bb31_t*)*d_ldes_flat_out + current_lde_offset;
-
-        // Get correct twiddle pointers for this specific size
-        const bb31_t* d_inv_twiddles_for_h = d_all_inv_twiddles + h_inv_twiddle_offsets[log_h];
-        const bb31_t* d_fwd_twiddles_for_lde_h = d_all_fwd_twiddles + h_fwd_twiddle_offsets[log_lde_h];
-
-        // Launch the helper function on this polynomial's stream
-        run_single_lde_from_evals(
-            d_current_evals,
-            d_current_ldes,
-            h, w, log_h,
-            lde_h, log_lde_h, shift,
-            d_inv_twiddles_for_h,
-            d_fwd_twiddles_for_lde_h
-        );
-
-        current_eval_offset += (size_t)h * w;
-        current_lde_offset += lde_element_counts[i];
-    }
-
-    // --- 4.cleanup ---
-    
-    CUDA_CHECK(cudaFree(d_evals_flat));
-    CUDA_CHECK(cudaFree(d_all_inv_twiddles));
-    CUDA_CHECK(cudaFree(d_all_fwd_twiddles));
-    // Do NOT free `*d_ldes_flat_out`, it's the return value.
-    
+    // --- 6. Cleanup ---
+    CUDA_CHECK(cudaFree(d_in));
+    CUDA_CHECK(cudaFree(d_out));
+    CUDA_CHECK(cudaFree(d_transposed_in));
+    CUDA_CHECK(cudaFree(d_transposed_out));
+    CUDA_CHECK(cudaFree(d_fwd_twiddles));
+    CUDA_CHECK(cudaFree(d_inv_twiddles));
     return 0;
 }

@@ -110,6 +110,7 @@ mod sys {
             .exclude_item("compute_and_accumulate_quotient_gpu") //stark/src/gpu/ffi
             .exclude_item("fold_even_odd_gpu")
             .exclude_item("fri_commit_on_gpu")
+            .exclude_item("quotient_values_gpu")
             .exclude_item("fri_fold_on_gpu")
             .exclude_item("fri_injection_gpu")
             .exclude_item("stark_test_mat_compress_gpu")

@@ -1,7 +1,9 @@
 use p3_baby_bear::BabyBear;
 use std::os::raw::{c_int, c_void, c_uint};
 //std::ffi::c_void
-use crate::{baby_bear_poseidon2::Challenge, };
+use crate::{baby_bear_poseidon2::Challenge,};
+use crate::septic_digest::{ SepticDigest};
+
 
 #[link(name = "sp1_stark_cuda", kind = "static")]
 unsafe extern "C" {
@@ -207,5 +209,35 @@ unsafe extern "C" {
     pub fn cuda_malloc_and_memset_zero(devPtr: *mut *mut c_void, size: usize) -> i32;
     pub fn cuda_memcpy_dtoh(dst: *mut c_void, src: *const c_void, count: usize) -> i32;
     pub fn cuda_free(devPtr: *mut c_void) -> i32;
+
+    // STARK quotient  
+    pub fn quotient_values_gpu(
+        chip_id: c_int,
+        h_main_trace: *const BabyBear,
+        main_width: c_int,
+        main_height: c_int,
+        h_prep_trace: *const BabyBear,
+        prep_width: c_int,
+        h_powers_of_alpha: *const Challenge,
+        num_constraints: c_int,
+        quotient_domain_size: c_int,
+        h_perm_trace: *const BabyBear,
+        perm_width: c_int,
+        next_step: c_int,
+        batch_size: c_int,
+        h_perm_challenges: *const Challenge,
+        h_local_cumulative_sum: *const Challenge,
+        h_public_values: *const BabyBear,
+        num_public_values: c_int,
+        h_global_cumulative_sum: *const SepticDigest<BabyBear>,
+        alpha_offset_base_alu: c_int,
+        trace_log_size: c_int,
+        coset_log_size: c_int,
+        trace_subgroup_generator: BabyBear,
+        coset_shift: BabyBear,
+        coset_subgroup_generator: BabyBear,
+        h_quotient_values_out: *mut Challenge,
+    ) -> c_int;
+
 } 
 

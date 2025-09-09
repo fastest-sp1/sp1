@@ -19,8 +19,8 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::collections::BTreeMap;
 
-use crate::baby_bear_poseidon2::{Val,};
-use crate::gpu::dft::GpuLdeBatchHandle;
+//use crate::DIGEST_SIZE;
+//use crate::baby_bear_poseidon2::{Val,};
 
 pub type BatchedQueries = BTreeMap<usize, Vec<usize>>;
 
@@ -93,91 +93,6 @@ pub struct GpuMerkleTreeMmcs<P, PW, H, C, const DIGEST_ELEMS: usize> {
     hash: H,
     compress: C,
     _phantom: PhantomData<(P, PW)>,
-}
-
-//new
-impl<P, PW, H, C, const DIGEST_ELEMS: usize> GpuMerkleTreeMmcs<P, PW, H, C, DIGEST_ELEMS> 
-where
-    P: PackedValue<Value = BabyBear>,
-    PW: PackedValue<Value = BabyBear>,
-
-    P::Value: PrimeField + Into<BabyBear> + From<BabyBear>,
-    PW::Value: PrimeField + Into<BabyBear> + From<BabyBear>,
-    H: CryptographicHasher<P::Value, [PW::Value; DIGEST_ELEMS]>
-        + CryptographicHasher<P, [PW; DIGEST_ELEMS]>
-        + Sync,
-    C: PseudoCompressionFunction<[PW::Value; DIGEST_ELEMS], 2>
-        + PseudoCompressionFunction<[PW; DIGEST_ELEMS], 2>
-        + Sync,
-    PW::Value: Eq,
-    [PW::Value; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-{
-    /// Commits to a batch of LDEs that are already resident on the GPU.
-    pub fn commit_on_gpu<M: Matrix<P::Value> + Clone>(
-        &self,
-        lde_handle: GpuLdeBatchHandle, // Takes ownership of the handle
-        ldes_on_cpu: Vec<M>, // The CPU copy, needed for ProverData
-    ) -> (<GpuMerkleTreeMmcs<P, PW, H, C, DIGEST_ELEMS> as Mmcs<P::Value>>::Commitment, 
-            <GpuMerkleTreeMmcs<P, PW, H, C, DIGEST_ELEMS> as Mmcs<P::Value>>::ProverData<M>) {
-        
-        // 1. Prepare `matrix_info` for the FFI call from the handle's dimensions.
-        let mut matrix_info = Vec::new();
-        let mut current_offset = 0;
-        for dims in &lde_handle.dimensions {
-            matrix_info.extend_from_slice(&[
-                current_offset as i32,
-                dims.height as i32,
-                dims.width as i32
-            ]);
-            current_offset += dims.height * dims.width;
-        }
-
-        // 2. Prepare output buffers and call the FFI.
-        let mut h_root_out = [PW::Value::ZERO; DIGEST_ELEMS];
-        let mut device_tree_handle: *mut c_void = std::ptr::null_mut();
-
-        let result = unsafe {
-            stark_merkle_commit_on_gpu_from_device_data(
-                lde_handle.d_data as *const Val, // Pass the device pointer from the handle
-                matrix_info.as_ptr(),
-                lde_handle.dimensions.len() as i32,
-                h_root_out.as_mut_ptr(),
-                &mut device_tree_handle,
-            )
-        };
-
-        if result != 0 {
-            panic!("stark_merkle_commit_on_gpu_from_device_data FFI call failed");
-        }
-        
-
-        // The ownership of the LDE buffer has been transferred to the new Merkle Tree handle.
-        // We must not drop the `lde_handle`.
-        std::mem::forget(lde_handle);
-
-        // 3. Construct ProverData using the CPU copy of the LDEs.
-        let num_inputs = ldes_on_cpu.len();
-        let dimensions = ldes_on_cpu.iter().map(|m| m.dimensions()).collect();
-
-        let mut indexed_inputs: Vec<(usize, M)> = ldes_on_cpu.into_iter().enumerate().collect();
-        indexed_inputs.sort_by_key(|(_, m)| std::cmp::Reverse(m.height()));
-
-        let sorted_inputs: Vec<M> = indexed_inputs.iter().map(|(_, m)| m.clone()).collect();
-        let mut original_to_sorted_indices = vec![0; num_inputs];
-        for (sorted_idx, (original_idx, _)) in indexed_inputs.iter().enumerate() {
-            original_to_sorted_indices[*original_idx] = sorted_idx;
-        }
-
-        let prover_data = GpuMerkleProverData {
-            handle: Arc::new(GpuMerkleTreeHandle(device_tree_handle)),
-            sorted_inputs,
-            original_to_sorted_indices,
-            dimensions,
-            _phantom: PhantomData,
-        };
-
-        (h_root_out.into(), prover_data)
-    }
 }
 
 impl<P, PW, H, C, const DIGEST_ELEMS: usize> GpuMerkleTreeMmcs<P, PW, H, C, DIGEST_ELEMS> {

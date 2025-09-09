@@ -1,5 +1,19 @@
 #pragma once
 #include "bb31_t.hpp"
+//#include "sp1_core_types.hpp"
+
+// Equivalent to sp1_core::air::Word<T>
+template <typename T>
+struct Word {
+    T words[4];
+};
+
+// Equivalent to sp1_core::air::Block<T>
+template <typename T>
+struct Block {
+    T _0[4]; // In SP1 recursion, D=4
+};
+
 
 // Performs (a0, a1) * (b0, b1) in F[y]/(y^2-w)
 __host__ __device__ inline void quadratic_mul(
@@ -18,6 +32,8 @@ __host__ __device__ inline void quadratic_inv(const bb31_t a[2], bb31_t out[2], 
     out[0] = a[0] * denominator_inv;
     out[1] = neg_a1 * denominator_inv;
 }
+
+
 // Represents an element of the 4th-degree binomial extension field over bb31_t.
 // Mathematically equivalent to plonky3's BinomialExtensionField<BabyBear, 4>.
 struct bb31_quartic_extension_t {
@@ -76,6 +92,41 @@ struct bb31_quartic_extension_t {
         return bb31_quartic_extension_t(bb31_t::one());
     }
 
+    __host__ __device__ static bb31_quartic_extension_t zero() {
+        return bb31_quartic_extension_t(bb31_t::zero());
+    }
+
+    __host__ __device__ static bb31_quartic_extension_t two() {
+        return bb31_quartic_extension_t(bb31_t::two());
+    }
+    
+    /// Constructs a quartic extension element from its four base field coefficients.
+    __host__ __device__ static bb31_quartic_extension_t from_base_slice(const bb31_t* base_coeffs) {
+        bb31_quartic_extension_t result;
+        for (int i = 0; i < 4; ++i) {
+            result.coeffs[i] = base_coeffs[i];
+        }
+        return result;
+    }
+
+    /// A convenience helper to construct an extension element from a Block<Val>.
+    __host__ __device__ static bb31_quartic_extension_t from_block(const Block<bb31_t>& block) {
+        // block.words is already an array of 4 `Val` (which is bb31_t).
+        return from_base_slice(block._0);
+    }
+
+    __host__ __device__ bb31_quartic_extension_t(
+        const bb31_t& c0,
+        const bb31_t& c1,
+        const bb31_t& c2,
+        const bb31_t& c3
+    ) {
+        coeffs[0] = c0;
+        coeffs[1] = c1;
+        coeffs[2] = c2;
+        coeffs[3] = c3;
+   }
+
     // --- Operators ---
     __host__ __device__ bb31_quartic_extension_t operator+(const bb31_quartic_extension_t& other) const {
         bb31_quartic_extension_t result;
@@ -91,6 +142,11 @@ struct bb31_quartic_extension_t {
         bb31_quartic_extension_t result;
         for (int i=0; i<4; ++i) result.coeffs[i] = this->coeffs[i] - other.coeffs[i];
         return result;
+    }
+
+     __host__ __device__ bb31_quartic_extension_t& operator/=(const bb31_quartic_extension_t& other) {
+        *this *= other.reciprocal();
+        return *this;
     }
 
     __host__ __device__ bb31_quartic_extension_t operator*(const bb31_t& scalar) const {
@@ -210,4 +266,12 @@ struct bb31_quartic_extension_t {
 // Allow `scalar * ext`
 __host__ __device__ inline bb31_quartic_extension_t operator*(const bb31_t& scalar, const bb31_quartic_extension_t& ext) {
     return ext * scalar;
+}
+
+__host__ __device__ inline bb31_quartic_extension_t operator/(
+    bb31_quartic_extension_t lhs, 
+    const bb31_quartic_extension_t& rhs
+) {
+    lhs /= rhs; 
+    return lhs;
 }

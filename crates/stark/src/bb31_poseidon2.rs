@@ -4,27 +4,20 @@ use crate::{Com, StarkGenericConfig, ZeroCommitment};
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_challenger::DuplexChallenger;
 use p3_commit::{BatchOpening, ExtensionMmcs};
-
+use p3_dft::Radix2DitParallel;
 use p3_field::{extension::BinomialExtensionField, PrimeCharacteristicRing, Field};
 use p3_fri::{
-    CommitPhaseProofStep, FriConfig, FriProof, QueryProof, 
-    TwoAdicFriPcsProof, 
+    CommitPhaseProofStep, FriConfig, FriProof, QueryProof, TwoAdicFriPcs,
+    TwoAdicFriPcsProof,
 };
-
+use p3_merkle_tree::MerkleTreeMmcs;
+//use p3_poseidon2::Poseidon2;
 use p3_symmetric::{Hash, PaddingFreeSponge, TruncatedPermutation};
 use serde::{Deserialize, Serialize};
 use sp1_primitives::poseidon2_init;
 
 #[cfg(feature = "recursion_cuda")]
 use crate::gpu::dft::GpuDft; 
-
-#[cfg(not(feature = "recursion_cuda"))]
-use p3_merkle_tree::MerkleTreeMmcs;
-
-#[cfg(not(feature = "recursion_cuda"))]
-use p3_dft::Radix2DitParallel;
-#[cfg(not(feature = "recursion_cuda"))]
-use p3_fri::TwoAdicFriPcs;
 
 pub const DIGEST_SIZE: usize = 8;
 
@@ -60,7 +53,7 @@ pub type InnerChallenger = DuplexChallenger<InnerVal, InnerPerm, 16, 8>;
 #[cfg(not(feature = "recursion_cuda"))]
 pub type InnerDft = Radix2DitParallel<InnerVal>;
 #[cfg(feature = "recursion_cuda")]
-pub type InnerDft = GpuDft; // GpuDft's performace is not good , if the matrix height is <262144
+pub type InnerDft = Radix2DitParallel<InnerVal>;//GpuDft; // GpuDft's performace is not good , if the matrix height is <262144
 
 //pub type InnerPcs = TwoAdicFriPcs<InnerVal, InnerDft, InnerValMmcs, InnerChallengeMmcs>;
 #[cfg(not(feature = "recursion_cuda"))]

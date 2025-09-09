@@ -5,7 +5,9 @@
 #include "utils.hpp"
 #include <vector>
 
-
+// =========================================================================
+//            CUDA KERNEL for fold_even_odd
+// =========================================================================
 // This kernel implements the logic from p3_fri's `fold_even_odd` function.
 __global__ void fold_even_odd_kernel(
     const bb31_quartic_extension_t* current_evals, // Input evals on GPU
@@ -42,7 +44,10 @@ __global__ void vector_add_kernel(
     }
 }
 
-///////FFI
+
+// =========================================================================
+//            NEW FFI FUNCTION for FRI Value Injection
+// =========================================================================
 extern "C" int fri_injection_gpu(
     void* d_target_evals,      // The `d_current_evals` buffer to be modified
     const bb31_quartic_extension_t* h_injected_evals, // The values to inject, from HOST
@@ -79,7 +84,7 @@ extern "C" int fri_injection_gpu(
     return 0;
 }
 
-// FFI 
+// FFI FUNCTION 2: Fold on GPU
 extern "C" int fri_fold_on_gpu(
     void* d_current_evals, // Input evals on DEVICE
     int num_current_evals,
@@ -121,8 +126,9 @@ extern "C" int fri_fold_on_gpu(
 }
 
 
-
-//FFI FUNCTION to call the fold_even_odd kernel
+// =========================================================================
+//            FFI FUNCTION to call the fold_even_odd kernel
+// =========================================================================
 extern "C" int fold_even_odd_gpu(
     // Inputs from Host
     const bb31_quartic_extension_t* h_current_evals,

@@ -138,9 +138,7 @@ impl<F: PrimeField32> MachineAir<F> for PublicValuesChip {
             },
             NUM_PUBLIC_VALUES_PREPROCESSED_COLS,
         );
-        //let duration = start.elapsed();
-//println!("-- public-val-instr , duration:{:?}", duration);
-        //println!("--public-val-instr, trace_heigth:{}", trace.height());
+        
         Some(trace)
     }
 
@@ -208,9 +206,7 @@ impl<F: PrimeField32> MachineAir<F> for PublicValuesChip {
             },
             NUM_PUBLIC_VALUES_COLS,
         );
-        //let duration = start.elapsed();
-//println!("-- public-val-events , duration:{:?}", duration);
-        //println!("--public-val-events, trace_heigth:{}", trace.height());
+        
         trace
     }
 

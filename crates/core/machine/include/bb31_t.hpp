@@ -42,7 +42,7 @@ class bb31_t {
   
   inline bool operator!=(const bb31_t rhs) const { 
     return val != rhs.val; 
-}
+  }
 
   inline const uint32_t& operator[](size_t i) const { return val; }
 
@@ -63,6 +63,11 @@ class bb31_t {
   static inline const bb31_t one() { return bb31_t(ONE); }
 
   static inline const bb31_t two() { return from_canonical_u32(2); }
+
+  static inline const bb31_t neg_one() {
+      // -1 is equivalent to 0 - 1 in a field.
+      return bb31_t::zero() - bb31_t::one();
+  }
 
   static inline constexpr uint32_t to_monty(uint32_t x) {
     return (((uint64_t)x << MONTY_BITS) % MOD);
@@ -105,7 +110,8 @@ class bb31_t {
     for (size_t i = 0; i < log_power; i++) {
       ret *= ret;
     }
-    return ret;
+
+      return ret;
   }
 
   inline bb31_t& operator+=(const bb31_t b) {
@@ -162,6 +168,55 @@ class bb31_t {
 
     return *this;
   }
+
+   /**
+   * @brief Computes the arithmetic generalization of `andnot`.
+   * For boolean inputs, this is `(!x) & y`, which translates to `(1 - x) * y`.
+   * This is a direct C++ implementation of the Rust trait method.
+   * 
+   * @param other The 'y' in the expression.
+   * @return The result of the and-not operation.
+   */
+  inline bb31_t andn(const bb31_t& other) const {
+      return (bb31_t::one() - *this) * other;
+  }
+
+  /**
+   * @brief The vanishing polynomial for boolean values: `x * (1 - x)`.
+   * This is a direct C++ implementation of the Rust trait method.
+   * 
+   * @return The result of the boolean check, which is 0 if `this` is 0 or 1.
+   */
+  inline bb31_t bool_check() const {
+      // Delegates to `andn` exactly like the Rust implementation.
+      return this->andn(*this);
+  }
+
+  //From plonky3
+  inline bb31_t exp_u64(uint64_t power) const {
+        if (power == 0) {
+            return bb31_t::one();
+        }
+        if (power == 1) {
+            return *this;
+        }
+
+        bb31_t result = bb31_t::one();
+        bb31_t base = *this;
+        uint64_t p = power;
+
+        while (p > 0) {
+            // If exponent is odd, multiply result with base
+            if (p % 2 == 1) {
+                result *= base;
+            }
+            // p must be even now, so we can divide by 2
+            p /= 2;
+            // And square the base
+            base *= base;
+        }
+        return result;
+    }
 
   static inline bb31_t cneg(bb31_t a, bool flag) { return a.cneg(flag); }
 
@@ -447,6 +502,14 @@ class bb31_t {
   inline void shfl_bfly(uint32_t laneMask) {
     val = __shfl_xor_sync(0xFFFFFFFF, val, laneMask);
   }
+
+  inline bb31_t exp_power_of_2(uint32_t power_log) const {
+    bb31_t result = *this;
+    for (uint32_t i = 0; i < power_log; ++i) {
+      result = result.square();
+    }
+    return result;
+  }
 };
 
 #undef inline
@@ -488,9 +551,41 @@ class bb31_t {
 
   static inline const bb31_t two() { return bb31_t(to_monty(2)); }
 
+  static inline const bb31_t neg_one() {
+      // -1 is equivalent to 0 - 1 in a field.
+      return bb31_t::zero() - bb31_t::one();
+  }
+
+
   static inline constexpr uint32_t to_monty(uint32_t x) {
     return (((uint64_t)x << MONTY_BITS) % MOD);
   }
+
+  //From plonky3
+  inline bb31_t exp_u64(uint64_t power) const {
+        if (power == 0) {
+            return bb31_t::one();
+        }
+        if (power == 1) {
+            return *this;
+        }
+
+        bb31_t result = bb31_t::one();
+        bb31_t base = *this;
+        uint64_t p = power;
+
+        while (p > 0) {
+            // If exponent is odd, multiply result with base
+            if (p % 2 == 1) {
+                result *= base;
+            }
+            // p must be even now, so we can divide by 2
+            p /= 2;
+            // And square the base
+            base *= base;
+        }
+        return result;
+    }
 
   static inline uint32_t from_monty(uint32_t x) {
     return monty_reduce((uint64_t)x);
@@ -565,6 +660,29 @@ class bb31_t {
     }
 
     return *this;
+  }
+
+  /**
+   * @brief Computes the arithmetic generalization of `andnot`.
+   * For boolean inputs, this is `(!x) & y`, which translates to `(1 - x) * y`.
+   * This is a direct C++ implementation of the Rust trait method.
+   * 
+   * @param other The 'y' in the expression.
+   * @return The result of the and-not operation.
+   */
+  inline bb31_t andn(const bb31_t& other) const {
+      return (bb31_t::one() - *this) * other;
+  }
+
+  /**
+   * @brief The vanishing polynomial for boolean values: `x * (1 - x)`.
+   * This is a direct C++ implementation of the Rust trait method.
+   * 
+   * @return The result of the boolean check, which is 0 if `this` is 0 or 1.
+   */
+  inline bb31_t bool_check() const {
+      // Delegates to `andn` exactly like the Rust implementation.
+      return this->andn(*this);
   }
 
   friend inline bb31_t operator<<(bb31_t a, uint32_t l) { return a <<= l; }

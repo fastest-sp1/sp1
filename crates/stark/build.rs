@@ -130,6 +130,7 @@ fn main() {
             &format!("-I{}", target_include_dir.to_str().unwrap()),
             &format!("-I{}", core_machine_include_path.to_str().unwrap()),
             &format!("-I{}", recursion_core_include_path.to_str().unwrap()),
+            "-I /usr/local/cuda/include",  //CUB lib
         ];
 
     let mut object_files = Vec::new();

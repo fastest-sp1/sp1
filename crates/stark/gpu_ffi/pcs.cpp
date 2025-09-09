@@ -66,6 +66,142 @@ __global__ void compute_quotient_main_loop_kernel(
     quotient_evals_inout[r] += alpha_pow_offset * term;
 }
 
+//test
+extern "C" int stark_test_mat_compress_gpu(
+    const bb31_t* lde_data, int h, int w,
+    const bb31_quartic_extension_t* alpha_powers,
+    bb31_quartic_extension_t* mat_compressed_out)
+{
+    bb31_t* d_lde;
+    bb31_quartic_extension_t *d_alpha, *d_out;
+    CUDA_CHECK(cudaMalloc(&d_lde, (size_t)h * w * sizeof(bb31_t)));
+    CUDA_CHECK(cudaMalloc(&d_alpha, (size_t)w * sizeof(bb31_quartic_extension_t)));
+    CUDA_CHECK(cudaMalloc(&d_out, (size_t)h * sizeof(bb31_quartic_extension_t)));
+    CUDA_CHECK(cudaMemcpy(d_lde, lde_data, (size_t)h * w * sizeof(bb31_t), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_alpha, alpha_powers, (size_t)w * sizeof(bb31_quartic_extension_t), cudaMemcpyHostToDevice));
+
+    dim3 grid_dim((h + 255) / 256);
+    dim3 block_dim(256);
+
+    compute_mat_compressed_kernel<<<grid_dim, block_dim>>>(d_lde, h, w, d_alpha, d_out);
+    
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(mat_compressed_out, d_out, (size_t)h * sizeof(bb31_quartic_extension_t), cudaMemcpyDeviceToHost));
+    
+    CUDA_CHECK(cudaFree(d_lde));
+    CUDA_CHECK(cudaFree(d_alpha));
+    CUDA_CHECK(cudaFree(d_out));
+    return 0;
+}
+
+extern "C" int stark_test_inv_denoms_gpu(
+    bb31_quartic_extension_t z,
+    const bb31_t* coset,
+    int h,
+    bb31_quartic_extension_t* inv_denoms_out)
+{
+    if (h == 0) return 0;
+
+    // --- 1. GPU Memory Allocation & Data Transfer ---
+    bb31_t* d_coset;
+    bb31_quartic_extension_t* d_inv_denoms_out;
+    
+    CUDA_CHECK(cudaMalloc(&d_coset, (size_t)h * sizeof(bb31_t)));
+    CUDA_CHECK(cudaMalloc(&d_inv_denoms_out, (size_t)h * sizeof(bb31_quartic_extension_t)));
+    
+    CUDA_CHECK(cudaMemcpy(d_coset, coset, (size_t)h * sizeof(bb31_t), cudaMemcpyHostToDevice));
+
+    // --- 2. Kernel Launch Configuration ---
+    int num_threads = 256;
+    dim3 block_dim(num_threads);
+    dim3 grid_dim((h + num_threads - 1) / num_threads);
+
+    // --- 3. Launch the Kernel ---
+    compute_inv_denoms_kernel<<<grid_dim, block_dim>>>(
+        z, d_coset, h, d_inv_denoms_out);
+    CUDA_CHECK(cudaGetLastError());
+
+    // --- 4. Synchronize and Copy Result Back ---
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(inv_denoms_out, d_inv_denoms_out, (size_t)h * sizeof(bb31_quartic_extension_t), cudaMemcpyDeviceToHost));
+    
+    // --- 5. Cleanup ---
+    CUDA_CHECK(cudaFree(d_coset));
+    CUDA_CHECK(cudaFree(d_inv_denoms_out));
+    
+    return 0;
+}
+
+extern "C" int stark_test_quartic_mul(const bb31_quartic_extension_t* a, const bb31_quartic_extension_t* b, bb31_quartic_extension_t* out) {
+    *out = *a * *b;
+    return 0;
+}
+
+extern "C" int stark_test_quotient_loop_gpu(
+    const bb31_quartic_extension_t* mat_compressed,
+    const bb31_quartic_extension_t* inv_denoms,
+    bb31_quartic_extension_t y_mat,
+    bb31_quartic_extension_t alpha_pow_offset,
+    int h,
+    bb31_quartic_extension_t* quotient_evals_inout)
+{
+    if (h == 0) return 0;
+
+    // --- 1. GPU Memory Allocation ---
+    bb31_quartic_extension_t *d_mat_compressed, *d_inv_denoms, *d_quotient_evals;
+    size_t buffer_size_bytes = (size_t)h * sizeof(bb31_quartic_extension_t);
+
+    CUDA_CHECK(cudaMalloc(&d_mat_compressed, buffer_size_bytes));
+    CUDA_CHECK(cudaMalloc(&d_inv_denoms, buffer_size_bytes));
+    CUDA_CHECK(cudaMalloc(&d_quotient_evals, buffer_size_bytes));
+
+    // --- 2. Host to Device Data Transfer ---
+    CUDA_CHECK(cudaMemcpy(d_mat_compressed, mat_compressed, buffer_size_bytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_inv_denoms, inv_denoms, buffer_size_bytes, cudaMemcpyHostToDevice));
+    // Copy the initial state of the quotient buffer to the device.
+    CUDA_CHECK(cudaMemcpy(d_quotient_evals, quotient_evals_inout, buffer_size_bytes, cudaMemcpyHostToDevice));
+
+    // --- 3. Kernel Launch Configuration ---
+    int num_threads = 256;
+    dim3 block_dim(num_threads);
+    dim3 grid_dim((h + num_threads - 1) / num_threads);
+    
+    // --- 4. Launch the Kernel ---
+    compute_quotient_main_loop_kernel<<<grid_dim, block_dim>>>(
+        d_mat_compressed,
+        d_inv_denoms,
+        y_mat,
+        alpha_pow_offset,
+        h,
+        d_quotient_evals
+    );
+    CUDA_CHECK(cudaGetLastError());
+
+    // --- 5. Synchronize and Copy Result Back ---
+    CUDA_CHECK(cudaDeviceSynchronize());
+    // Copy the final, modified quotient buffer back to the host.
+    CUDA_CHECK(cudaMemcpy(quotient_evals_inout, d_quotient_evals, buffer_size_bytes, cudaMemcpyDeviceToHost));
+
+    // --- 6. Cleanup ---
+    CUDA_CHECK(cudaFree(d_mat_compressed));
+    CUDA_CHECK(cudaFree(d_inv_denoms));
+    CUDA_CHECK(cudaFree(d_quotient_evals));
+
+    return 0;
+}
+
+
+//pass
+extern "C" int stark_test_quartic_pow(
+    const bb31_quartic_extension_t* base, 
+    uint64_t exponent, 
+    bb31_quartic_extension_t* out
+) {
+    *out = base->pow(exponent);
+    return 0; // Return 0 on success
+}
+
+
 extern "C" int compute_and_accumulate_quotient_gpu(
     // Input Matrix Data
     const bb31_t* h_lde_data, // Matrix data on the HOST
@@ -232,142 +368,4 @@ extern "C" int fri_pcs_compute_quotient_for_height_gpu(
     CUDA_CHECK(cudaFree(d_coset_for_height));
     return 0;
 }
-
-
-//test function
-extern "C" int stark_test_mat_compress_gpu(
-    const bb31_t* lde_data, int h, int w,
-    const bb31_quartic_extension_t* alpha_powers,
-    bb31_quartic_extension_t* mat_compressed_out)
-{
-    bb31_t* d_lde;
-    bb31_quartic_extension_t *d_alpha, *d_out;
-    CUDA_CHECK(cudaMalloc(&d_lde, (size_t)h * w * sizeof(bb31_t)));
-    CUDA_CHECK(cudaMalloc(&d_alpha, (size_t)w * sizeof(bb31_quartic_extension_t)));
-    CUDA_CHECK(cudaMalloc(&d_out, (size_t)h * sizeof(bb31_quartic_extension_t)));
-    CUDA_CHECK(cudaMemcpy(d_lde, lde_data, (size_t)h * w * sizeof(bb31_t), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_alpha, alpha_powers, (size_t)w * sizeof(bb31_quartic_extension_t), cudaMemcpyHostToDevice));
-
-    dim3 grid_dim((h + 255) / 256);
-    dim3 block_dim(256);
-
-    compute_mat_compressed_kernel<<<grid_dim, block_dim>>>(d_lde, h, w, d_alpha, d_out);
-    
-    CUDA_CHECK(cudaDeviceSynchronize());
-    CUDA_CHECK(cudaMemcpy(mat_compressed_out, d_out, (size_t)h * sizeof(bb31_quartic_extension_t), cudaMemcpyDeviceToHost));
-    
-    CUDA_CHECK(cudaFree(d_lde));
-    CUDA_CHECK(cudaFree(d_alpha));
-    CUDA_CHECK(cudaFree(d_out));
-    return 0;
-}
-
-extern "C" int stark_test_inv_denoms_gpu(
-    bb31_quartic_extension_t z,
-    const bb31_t* coset,
-    int h,
-    bb31_quartic_extension_t* inv_denoms_out)
-{
-    if (h == 0) return 0;
-
-    // --- 1. GPU Memory Allocation & Data Transfer ---
-    bb31_t* d_coset;
-    bb31_quartic_extension_t* d_inv_denoms_out;
-    
-    CUDA_CHECK(cudaMalloc(&d_coset, (size_t)h * sizeof(bb31_t)));
-    CUDA_CHECK(cudaMalloc(&d_inv_denoms_out, (size_t)h * sizeof(bb31_quartic_extension_t)));
-    
-    CUDA_CHECK(cudaMemcpy(d_coset, coset, (size_t)h * sizeof(bb31_t), cudaMemcpyHostToDevice));
-
-    // --- 2. Kernel Launch Configuration ---
-    int num_threads = 256;
-    dim3 block_dim(num_threads);
-    dim3 grid_dim((h + num_threads - 1) / num_threads);
-
-    // --- 3. Launch the Kernel ---
-    compute_inv_denoms_kernel<<<grid_dim, block_dim>>>(
-        z, d_coset, h, d_inv_denoms_out);
-    CUDA_CHECK(cudaGetLastError());
-
-    // --- 4. Synchronize and Copy Result Back ---
-    CUDA_CHECK(cudaDeviceSynchronize());
-    CUDA_CHECK(cudaMemcpy(inv_denoms_out, d_inv_denoms_out, (size_t)h * sizeof(bb31_quartic_extension_t), cudaMemcpyDeviceToHost));
-    
-    // --- 5. Cleanup ---
-    CUDA_CHECK(cudaFree(d_coset));
-    CUDA_CHECK(cudaFree(d_inv_denoms_out));
-    
-    return 0;
-}
-
-extern "C" int stark_test_quartic_mul(const bb31_quartic_extension_t* a, const bb31_quartic_extension_t* b, bb31_quartic_extension_t* out) {
-    *out = *a * *b;
-    return 0;
-}
-
-extern "C" int stark_test_quotient_loop_gpu(
-    const bb31_quartic_extension_t* mat_compressed,
-    const bb31_quartic_extension_t* inv_denoms,
-    bb31_quartic_extension_t y_mat,
-    bb31_quartic_extension_t alpha_pow_offset,
-    int h,
-    bb31_quartic_extension_t* quotient_evals_inout)
-{
-    if (h == 0) return 0;
-
-    // --- 1. GPU Memory Allocation ---
-    bb31_quartic_extension_t *d_mat_compressed, *d_inv_denoms, *d_quotient_evals;
-    size_t buffer_size_bytes = (size_t)h * sizeof(bb31_quartic_extension_t);
-
-    CUDA_CHECK(cudaMalloc(&d_mat_compressed, buffer_size_bytes));
-    CUDA_CHECK(cudaMalloc(&d_inv_denoms, buffer_size_bytes));
-    CUDA_CHECK(cudaMalloc(&d_quotient_evals, buffer_size_bytes));
-
-    // --- 2. Host to Device Data Transfer ---
-    CUDA_CHECK(cudaMemcpy(d_mat_compressed, mat_compressed, buffer_size_bytes, cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_inv_denoms, inv_denoms, buffer_size_bytes, cudaMemcpyHostToDevice));
-    // Copy the initial state of the quotient buffer to the device.
-    CUDA_CHECK(cudaMemcpy(d_quotient_evals, quotient_evals_inout, buffer_size_bytes, cudaMemcpyHostToDevice));
-
-    // --- 3. Kernel Launch Configuration ---
-    int num_threads = 256;
-    dim3 block_dim(num_threads);
-    dim3 grid_dim((h + num_threads - 1) / num_threads);
-    
-    // --- 4. Launch the Kernel ---
-    compute_quotient_main_loop_kernel<<<grid_dim, block_dim>>>(
-        d_mat_compressed,
-        d_inv_denoms,
-        y_mat,
-        alpha_pow_offset,
-        h,
-        d_quotient_evals
-    );
-    CUDA_CHECK(cudaGetLastError());
-
-    // --- 5. Synchronize and Copy Result Back ---
-    CUDA_CHECK(cudaDeviceSynchronize());
-    // Copy the final, modified quotient buffer back to the host.
-    CUDA_CHECK(cudaMemcpy(quotient_evals_inout, d_quotient_evals, buffer_size_bytes, cudaMemcpyDeviceToHost));
-
-    // --- 6. Cleanup ---
-    CUDA_CHECK(cudaFree(d_mat_compressed));
-    CUDA_CHECK(cudaFree(d_inv_denoms));
-    CUDA_CHECK(cudaFree(d_quotient_evals));
-
-    return 0;
-}
-
-
-//pass
-extern "C" int stark_test_quartic_pow(
-    const bb31_quartic_extension_t* base, 
-    uint64_t exponent, 
-    bb31_quartic_extension_t* out
-) {
-    *out = base->pow(exponent);
-    return 0; // Return 0 on success
-}
-
-
 

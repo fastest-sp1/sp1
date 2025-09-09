@@ -69,8 +69,6 @@ impl<F: PrimeField32> MachineAir<F> for SelectChip {
             std::any::TypeId::of::<BabyBear>(),
             "generate_preprocessed_trace only supports BabyBear field"
         );
-        //let start = std::time::Instant::now();
-
 
         let instrs = unsafe {
             std::mem::transmute::<Vec<&SelectInstr<F>>, Vec<&SelectInstr<BabyBear>>>(
@@ -102,7 +100,6 @@ impl<F: PrimeField32> MachineAir<F> for SelectChip {
                 .iter()
                 .map(|&instr_ref| *instr_ref)
                 .collect_vec();
-            //println!("--select instr GPU, instrs.len:{}", instrs_for_gpu.len());
             unsafe {
                 crate::sys::process_select_instructions_gpu(
                     instrs_for_gpu.as_ptr(), 
@@ -113,7 +110,6 @@ impl<F: PrimeField32> MachineAir<F> for SelectChip {
                 );
             }
         } else {
-            //println!("---cpu select _instructions---, col_len:{}", SELECT_PREPROCESSED_COLS);
             let populate_len = instrs.len() * SELECT_PREPROCESSED_COLS;
             values[..populate_len].par_chunks_mut(SELECT_PREPROCESSED_COLS).zip_eq(instrs).for_each(
                 |(row, instr)| {
@@ -124,15 +120,12 @@ impl<F: PrimeField32> MachineAir<F> for SelectChip {
                 },
             );
         }
-        //println!("--- select _instructions---, values:{:?}", &values[..50]);
         // Convert the trace to a row major matrix.
         let trace = RowMajorMatrix::new(
             unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
             SELECT_PREPROCESSED_COLS,
         );
-        //let duration = start.elapsed();
-//println!("--select-instr  , duration:{:?}", duration);
-        //println!("--select-instr, trace_heigth:{}", trace.height());
+       
         Some(trace)
     }
 
@@ -151,9 +144,7 @@ impl<F: PrimeField32> MachineAir<F> for SelectChip {
             std::any::TypeId::of::<BabyBear>(),
             "generate_trace only supports BabyBear field"
         );
-        //let start = std::time::Instant::now();
-
-
+        
         let events = unsafe {
             std::mem::transmute::<&Vec<SelectIo<F>>, &Vec<SelectIo<BabyBear>>>(&input.select_events)
         };
@@ -197,9 +188,7 @@ impl<F: PrimeField32> MachineAir<F> for SelectChip {
             unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<_>>(values) },
             SELECT_COLS,
         );
-        //let duration = start.elapsed();
-//println!("-- select-events , duration:{:?}", duration);
-        //println!("--select-events, trace_heigth:{}", trace.height());
+        
         trace
     }
 

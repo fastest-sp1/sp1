@@ -23,10 +23,6 @@ use crate::{
 
 use super::mem::MemoryAccessColsChips;
 
-//gpu
-//use crate::gpu::fri_fold_trace::{process_fri_fold_events_gpu, process_fri_fold_instructions_gpu};
-
-
 pub const NUM_FRI_FOLD_COLS: usize = core::mem::size_of::<FriFoldCols<u8>>();
 pub const NUM_FRI_FOLD_PREPROCESSED_COLS: usize =
     core::mem::size_of::<FriFoldPreprocessedCols<u8>>();
@@ -105,17 +101,13 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for FriFoldChip<DEGREE>
         NUM_FRI_FOLD_PREPROCESSED_COLS
     }
 
-//v1 ok
-
     fn generate_preprocessed_trace(&self, program: &Self::Program) -> Option<RowMajorMatrix<F>> {
         assert_eq!(
             std::any::TypeId::of::<F>(),
             std::any::TypeId::of::<BabyBear>(),
             "generate_trace only supports BabyBear field"
         );
-        //let start = std::time::Instant::now();
 
-        
         let fri_fold_instrs: Vec<&FriFoldInstr<BabyBear>> = program
         .inner
         .iter()
@@ -284,196 +276,9 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for FriFoldChip<DEGREE>
             unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
             NUM_FRI_FOLD_PREPROCESSED_COLS,
         );
-        //let duration = start.elapsed();
-//println!("--fri-fold-instr  , duration:{:?}", duration);
-        //println!("--fri-fold-instr, trace_heigth:{}", trace.height());
+        
         Some(trace)
     }
-
-//v2, using child kernel
-/*
-    fn generate_preprocessed_trace(&self, program: &Self::Program) -> Option<RowMajorMatrix<F>> {
-        assert_eq!(
-            std::any::TypeId::of::<F>(),
-            std::any::TypeId::of::<BabyBear>(),
-            "generate_trace only supports BabyBear field"
-        );
-        let start = std::time::Instant::now();
-
-        
-        let fri_fold_instrs: Vec<&FriFoldInstr<BabyBear>> = program
-        .inner
-        .iter()
-        .filter_map(|instruction| match instruction {
-            Instruction::FriFold(instr) => Some(unsafe {
-                std::mem::transmute::<&FriFoldInstr<F>, &FriFoldInstr<BabyBear>>(
-                    instr.as_ref(),
-                )
-            }),
-            _ => None,
-        })
-        .collect_vec(); 
-
-        let mut values: Vec<BabyBear>;
-
-        if cfg!(feature = "recursion_cuda") {
-            let mut all_ext_mat_opening: Vec<Address<BabyBear>> = Vec::new();
-            let mut all_ext_ps_at_z: Vec<Address<BabyBear>> = Vec::new();
-            let mut all_alpha_pow_input: Vec<Address<BabyBear>> = Vec::new();
-            let mut all_ro_input: Vec<Address<BabyBear>> = Vec::new();
-            let mut all_alpha_pow_output: Vec<Address<BabyBear>> = Vec::new();
-            let mut all_ro_output: Vec<Address<BabyBear>> = Vec::new();
-            let mut all_alpha_pow_mults: Vec<BabyBear> = Vec::new();
-            let mut all_ro_mults: Vec<BabyBear> = Vec::new();
-
-            let mut instrs_values: Vec<crate::FriFoldInstrFlat<BabyBear>> = Vec::with_capacity(fri_fold_instrs.len());
-
-            let mut current_ext_mat_opening_offset = 0;
-            let mut current_ext_ps_at_z_offset = 0;
-            let mut current_alpha_pow_input_offset = 0;
-            let mut current_ro_input_offset = 0;
-            let mut current_alpha_pow_output_offset = 0;
-            let mut current_ro_output_offset = 0;
-
-            let mut current_alpha_pow_mults_offset = 0;
-            let mut current_ro_mults_offset = 0;
-
-            //let mut instrs_index_info: Vec<crate::InstrsFlatIdex> = Vec::new();
-
-            let mut num_total_output_rows = 0;
-            for (instr_idx, &instr_ref) in fri_fold_instrs.iter().enumerate() {
-                let instr_data = instr_ref; 
-                let ps_at_z_len = instr_data.ext_vec_addrs.ps_at_z.len();
-                num_total_output_rows += ps_at_z_len;
-                /*for j in 0..ps_at_z_len { 
-                     instrs_index_info.push(InstrsFlatIdex {
-                            instr_idx: instr_idx,
-                            arr_idx: j ,
-                           // last_row: ps_at_z_len, 
-                        });
-                }*/
- 
-                all_ext_mat_opening.extend_from_slice(&instr_data.ext_vec_addrs.mat_opening);
-                all_ext_ps_at_z.extend_from_slice(&instr_data.ext_vec_addrs.ps_at_z);
-                all_alpha_pow_input.extend_from_slice(&instr_data.ext_vec_addrs.alpha_pow_input);
-                all_alpha_pow_output.extend_from_slice(&instr_data.ext_vec_addrs.alpha_pow_output);
-                all_ro_input.extend_from_slice(&instr_data.ext_vec_addrs.ro_input);
-                all_ro_output.extend_from_slice(&instr_data.ext_vec_addrs.ro_output);
-                all_alpha_pow_mults.extend_from_slice(&instr_data.alpha_pow_mults);
-                all_ro_mults.extend_from_slice(&instr_data.ro_mults);
-
-                instrs_values.push(crate::FriFoldInstrFlat {
-                    base_single_addrs: instr_data.base_single_addrs,
-                    ext_single_addrs:  instr_data.ext_single_addrs,
-                    
-                    ext_vec_addrs_mat_opening_offset: current_ext_mat_opening_offset,
-                    ext_vec_addrs_mat_opening_len: instr_data.ext_vec_addrs.mat_opening.len(),
-                    ext_vec_addrs_ps_at_z_offset: current_ext_ps_at_z_offset,
-                    ext_vec_addrs_ps_at_z_len: instr_data.ext_vec_addrs.ps_at_z.len(),
-                    ext_vec_addrs_alpha_pow_input_offset: current_alpha_pow_input_offset,
-                    ext_vec_addrs_alpha_pow_input_len: instr_data.ext_vec_addrs.alpha_pow_input.len(),
-                    ext_vec_addrs_ro_input_offset: current_ro_input_offset,
-                    ext_vec_addrs_ro_input_len: instr_data.ext_vec_addrs.ro_input.len(),
-                    ext_vec_addrs_alpha_pow_output_offset: current_alpha_pow_output_offset,
-                    ext_vec_addrs_alpha_pow_output_len: instr_data.ext_vec_addrs.alpha_pow_output.len(),
-                    ext_vec_addrs_ro_output_offset: current_ro_output_offset,
-                    ext_vec_addrs_ro_output_len: instr_data.ext_vec_addrs.ro_output.len(),
-
-                    alpha_pow_mults_offset: current_alpha_pow_mults_offset,
-                    alpha_pow_mults_len: instr_data.alpha_pow_mults.len(),
-                    ro_mults_offset: current_ro_mults_offset,
-                    ro_mults_len: instr_data.ro_mults.len(),
-
-                });
-
-                current_ext_mat_opening_offset += instr_data.ext_vec_addrs.mat_opening.len();
-                current_ext_ps_at_z_offset += ps_at_z_len;
-                current_alpha_pow_input_offset += instr_data.ext_vec_addrs.alpha_pow_input.len();
-                current_ro_input_offset += instr_data.ext_vec_addrs.ro_input.len();
-                current_alpha_pow_output_offset += instr_data.ext_vec_addrs.alpha_pow_output.len();
-                current_ro_output_offset += instr_data.ext_vec_addrs.ro_output.len();
-                current_alpha_pow_mults_offset += instr_data.alpha_pow_mults.len();
-                current_ro_mults_offset += instr_data.ro_mults.len();
-            }
-
-            let initial_len = num_total_output_rows * NUM_FRI_FOLD_PREPROCESSED_COLS;
-            values = vec![BabyBear::ZERO; initial_len];
-            
-            println!("---fri_fold instr GPU, instrs.len:{}", instrs_values.len());
-            unsafe {
-                crate::sys::process_fri_fold_instructions_gpu(
-                    instrs_values.as_ptr(),        
-                    instrs_values.len(),
-                    //instrs_index_info.as_ptr(),         
-                    //instrs_index_info.len(),
-                    all_ext_mat_opening.as_ptr(),       
-                    all_ext_mat_opening.len(),
-                    all_ext_ps_at_z.as_ptr(),           
-                    all_ext_ps_at_z.len(),
-                    all_alpha_pow_input.as_ptr(),       
-                    all_alpha_pow_input.len(),
-                    all_ro_input.as_ptr(),             
-                    all_ro_input.len(),
-                    all_alpha_pow_output.as_ptr(),      
-                    all_alpha_pow_output.len(),
-                    all_ro_output.as_ptr(),             
-                    all_ro_output.len(),
-                    all_alpha_pow_mults.as_ptr(),       
-                    all_alpha_pow_mults.len(),
-                    all_ro_mults.as_ptr(),              
-                    all_ro_mults.len(),
-                    values.as_mut_ptr(),                
-                    values.len(),
-                    num_total_output_rows,
-                    NUM_FRI_FOLD_PREPROCESSED_COLS,
-                );
-            } 
-        } else {
-            println!("---cpu fold_fri _instructions---");
-            let mut cpu_rows: Vec<[BabyBear; NUM_FRI_FOLD_PREPROCESSED_COLS]> = Vec::new();
-
-            for instruction in fri_fold_instrs {
-                let num_rows_for_instr = instruction.ext_vec_addrs.ps_at_z.len();
-                let mut current_instr_rows = vec![
-                    [BabyBear::ZERO; NUM_FRI_FOLD_PREPROCESSED_COLS];
-                    num_rows_for_instr
-                ];
-
-                current_instr_rows.iter_mut().enumerate().for_each(|(row_idx, row)| {
-                    let cols: &mut FriFoldPreprocessedCols<BabyBear> =
-                        row.as_mut_slice().borrow_mut();
-                    unsafe {
-                        crate::sys::fri_fold_instr_to_row_babybear(
-                            &(&(*instruction)).into(), 
-                            row_idx,
-                            cols,
-                        );
-                    }
-                });
-                cpu_rows.extend(current_instr_rows);
-            }
-            values = cpu_rows.into_iter().flatten().collect::<Vec<BabyBear>>();
-        }
-
-        // Pad the trace to a power of two.
-        if self.pad {
-            let current_num_rows = values.len() / NUM_FRI_FOLD_PREPROCESSED_COLS;
-            let padded_num_rows = next_power_of_two(current_num_rows, self.fixed_log2_rows);
-
-            let target_total_elements = padded_num_rows * NUM_FRI_FOLD_PREPROCESSED_COLS;
-
-            values.resize(target_total_elements, BabyBear::ZERO);
-        }
-
-        let trace = RowMajorMatrix::new(
-            unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
-            NUM_FRI_FOLD_PREPROCESSED_COLS,
-        );
-        let duration = start.elapsed();
-println!("--fri-fold-instr  , duration:{:?}", duration);
-        println!("--fri-fold-instr, trace_heigth:{}", trace.height());
-        Some(trace)
-    }*/
 
     fn num_rows(&self, input: &Self::Record) -> Option<usize> {
         let events = &input.fri_fold_events;
@@ -491,8 +296,6 @@ println!("--fri-fold-instr  , duration:{:?}", duration);
             std::any::TypeId::of::<BabyBear>(),
             "generate_trace only supports BabyBear field"
         );
-        //let start = std::time::Instant::now();
-
 
         let events = unsafe {
             std::mem::transmute::<&Vec<FriFoldEvent<F>>, &Vec<FriFoldEvent<BabyBear>>>(
@@ -551,9 +354,7 @@ println!("--fri-fold-instr  , duration:{:?}", duration);
             trace.width(),
             trace.height()
         );
-        //let duration = start.elapsed();
-//println!("-- fri-fold-events , duration:{:?}", duration);
-        //println!("--fri-fold-events, trace_heigth:{}", trace.height());
+        
         trace
     }
 

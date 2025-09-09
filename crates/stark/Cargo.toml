@@ -34,6 +34,8 @@ p3-symmetric = { workspace = true }
 p3-poseidon2 = { workspace = true }
 p3-interpolation = { workspace = true }
 
+once_cell = "1.18.0"
+
 serde_json = "1.0" #debug
 # misc
 serde = { workspace = true, features = ["derive"] }

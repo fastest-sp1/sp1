@@ -2,7 +2,7 @@
 use crate::baby_bear_poseidon2::{StarkConfigCpu, MyHash, MyCompress, Val, Challenge, Challenger, 
                                     Perm, DigestHash, BabyBearPoseidon2Type, 
                                     my_perm, default_fri_config, compressed_fri_config};
-use crate::gpu::{merkle::{GpuMerkleTreeMmcs, }, pcs::GpuFriPcs};
+use crate::gpu::{merkle::{GpuMerkleTreeMmcs,}, pcs::GpuFriPcs};
 
 use p3_commit::{ExtensionMmcs, };
 use crate::{StarkGenericConfig, DIGEST_SIZE, InnerDft, config::{ZeroCommitment, Com}}; 

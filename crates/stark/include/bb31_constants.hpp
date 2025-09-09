@@ -16,8 +16,6 @@ constexpr const bb31_t HOST_TWO_ADIC_GENERATORS[28] = {
 
 __constant__ bb31_t DEVICE_TWO_ADIC_GENERATORS[28];
 
-
-
 //Must be called once in host
 void init_two_adic_generators() {
 #ifdef __CUDACC__
