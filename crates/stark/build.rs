@@ -141,6 +141,7 @@ fn main() {
             
             let output = Command::new("nvcc")
                 .args(cuda_common_args)
+                //.include("/usr/local/cuda/include") //CUB lib
                 .arg("--x").arg("cu") // Force nvcc to treat the file as .cu
                 .arg("-o")
                 .arg(obj_name.to_str().unwrap())
@@ -174,16 +175,17 @@ fn main() {
             panic!("Failed to create static library with ar.");
     }
 
-     // --- Linker Instructions ---
+    // --- Linker Instructions ---
     println!("cargo:rustc-link-search=native={}", out_dir.to_str().unwrap());
     println!("cargo:rustc-link-lib=static={}", LIB_NAME);
         
-        // Find and link the CUDA runtime library.
+    // Find and link the CUDA runtime library.
     println!("cargo::rustc-link-search=native=/usr/local/cuda/lib64");
     println!("cargo::rustc-link-search=native=/usr/local/cuda/lib"); 
     println!("cargo:rustc-link-lib=dylib=cudart");
         
-        // Link against the C++ standard library, which is often needed by nvcc-compiled code.
+    // Link against the C++ standard library, which is often needed by nvcc-compiled code.
+    //println!("cargo:rustc-link-search=native=/usr/lib/x86_64-linux-gnu");
     println!("cargo:rustc-link-lib=dylib=stdc++");
     
 }

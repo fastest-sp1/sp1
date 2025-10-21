@@ -171,11 +171,11 @@ unsafe extern "C-unwind" {
         all_ext_p_at_z_h: *const Address<BabyBear>,
         all_ext_p_at_z_len: usize,
         all_ext_alpha_pow_h: *const Address<BabyBear>,
-        all_ext_alpha_pow_len: usize,
-        output_h: *mut BabyBear,
-        output_len: usize,
+        all_ext_alpha_pow_len: usize,    
         num_original_instrs: usize,
         rows_per_single_instr: usize,
+        output_h: *mut BabyBear,
+        output_len: usize,
         num_cols_per_row: usize,
     );
 

@@ -28,11 +28,11 @@ use crate::{GpuMerkleProverData,  GpuMerkleTreeHandle,
     DIGEST_SIZE, GpuChallengeMmcs, };
 
 //debug
-/*
+
 use serde::{Deserialize, Serialize};
 use std::fs::{File, OpenOptions}; //debug
 use std::io::Write;
-use serde_json; */
+use serde_json; 
 //end
 
 trait CudaResultCheck { fn check(self, msg: &str); }
@@ -72,12 +72,17 @@ where
     
     // 1. Commit Phase
     let commit_phase_result = commit_phase_gpu(config, input, log_max_height, challenger);
-    
+    /*let serialized = serde_json::to_vec(&commit_phase_result.commits.clone()).expect("Serialization failed");
+        File::create("gpu_commits.json")
+        .and_then(|mut f| f.write_all(&serialized))
+        .expect("Failed to write gpu_commits to file");*/
+
     // 2. Sample Query Indices
     let pow_witness = challenger.grind(config.proof_of_work_bits);
     let query_indices: Vec<usize> = (0..config.num_queries)
         .map(|_| challenger.sample_bits(log_max_height))
         .collect();
+    //println!("--gpu_prove, proof_of_work_bits={}, pow_witness={:?}, query_indices={:?}", config.proof_of_work_bits, pow_witness, query_indices);    
 
     // 3. Query Phase
     let query_proofs = answer_queries_gpu(
@@ -86,6 +91,12 @@ where
         &commit_phase_result.layer_evals,
         &query_indices, 
     );
+
+    //debug
+   /* let serialized = serde_json::to_vec(&query_proofs.clone()).expect("Serialization failed");
+        File::create("gpu_query_proofs.json")
+        .and_then(|mut f| f.write_all(&serialized))
+        .expect("Failed to write query_proofs to file");*/
  
     // 4. Assemble Final Proof
     (
@@ -161,6 +172,7 @@ where
 
         let beta: Challenge = challenger.sample_algebra_element();
 
+        // let g_inv = Challenge::two_adic_generator(log_folded_height + 2).inverse();
         let g_inv = Challenge::two_adic_generator(log2_strict_usize(current_num_evals)).inverse();
         let one_half = Challenge::TWO.inverse();
         let half_beta = beta * one_half;
@@ -228,7 +240,7 @@ where
         }
     }
     let final_poly = final_poly_vec.get(0).copied().unwrap_or_else(|| Challenge::ZERO);
-
+//println!("gpu--final_poly:{:?}", final_poly);
     if !d_current_evals.is_null() {
         unsafe { cuda_free(d_current_evals).check("Final cuda_free failed"); }
     }
@@ -282,13 +294,14 @@ pub fn answer_queries_gpu(
     // 3. Allocate output buffer and make the FFI call.
     let total_proof_elements: usize = queries_by_layer.iter().map(|(layer_idx, pairs)| {
         let log_height = log2_strict_usize(commit_phase_layer_evals[*layer_idx].len()) -1;
-    
+    //println!("---gpu-rust, len1={}, log_height={}, pairs.len()={}", commit_phase_layer_evals[*layer_idx].len(), log_height, pairs.len());
+
         pairs.len() * log_height * DIGEST_SIZE
     }).sum();
 
 
     let mut flat_proofs_host_buffer = vec![Val::ZERO; total_proof_elements];
-
+//println!("---gpu-rust,  total_proof_elements={}",  total_proof_elements);
     let result = unsafe {
         stark_fri_generate_proofs_gpu(
             prover_data_handles.as_ptr(),
@@ -304,16 +317,20 @@ pub fn answer_queries_gpu(
 
     // 4. Reconstruct results. The proofs are now all in `flat_proofs_host_buffer`.
     // We can create a map from `(layer_idx, index_pair)` to the proof for fast lookup.
+    //let mut proof_map: BTreeMap<(usize, usize), GpuChallengeMmcs::Proof> = BTreeMap::new();
     let mut proof_map: BTreeMap<(usize, usize), <GpuChallengeMmcs as Mmcs<Challenge>>::Proof> = BTreeMap::new();
 
     let mut proof_cursor = 0;
     for (layer_idx, (offset, count)) in &layer_map {
+        //let log_height = log2_strict_usize(commit_phase_layer_evals[*layer_idx].len());
         let log_height = log2_strict_usize(commit_phase_layer_evals[*layer_idx].len()) -1;
         let proof_size = log_height * DIGEST_SIZE;
         let indices_for_layer = &flat_indices[*offset..*offset + *count];
         for &index_pair in indices_for_layer {
             let proof_slice = &flat_proofs_host_buffer[proof_cursor..proof_cursor + proof_size];
-            
+            //let siblings : Vec<[F; DIGEST_SIZE]> = proof_slice.chunks_exact(DIGEST_SIZE).map(|c| c.try_into().unwrap()).collect();
+            //proof_map.insert((*layer_idx, index_pair as usize), siblings.into());
+
             let siblings: <GpuChallengeMmcs as Mmcs<Challenge>>::Proof = proof_slice
                 .chunks_exact(DIGEST_SIZE)
                 .map(|chunk| chunk.try_into().unwrap())
@@ -335,11 +352,13 @@ pub fn answer_queries_gpu(
                 let index_i = index >> layer_idx;
                 let index_i_sibling = index_i ^ 1;
                 let index_pair = index_i >> 1;
+//println!("-----gpu_answer_query2222: index:{}, index_i:{},index_i_sibling:{} ,index_pair={}", index, index_i, index_i_sibling, index_pair);
 
                 //let sibling_value = evals[index_in_layer ^ 1];
                 let sibling_value = evals[index_i_sibling];
                 let opening_proof = proof_map.get(&(layer_idx, index_pair)).unwrap().clone();
-
+//println!("***gpu opening_proof:{:?}", opening_proof);
+//println!("***gpu sibling_value:{:?}", sibling_value);              
                 CommitPhaseProofStep {
                     sibling_value,
                     opening_proof,
@@ -351,7 +370,7 @@ pub fn answer_queries_gpu(
 }
 
 
-//test function
+//test
 #[instrument(skip_all, level = "debug")]
 pub fn fold_even_odd<F: TwoAdicField>(poly: Vec<F>, beta: F) -> Vec<F>
 where
@@ -414,6 +433,11 @@ mod tests {
     use p3_merkle_tree::MerkleTreeMmcs;
     use std::ffi::c_void;
     use crate::{StarkGenericConfig, GpuChallengeMmcs};
+
+    use serde::{Deserialize, Serialize};
+    use std::fs::{File, OpenOptions}; //debug
+    use std::io::Write;
+    use serde_json;
 
     // Define the concrete Challenge type for the test
     type Challenge = BinomialExtensionField<BabyBear, 4>;
@@ -482,6 +506,7 @@ mod tests {
     // Redefine types for testing clarity, matching your existing tests.
     type F = BabyBear;
     type Cfg = crate::baby_bear_poseidon2::StarkConfigCpu;
+    //type Challenge = <Cfg as StarkGenericConfig>::Challenge;
     type ValMmcs<F> = p3_merkle_tree::MerkleTreeMmcs<
         F,
         F,
@@ -702,7 +727,7 @@ mod tests {
                 &data,
                 &layer_evals,
                 &query_one,
-                log_max_height,
+                //log_max_height,
             );
 
          // 3e. IMPORTANT: Clean up all GPU memory
@@ -715,6 +740,8 @@ mod tests {
 
     }
 
+
+    //type Challenge = BinomialExtensionField<BabyBear, 4>;
 
     mod challenge_serde {
         use super::{BabyBear, Challenge}; 

@@ -23,6 +23,8 @@ use crate::{
 
 use super::mem::MemoryAccessColsChips;
 
+use sp1_stark::GpuMatrix;
+
 pub const NUM_FRI_FOLD_COLS: usize = core::mem::size_of::<FriFoldCols<u8>>();
 pub const NUM_FRI_FOLD_PREPROCESSED_COLS: usize =
     core::mem::size_of::<FriFoldPreprocessedCols<u8>>();
@@ -107,7 +109,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for FriFoldChip<DEGREE>
             std::any::TypeId::of::<BabyBear>(),
             "generate_trace only supports BabyBear field"
         );
-
+    
         let fri_fold_instrs: Vec<&FriFoldInstr<BabyBear>> = program
         .inner
         .iter()
@@ -123,7 +125,169 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for FriFoldChip<DEGREE>
 
         let mut values: Vec<BabyBear>;
 
-        if cfg!(feature = "recursion_cuda") {
+        let mut cpu_rows: Vec<[BabyBear; NUM_FRI_FOLD_PREPROCESSED_COLS]> = Vec::new();
+
+        for instruction in fri_fold_instrs {
+            let num_rows_for_instr = instruction.ext_vec_addrs.ps_at_z.len();
+            let mut current_instr_rows = vec![
+                [BabyBear::ZERO; NUM_FRI_FOLD_PREPROCESSED_COLS];
+                num_rows_for_instr
+            ];
+
+            current_instr_rows.iter_mut().enumerate().for_each(|(row_idx, row)| {
+                let cols: &mut FriFoldPreprocessedCols<BabyBear> =
+                    row.as_mut_slice().borrow_mut();
+                unsafe {
+                        crate::sys::fri_fold_instr_to_row_babybear(
+                            &(&(*instruction)).into(), 
+                            row_idx,
+                            cols,
+                        );
+                }
+            });
+            cpu_rows.extend(current_instr_rows);
+        }
+        values = cpu_rows.into_iter().flatten().collect::<Vec<BabyBear>>();
+        
+
+        // Pad the trace to a power of two.
+        if self.pad {
+            let current_num_rows = values.len() / NUM_FRI_FOLD_PREPROCESSED_COLS;
+            let padded_num_rows = next_power_of_two(current_num_rows, self.fixed_log2_rows);
+
+            let target_total_elements = padded_num_rows * NUM_FRI_FOLD_PREPROCESSED_COLS;
+
+            values.resize(target_total_elements, BabyBear::ZERO);
+        }
+
+        let trace = RowMajorMatrix::new(
+            unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
+            NUM_FRI_FOLD_PREPROCESSED_COLS,
+        );
+        
+        Some(trace)
+    }
+
+    fn num_rows(&self, input: &Self::Record) -> Option<usize> {
+        let events = &input.fri_fold_events;
+        Some(next_power_of_two(events.len(), input.fixed_log2_rows(self)))
+    }
+
+    #[instrument(name = "generate fri fold trace", level = "debug", skip_all, fields(rows = input.fri_fold_events.len()))]
+    fn generate_trace(
+        &self,
+        input: &ExecutionRecord<F>,
+        _: &mut ExecutionRecord<F>,
+    ) -> RowMajorMatrix<F> {
+        assert_eq!(
+            std::any::TypeId::of::<F>(),
+            std::any::TypeId::of::<BabyBear>(),
+            "generate_trace only supports BabyBear field"
+        );
+        
+        let events = unsafe {
+            std::mem::transmute::<&Vec<FriFoldEvent<F>>, &Vec<FriFoldEvent<BabyBear>>>(
+                &input.fri_fold_events,
+            )
+        };
+
+        let mut values = vec![BabyBear::ZERO; events.len() * NUM_FRI_FOLD_COLS];
+        if events.is_empty() {
+            return RowMajorMatrix::new(
+                unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
+                NUM_FRI_FOLD_COLS,
+            );
+        }
+
+         
+        values
+            .chunks_mut(NUM_FRI_FOLD_COLS)
+            .zip_eq(events)
+            .for_each(|(row, event)| {
+                let cols: &mut FriFoldCols<BabyBear> = row.borrow_mut();
+                unsafe {
+                        crate::sys::fri_fold_event_to_row_babybear(event, cols);
+                }
+            });
+        
+
+        // Pad the trace to a power of two.
+        if self.pad {
+            //rows.resize(self.num_rows(input).unwrap(), [BabyBear::ZERO; NUM_FRI_FOLD_COLS]);
+            let padded_num_rows = self.num_rows(input).unwrap();
+            let target_len = padded_num_rows * NUM_FRI_FOLD_COLS;
+            values.resize(target_len, BabyBear::ZERO);
+        }
+
+        // Convert the trace to a row major matrix.
+        let trace = RowMajorMatrix::new(
+            unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
+            NUM_FRI_FOLD_COLS,
+        );
+
+        #[cfg(debug_assertions)]
+        eprintln!(
+            "fri fold trace dims is width: {:?}, height: {:?}",
+            trace.width(),
+            trace.height()
+        );
+        
+        trace
+    }
+
+    fn included(&self, _record: &Self::Record) -> bool {
+        true
+    }
+
+    /*
+    fn generate_trace_gpu(&self, input: &Self::Record, _: &mut Self::Record) -> GpuMatrix<F> {
+        let events = unsafe {
+            std::mem::transmute::<&Vec<FriFoldEvent<F>>, &Vec<FriFoldEvent<BabyBear>>>(
+                &input.fri_fold_events,
+            )
+        };
+
+        //let mut values = vec![BabyBear::ZERO; events.len() * NUM_FRI_FOLD_COLS];
+        let padded_nb_rows = self.num_rows(input).unwrap();
+        let num_cols = <Self as BaseAir<F>>::width(self);
+
+        // 1. Allocate the matrix directly on the GPU.
+        let mut gpu_matrix = GpuMatrix::<F>::new(padded_nb_rows, num_cols);
+        
+        if !events.is_empty() {
+            unsafe {
+                crate::sys::process_fri_fold_events_gpu(
+                    events.as_ptr(),
+                    events.len(),
+                    gpu_matrix.as_mut_ptr() as *mut BabyBear, // Pass the device pointer
+                    gpu_matrix.height * gpu_matrix.width, // Pass total elements
+                    num_cols,
+                );
+            }
+        }
+        
+        // 3. Return the GpuMatrix handle.
+        gpu_matrix
+    }
+
+    fn generate_preprocessed_trace_gpu(
+        &self,
+        program: &Self::Program,
+    ) -> Option<GpuMatrix<F>> {
+        let fri_fold_instrs: Vec<&FriFoldInstr<BabyBear>> = program
+        .inner
+        .iter()
+        .filter_map(|instruction| match instruction {
+            Instruction::FriFold(instr) => Some(unsafe {
+                std::mem::transmute::<&FriFoldInstr<F>, &FriFoldInstr<BabyBear>>(
+                    instr.as_ref(),
+                )
+            }),
+            _ => None,
+        })
+        .collect_vec(); 
+
+        if !fri_fold_instrs.is_empty()  {
             let mut all_ext_mat_opening: Vec<Address<BabyBear>> = Vec::new();
             let mut all_ext_ps_at_z: Vec<Address<BabyBear>> = Vec::new();
             let mut all_alpha_pow_input: Vec<Address<BabyBear>> = Vec::new();
@@ -203,10 +367,14 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for FriFoldChip<DEGREE>
                 current_ro_mults_offset += instr_data.ro_mults.len();
             }
 
-            let initial_len = num_total_output_rows * NUM_FRI_FOLD_PREPROCESSED_COLS;
-            values = vec![BabyBear::ZERO; initial_len];
+            //let initial_len = num_total_output_rows * NUM_FRI_FOLD_PREPROCESSED_COLS;
+            //values = vec![BabyBear::ZERO; initial_len];
+            let padded_num_rows = next_power_of_two(num_total_output_rows, program.fixed_log2_rows(self));
+            let num_cols = NUM_FRI_FOLD_PREPROCESSED_COLS;
+        
+            // 1. Allocate the matrix directly on the GPU.
+            let mut gpu_matrix = GpuMatrix::<F>::new(padded_num_rows, num_cols);
             
-            //println!("---fri_fold instr GPU, instrs.len:{}", instrs_values.len());
             unsafe {
                 crate::sys::process_fri_fold_instructions_gpu(
                     instrs_values.as_ptr(),        
@@ -229,138 +397,18 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for FriFoldChip<DEGREE>
                     all_alpha_pow_mults.len(),
                     all_ro_mults.as_ptr(),              
                     all_ro_mults.len(),
-                    values.as_mut_ptr(),                
-                    values.len(),
+                    gpu_matrix.as_mut_ptr() as *mut BabyBear, 
+                    gpu_matrix.height * gpu_matrix.width, 
                     num_total_output_rows,
                     NUM_FRI_FOLD_PREPROCESSED_COLS,
                 );
             } 
+            Some(gpu_matrix)
         } else {
-            //println!("---cpu fold_fri _instructions---");
-            let mut cpu_rows: Vec<[BabyBear; NUM_FRI_FOLD_PREPROCESSED_COLS]> = Vec::new();
-
-            for instruction in fri_fold_instrs {
-                let num_rows_for_instr = instruction.ext_vec_addrs.ps_at_z.len();
-                let mut current_instr_rows = vec![
-                    [BabyBear::ZERO; NUM_FRI_FOLD_PREPROCESSED_COLS];
-                    num_rows_for_instr
-                ];
-
-                current_instr_rows.iter_mut().enumerate().for_each(|(row_idx, row)| {
-                    let cols: &mut FriFoldPreprocessedCols<BabyBear> =
-                        row.as_mut_slice().borrow_mut();
-                    unsafe {
-                        crate::sys::fri_fold_instr_to_row_babybear(
-                            &(&(*instruction)).into(), 
-                            row_idx,
-                            cols,
-                        );
-                    }
-                });
-                cpu_rows.extend(current_instr_rows);
-            }
-            values = cpu_rows.into_iter().flatten().collect::<Vec<BabyBear>>();
+            None
         }
-
-        // Pad the trace to a power of two.
-        if self.pad {
-            let current_num_rows = values.len() / NUM_FRI_FOLD_PREPROCESSED_COLS;
-            let padded_num_rows = next_power_of_two(current_num_rows, self.fixed_log2_rows);
-
-            let target_total_elements = padded_num_rows * NUM_FRI_FOLD_PREPROCESSED_COLS;
-
-            values.resize(target_total_elements, BabyBear::ZERO);
-        }
-
-        let trace = RowMajorMatrix::new(
-            unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
-            NUM_FRI_FOLD_PREPROCESSED_COLS,
-        );
-        
-        Some(trace)
-    }
-
-    fn num_rows(&self, input: &Self::Record) -> Option<usize> {
-        let events = &input.fri_fold_events;
-        Some(next_power_of_two(events.len(), input.fixed_log2_rows(self)))
-    }
-
-    #[instrument(name = "generate fri fold trace", level = "debug", skip_all, fields(rows = input.fri_fold_events.len()))]
-    fn generate_trace(
-        &self,
-        input: &ExecutionRecord<F>,
-        _: &mut ExecutionRecord<F>,
-    ) -> RowMajorMatrix<F> {
-        assert_eq!(
-            std::any::TypeId::of::<F>(),
-            std::any::TypeId::of::<BabyBear>(),
-            "generate_trace only supports BabyBear field"
-        );
-
-        let events = unsafe {
-            std::mem::transmute::<&Vec<FriFoldEvent<F>>, &Vec<FriFoldEvent<BabyBear>>>(
-                &input.fri_fold_events,
-            )
-        };
-
-        let mut values = vec![BabyBear::ZERO; events.len() * NUM_FRI_FOLD_COLS];
-        if events.is_empty() {
-            return RowMajorMatrix::new(
-                unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
-                NUM_FRI_FOLD_COLS,
-            );
-        }
-
-        if cfg!(feature = "recursion_cuda") {
-            unsafe {
-                crate::sys::process_fri_fold_events_gpu(
-                    events.as_ptr(),
-                    events.len(),
-                    values.as_mut_ptr(),
-                    values.len(),
-                    NUM_FRI_FOLD_COLS,
-                );
-            }
-        } else {
-            // CPU 
-            values
-                .chunks_mut(NUM_FRI_FOLD_COLS)
-                .zip_eq(events)
-                .for_each(|(row, event)| {
-                    let cols: &mut FriFoldCols<BabyBear> = row.borrow_mut();
-                    unsafe {
-                        crate::sys::fri_fold_event_to_row_babybear(event, cols);
-                    }
-                });
-        }
-
-        // Pad the trace to a power of two.
-        if self.pad {
-            //rows.resize(self.num_rows(input).unwrap(), [BabyBear::ZERO; NUM_FRI_FOLD_COLS]);
-            let padded_num_rows = self.num_rows(input).unwrap();
-            let target_len = padded_num_rows * NUM_FRI_FOLD_COLS;
-            values.resize(target_len, BabyBear::ZERO);
-        }
-
-        // Convert the trace to a row major matrix.
-        let trace = RowMajorMatrix::new(
-            unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
-            NUM_FRI_FOLD_COLS,
-        );
-
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "fri fold trace dims is width: {:?}, height: {:?}",
-            trace.width(),
-            trace.height()
-        );
-        
-        trace
-    }
-
-    fn included(&self, _record: &Self::Record) -> bool {
-        true
-    }
+            
+    } */
 }
 
 impl<const DEGREE: usize> FriFoldChip<DEGREE> {
@@ -375,32 +423,11 @@ impl<const DEGREE: usize> FriFoldChip<DEGREE> {
         // Constrain mem read for x.  Read at the first fri fold row.
         builder.send_single(local_prepr.x_mem.addr, local.x, local_prepr.x_mem.mult);
 
-        // Ensure that the x value is the same for all rows within a fri fold invocation.
-        builder
-            .when_transition()
-            .when(next_prepr.is_real)
-            .when_not(next_prepr.is_first)
-            .assert_eq(local.x, next.x);
-
-        // Constrain mem read for z.  Read at the first fri fold row.
+        // Constrain mem write for z.  Read at the first fri fold row.
         builder.send_block(local_prepr.z_mem.addr, local.z, local_prepr.z_mem.mult);
 
-        // Ensure that the z value is the same for all rows within a fri fold invocation.
-        builder
-            .when_transition()
-            .when(next_prepr.is_real)
-            .when_not(next_prepr.is_first)
-            .assert_ext_eq(local.z.as_extension::<AB>(), next.z.as_extension::<AB>());
-
-        // Constrain mem read for alpha.  Read at the first fri fold row.
+        // Constrain mem write for alpha.  Read at the first fri fold row.
         builder.send_block(local_prepr.alpha_mem.addr, local.alpha, local_prepr.alpha_mem.mult);
-
-        // Ensure that the alpha value is the same for all rows within a fri fold invocation.
-        builder
-            .when_transition()
-            .when(next_prepr.is_real)
-            .when_not(next_prepr.is_first)
-            .assert_ext_eq(local.alpha.as_extension::<AB>(), next.alpha.as_extension::<AB>());
 
         // Constrain read for alpha_pow_input.
         builder.send_block(
@@ -436,6 +463,33 @@ impl<const DEGREE: usize> FriFoldChip<DEGREE> {
             local_prepr.ro_output_mem.mult,
         );
 
+        // Ensure that the x value is the same for all rows within a fri fold invocation.
+        builder
+            .when_transition()
+            .when(next_prepr.is_real)
+            .when_not(next_prepr.is_first)
+            .assert_eq(local.x, next.x);
+
+        
+
+        // Ensure that the z value is the same for all rows within a fri fold invocation.
+        builder
+            .when_transition()
+            .when(next_prepr.is_real)
+            .when_not(next_prepr.is_first)
+            .assert_ext_eq(local.z.as_extension::<AB>(), next.z.as_extension::<AB>());
+
+        
+
+        // Ensure that the alpha value is the same for all rows within a fri fold invocation.
+        builder
+            .when_transition()
+            .when(next_prepr.is_real)
+            .when_not(next_prepr.is_first)
+            .assert_ext_eq(local.alpha.as_extension::<AB>(), next.alpha.as_extension::<AB>());
+
+        
+
         // 1. Constrain new_value = old_value * alpha.
         let alpha = local.alpha.as_extension::<AB>();
         let old_alpha_pow = local.alpha_pow_input.as_extension::<AB>();
@@ -455,6 +509,7 @@ impl<const DEGREE: usize> FriFoldChip<DEGREE> {
             (new_ro.clone() - old_ro) * (BinomialExtension::from_base(x) - z),
             (p_at_x - p_at_z) * old_alpha_pow,
         );
+    
     }
 
     pub const fn do_memory_access<T: Copy>(local: &FriFoldPreprocessedCols<T>) -> T {
@@ -731,6 +786,19 @@ mod tests {
         let trace = chip.generate_trace(&shard, &mut execution_record);
         assert!(trace.height() >= test_fixtures::MIN_TEST_CASES);
 
+        assert_eq!(trace, generate_trace_reference::<DEGREE>(&shard, &mut execution_record));
+    }
+
+    #[test]
+    fn generate_trace_gpu() {     
+        let shard = test_fixtures::shard();
+        let mut execution_record = test_fixtures::default_execution_record();
+        let chip = FriFoldChip::<DEGREE>::default();
+        let trace_gpu_ptr = chip.generate_trace_gpu(&shard, &mut execution_record);
+        
+        let trace_values = trace_gpu_ptr.to_host();
+        let trace = RowMajorMatrix::new(trace_values, NUM_FRI_FOLD_COLS);
+        
         assert_eq!(trace, generate_trace_reference::<DEGREE>(&shard, &mut execution_record));
     }
 

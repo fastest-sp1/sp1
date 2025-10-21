@@ -1,6 +1,7 @@
 #include "bb31_t.hpp" 
 #include "bb31_quartic_extension_t.hpp"
 #include "utils.hpp"
+#include "gpu_types.hpp"
 #include <vector>
 
 struct OpeningPointInfo {
@@ -369,3 +370,101 @@ extern "C" int fri_pcs_compute_quotient_for_height_gpu(
     return 0;
 }
 
+extern "C" int fri_pcs_compute_quotient_for_height_data_in_gpu(
+    // Input for a whole height group
+    //int h,  =lde.height
+    const GpuMatrix<bb31_t>* h_lde_data_ptrs, // Array of GpuMatrix
+    //const int* h_lde_widths,             // Array of matrix widths
+    int num_ldes,
+    
+    // Global parameters
+    const GpuMatrix<bb31_t>* h_coset, // Global coset, we'll use the first `h` elements
+    const bb31_quartic_extension_t* h_alpha,
+    //const GpuMatrix<bb31_quartic_extension_t>* h_alpha_powers,
+    const bb31_quartic_extension_t* h_alpha_powers,
+    int num_alpha_powers,
+    
+    // Flattened data for ALL openings in this height group
+    const bb31_quartic_extension_t* h_points_z_flat,
+    const bb31_quartic_extension_t* h_opened_values_y_flat,
+    const int* h_num_points_per_mat, // Array telling how many points each matrix has
+    
+    // Output
+    bb31_quartic_extension_t* h_quotient_evals_out
+) {
+    int num_threads = 256;
+    int h = h_lde_data_ptrs[0].height;
+    dim3 block_dim(num_threads);
+    dim3 grid_dim_h((h + num_threads - 1) / num_threads);
+//printf("+++++++fri_pcs_quotient_data_in_gpu--11111,num_ldes=%u, 0.h=%u, 0.width=%u\n",num_ldes, h, h_lde_data_ptrs[0].width);
+    // --- 1. Allocate all constant GPU memory ONCE ---
+    bb31_quartic_extension_t* d_quotient_evals;
+    CUDA_CHECK(cudaMalloc(&d_quotient_evals, (size_t)h * sizeof(bb31_quartic_extension_t)));
+    CUDA_CHECK(cudaMemset(d_quotient_evals, 0, (size_t)h * sizeof(bb31_quartic_extension_t)));
+
+    bb31_quartic_extension_t* d_alpha_powers;// = h_alpha_powers->d_data;
+    CUDA_CHECK(cudaMalloc(&d_alpha_powers, (size_t)num_alpha_powers * sizeof(bb31_quartic_extension_t)));
+    CUDA_CHECK(cudaMemcpy(d_alpha_powers, h_alpha_powers, (size_t)num_alpha_powers * sizeof(bb31_quartic_extension_t), cudaMemcpyHostToDevice));
+
+    bb31_t* d_coset_for_height = h_coset->d_data;
+    //CUDA_CHECK(cudaMalloc(&d_coset_for_height, (size_t)h * sizeof(bb31_t)));
+    //CUDA_CHECK(cudaMemcpy(d_coset_for_height, h_coset, (size_t)h * sizeof(bb31_t), cudaMemcpyHostToDevice));
+
+    // --- 2. Iterate through matrices, applying correct logic ---
+    uint64_t num_reduced_tracker = 0;
+    const bb31_quartic_extension_t* current_points_z_ptr = h_points_z_flat;
+    const bb31_quartic_extension_t* current_opened_values_y_ptr = h_opened_values_y_flat;
+
+    for (int i = 0; i < num_ldes; ++i) {
+        int w = h_lde_data_ptrs[i].width;
+        int num_points = h_num_points_per_mat[i];
+
+        // --- Per-matrix GPU work ---
+        bb31_t* d_lde_data = h_lde_data_ptrs[i].d_data;
+        //CUDA_CHECK(cudaMalloc(&d_lde_data, (size_t)h * w * sizeof(bb31_t)));
+        //CUDA_CHECK(cudaMemcpy(d_lde_data, h_lde_data_ptrs[i], (size_t)h * w * sizeof(bb31_t), cudaMemcpyHostToDevice));
+        
+        bb31_quartic_extension_t* d_mat_compressed;
+        CUDA_CHECK(cudaMalloc(&d_mat_compressed, (size_t)h * sizeof(bb31_quartic_extension_t)));
+        compute_mat_compressed_kernel<<<grid_dim_h, block_dim>>>(d_lde_data, h, w, d_alpha_powers, d_mat_compressed);
+
+        for (int j = 0; j < num_points; ++j) {
+            // Correct alpha offset for this point
+            bb31_quartic_extension_t alpha_pow_offset = h_alpha->pow(num_reduced_tracker);
+
+            // Host-side y_mat_reduced calculation
+            bb31_quartic_extension_t y_mat_reduced;
+            for (int k = 0; k < w; ++k) {
+                y_mat_reduced += h_alpha_powers[k] * current_opened_values_y_ptr[k];
+            }
+            
+            bb31_quartic_extension_t point_z = *current_points_z_ptr;
+
+            // GPU-side inv_denoms and accumulation
+            bb31_quartic_extension_t* d_inv_denoms;
+            CUDA_CHECK(cudaMalloc(&d_inv_denoms, (size_t)h * sizeof(bb31_quartic_extension_t)));
+            compute_inv_denoms_kernel<<<grid_dim_h, block_dim>>>(point_z, d_coset_for_height, h, d_inv_denoms);
+            compute_quotient_main_loop_kernel<<<grid_dim_h, block_dim>>>(
+                d_mat_compressed, d_inv_denoms, y_mat_reduced, alpha_pow_offset, h, d_quotient_evals);
+            CUDA_CHECK(cudaFree(d_inv_denoms));
+
+            // IMPORTANT: Update counter and pointers
+            num_reduced_tracker += w;
+            current_points_z_ptr++;
+            current_opened_values_y_ptr += w;
+        }
+
+        //CUDA_CHECK(cudaFree(d_lde_data));
+        CUDA_CHECK(cudaFree(d_mat_compressed));
+    }
+
+    // --- 3. Copy final result back ---
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(h_quotient_evals_out, d_quotient_evals, (size_t)h * sizeof(bb31_quartic_extension_t), cudaMemcpyDeviceToHost));
+    
+    // --- 4. Cleanup constant GPU memory ---
+    CUDA_CHECK(cudaFree(d_quotient_evals));
+    CUDA_CHECK(cudaFree(d_alpha_powers));
+    //CUDA_CHECK(cudaFree(d_coset_for_height));
+    return 0;
+}

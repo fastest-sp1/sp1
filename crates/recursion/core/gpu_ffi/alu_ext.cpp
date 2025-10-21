@@ -54,15 +54,15 @@ __global__ void kernel_process_alu_ext_instructions_gpu(
 
 
 extern "C" void process_alu_ext_events_gpu(
-        const ExtAluIo<Block<BabyBear>>* events_h, 
+        const ExtAluIo<Block<BabyBear>>* events_h,
         uint32_t events_len,  
-        BabyBear* output_h, 
+        BabyBear* output_d, 
         uint32_t output_len,              
         int num_cols_per_row                        
 ) {
     if (events_len == 0) return; 
     ExtAluIo<Block<BabyBear>> *events_d = nullptr; 
-    BabyBear *output_d = nullptr; 
+    //BabyBear *output_d = nullptr; 
     cudaError_t err = cudaSuccess; 
 
     uint32_t input_size_bytes;
@@ -80,13 +80,13 @@ extern "C" void process_alu_ext_events_gpu(
     if (err != cudaSuccess) { fprintf(stderr, "_alu_ext_events: cudaMemcpy events_h to events_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
     // 3. Allocate device memory for output
-    output_size_bytes = (uint32_t)events_len * num_cols_per_row * sizeof(BabyBear);
-    err = cudaMalloc(&output_d, output_size_bytes);
-    if (err != cudaSuccess) { fprintf(stderr, "_alu_ext_events: cudaMalloc output_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
+    //output_size_bytes = (uint32_t)events_len * num_cols_per_row * sizeof(BabyBear);
+    //err = cudaMalloc(&output_d, output_size_bytes);
+    //if (err != cudaSuccess) { fprintf(stderr, "_alu_ext_events: cudaMalloc output_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
     
     // Optional: Initialize device output memory to zero
-    err = cudaMemset(output_d, 0, output_size_bytes);
-    if (err != cudaSuccess) { fprintf(stderr, "_alu_ext_events: cudaMemset output_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
+    //err = cudaMemset(output_d, 0, output_size_bytes);
+    //if (err != cudaSuccess) { fprintf(stderr, "_alu_ext_events: cudaMemset output_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
     // Define launch configuration
     num_blocks = (events_len + threads_per_block - 1) / threads_per_block; // Assignment here
@@ -101,13 +101,13 @@ extern "C" void process_alu_ext_events_gpu(
     err = cudaDeviceSynchronize();
     if (err != cudaSuccess) { fprintf(stderr, "_alu_ext_events: cudaDeviceSynchronize failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
-    err = cudaMemcpy(output_h, output_d, output_size_bytes, cudaMemcpyDeviceToHost);
-    if (err != cudaSuccess) { fprintf(stderr, "_alu_ext_events: cudaMemcpy output_d to output_h failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
+    //err = cudaMemcpy(output_h, output_d, output_size_bytes, cudaMemcpyDeviceToHost);
+    //if (err != cudaSuccess) { fprintf(stderr, "_alu_ext_events: cudaMemcpy output_d to output_h failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
 cleanup:
     // 6. Free device memory
     if (events_d) cudaFree(events_d);
-    if (output_d) cudaFree(output_d);
+    //if (output_d) cudaFree(output_d);
     if (err != cudaSuccess) {
         fprintf(stderr, "_alu_ext_events: CUDA error : %s\n", cudaGetErrorString(err));
     }
@@ -116,14 +116,14 @@ cleanup:
 extern "C" void process_alu_ext_instructions_gpu(
         const ExtAluInstr<BabyBear>* instrs_h, 
         uint32_t instrs_len,  
-        BabyBear* output_h, 
+        BabyBear* output_d, 
         uint32_t output_len,              
         int num_cols_per_row                        
 ) {
     if (instrs_len == 0) return;
 
     ExtAluInstr<BabyBear> *instructions_d = nullptr;
-    BabyBear *output_d = nullptr;
+    //BabyBear *output_d = nullptr;
     cudaError_t err = cudaSuccess;
 
 
@@ -142,13 +142,13 @@ extern "C" void process_alu_ext_instructions_gpu(
     if (err != cudaSuccess) { fprintf(stderr, "_alu_ext_instructions: cudaMemcpy instructions_h to instructions_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
     // 3. Allocate device memory for output
-    output_size_bytes = instrs_len * num_cols_per_row * sizeof(BabyBear); // Assignment here
-    err = cudaMalloc(&output_d, output_size_bytes);
-    if (err != cudaSuccess) { fprintf(stderr, "_alu_ext_instructions: cudaMalloc output_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
+    //output_size_bytes = instrs_len * num_cols_per_row * sizeof(BabyBear); // Assignment here
+    //err = cudaMalloc(&output_d, output_size_bytes);
+    //if (err != cudaSuccess) { fprintf(stderr, "_alu_ext_instructions: cudaMalloc output_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
     // Optional: Initialize device output memory to zero
-    err = cudaMemset(output_d, 0, output_size_bytes);
-    if (err != cudaSuccess) { fprintf(stderr, "_alu_ext_instructions: cudaMemset output_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
+    //err = cudaMemset(output_d, 0, output_size_bytes);
+    //if (err != cudaSuccess) { fprintf(stderr, "_alu_ext_instructions: cudaMemset output_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
     // Define launch configuration
     num_blocks = (instrs_len + threads_per_block - 1) / threads_per_block; // Assignment here
@@ -163,13 +163,13 @@ extern "C" void process_alu_ext_instructions_gpu(
     err = cudaDeviceSynchronize();
     if (err != cudaSuccess) { fprintf(stderr, "_alu_ext_instructions: cudaDeviceSynchronize failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
-    err = cudaMemcpy(output_h, output_d, output_size_bytes, cudaMemcpyDeviceToHost);
-    if (err != cudaSuccess) { fprintf(stderr, "_alu_ext_instructions: cudaMemcpy output_d to output_h failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
+    //err = cudaMemcpy(output_h, output_d, output_size_bytes, cudaMemcpyDeviceToHost);
+    //if (err != cudaSuccess) { fprintf(stderr, "_alu_ext_instructions: cudaMemcpy output_d to output_h failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
 cleanup:
     // 6. Free device memory
     if (instructions_d) cudaFree(instructions_d);
-    if (output_d) cudaFree(output_d);
+    //if (output_d) cudaFree(output_d);
     if (err != cudaSuccess) {
         fprintf(stderr, "_alu_ext_instructions: CUDA error: %s\n", cudaGetErrorString(err));
     }

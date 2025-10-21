@@ -2,7 +2,7 @@
 #include "air_folder.hpp"
 #include "gpu_types.hpp"
 #include "virtual_pair_col.hpp"
-#include "permutation_eval.hpp"
+#include "permutation.hpp"
 #include "poseidon2.hpp"
 
 
@@ -24,6 +24,7 @@ __device__ void eval_input_round_skinny(
     sp1_recursion_core_sys::poseidon2::external_linear_layer(state_computed);
 
     for (int i=0; i < POSEIDON2_STATE_WIDTH; ++i) {
+
         folder_assert_zero(folder, (next->state_var[i] - state_computed[i]) * is_transition * prep_local->round_counters_preprocessed.is_input_round);
     }
 }
@@ -129,25 +130,12 @@ __device__ void eval_poseidon2_skinny_chip(
     
     // 3. Memory Interactions
     Interaction interaction_buffer[POSEIDON2_STATE_WIDTH];
-    int interaction_count = 0;
-    for (int i=0; i < POSEIDON2_STATE_WIDTH; ++i) {
-        interaction_buffer[interaction_count++] = {
-            .values = {
-                VirtualPairCol::single_preprocessed(offsetof(Poseidon2PreprocessedColsSkinny<Val>, memory_preprocessed[i].addr) / sizeof(Val)),
-                VirtualPairCol::single_main(offsetof(Poseidon2SkinnyCols<Val>, state_var[i]) / sizeof(Val))
-                
-            }, 
-            .num_values = 2,
-            .multiplicity = VirtualPairCol::single_preprocessed(offsetof(Poseidon2PreprocessedColsSkinny<Val>, memory_preprocessed[i].mult) / sizeof(Val)),
-            .kind = InteractionKind::Memory, 
-            .scope = InteractionScope::Local, 
-            .is_send = true
-        };
-    }
-
+    int interaction_count = get_p2_skinny_interactions(interaction_buffer);
+    
     //const int perm_width_ef = perm_width / 4;
     const Challenge* perm_local = reinterpret_cast<const Challenge*>(perm_local_flat);
     const Challenge* perm_next = reinterpret_cast<const Challenge*>(perm_next_flat);
+
     eval_permutation_constraints(
         folder, 
         interaction_buffer, 

@@ -9,6 +9,7 @@
 #include "poseidon2_wide.hpp"
 #include "sp1-recursion-core-sys-cbindgen.hpp"
 
+
 using namespace sp1_recursion_core_sys;
 
 // This struct acts as a "handle" that manages all device memory
@@ -18,6 +19,12 @@ struct GpuMerkleTree {
     int* d_matrix_info;
     std::vector<bb31_t*> digest_layers_device;
     int log_max_height;
+};
+
+struct gpu_matrix_t {
+    bb31_t*  d_data;
+    std::size_t width;  // Use std::size_t to match Rust's usize
+    std::size_t height;
 };
 
 
@@ -37,7 +44,6 @@ __device__ void poseidon2_permute_mut(F* state) {
     F external_sbox[WIDTH * NUM_EXTERNAL_ROUNDS];
     F internal_sbox[NUM_INTERNAL_ROUNDS];
 
-    // --- Call the VERIFIED function ---
     populate_perm<F>(
         state, // input
         external_rounds_state,
@@ -104,72 +110,8 @@ __global__ void hash_leaves_kernel(
 }
 
 
-// --- KERNEL: Compresses a layer of digests in parallel ---
-/* v1 ok
-template <typename F, int WIDTH, int RATE, int OUT_ELEMS>
-__global__ void inject_and_compress_kernel(
-    const F* prev_layer_digests,
-    F* next_layer_digests,
-    int num_compressions,
-    // Injection data (can be NULL if no injection)
-    const F* flat_data,
-    const int* injected_matrix_info,
-    int num_injected_matrices,
-    int h_injected)
-{
-    int tid = threadIdx.x + blockIdx.x * blockDim.x;
-    if (tid >= num_compressions) return;
 
-    const F* left = prev_layer_digests + (size_t)tid * 2 * OUT_ELEMS;
-    const F* right = left + OUT_ELEMS;
-    
-    F temp_digest_state[WIDTH];
-    for(int k=0; k<OUT_ELEMS; ++k) temp_digest_state[k] = left[k];  
-    for(int k=0; k<OUT_ELEMS; ++k) temp_digest_state[OUT_ELEMS + k] = right[k];
-    for(int k=2*OUT_ELEMS; k<WIDTH; ++k) temp_digest_state[k] = F(0);
-    poseidon2_permute_mut<F, WIDTH>(temp_digest_state);
-    // `temp_digest_state` now holds the compressed digest.
-    F* dest = next_layer_digests + (size_t)tid * OUT_ELEMS;
-    
-    // There are matrices to inject, and this thread's index `i` corresponds to a valid row.
-    if (h_injected > 0) {
-        F injected_digest_state[WIDTH] = {F(0)};
-        int input_pos = 0;
-
-        for (int mat_idx = 0; mat_idx < num_injected_matrices; ++mat_idx) {
-                int offset = injected_matrix_info[mat_idx * 3 + 0];
-                int w = injected_matrix_info[mat_idx * 3 + 2];
-                const F* row_ptr = flat_data + offset + (size_t)tid * w; // tid is the row index here
-
-                for (int c = 0; c < w; ++c) {
-                    injected_digest_state[input_pos++] = row_ptr[c];
-                    if (input_pos == RATE) {
-                        poseidon2_permute_mut<F, WIDTH>(injected_digest_state);
-                        input_pos = 0;
-                    }
-                }
-        }
-        if (input_pos > 0) {
-                poseidon2_permute_mut<F, WIDTH>(injected_digest_state);
-        }
-            
-        // --- Part 3: Final compression of the two digests ---
-        F final_state[WIDTH];
-        for(int k=0; k<OUT_ELEMS; ++k) final_state[k] = temp_digest_state[k];
-        for(int k=0; k<OUT_ELEMS; ++k) final_state[OUT_ELEMS + k] = injected_digest_state[k];
-        for(int k=2*OUT_ELEMS; k<WIDTH; ++k) final_state[k] = F(0);
-            
-        poseidon2_permute_mut<F, WIDTH>(final_state);
-
-        
-        for(int k=0; k<OUT_ELEMS; ++k) dest[k] = final_state[k];
-    } else {//no injected matrix
-        for(int k=0; k<OUT_ELEMS; ++k) dest[k] = temp_digest_state[k];
-    }
-  
-}*/
-
-//v2 for  prove commit_phase
+//prove commit_phase
 // This kernel simulates plonky3::merkle_tree `compress_and_inject`.
 template <typename F, int WIDTH, int RATE, int OUT_ELEMS>
 __global__ void inject_and_compress_kernel(
@@ -333,7 +275,6 @@ extern "C" int stark_merkle_commit_gpu(
     dim3 block_dim(num_threads);
 
     // === 4. Stage 1: Leaf Hashing for TALLEST matrices ===
-    int h_tallest = 1 << max_log_height;
     const auto& tallest_indices = matrices_by_log_height[max_log_height];
    
     // Create and transfer info for only the tallest matrices for the hash_leaves_kernel
@@ -347,6 +288,7 @@ extern "C" int stark_merkle_commit_gpu(
     CUDA_CHECK(cudaMalloc(&d_tallest_matrix_info, tallest_matrix_info_host.size() * sizeof(int)));
     CUDA_CHECK(cudaMemcpy(d_tallest_matrix_info, tallest_matrix_info_host.data(), tallest_matrix_info_host.size() * sizeof(int), cudaMemcpyHostToDevice));
 
+    int h_tallest = 1 << max_log_height;
     int current_layer_active_digests = h_tallest;
     int current_layer_padded_size = current_layer_active_digests;
     if (current_layer_padded_size > 1 && current_layer_padded_size % 2 != 0) {
@@ -407,9 +349,9 @@ extern "C" int stark_merkle_commit_gpu(
         CUDA_CHECK(cudaMemset(d_next_layer, 0, (size_t)next_layer_padded_size * DIGEST_SIZE * sizeof(bb31_t)));
         tree->digest_layers_device.push_back(d_next_layer);
 
-        dim3 grid_dim_compress((num_compressions + num_threads - 1) / num_threads);
+        dim3 grid_dim((num_compressions + num_threads - 1) / num_threads);
 
-        inject_and_compress_kernel<bb31_t, 16, 8, DIGEST_SIZE><<<grid_dim_compress, block_dim>>>(
+        inject_and_compress_kernel<bb31_t, 16, 8, DIGEST_SIZE><<<grid_dim, block_dim>>>(
                 d_prev_layer, 
                 0, //require  the input maxtrix height is 2^n
                 d_next_layer, 
@@ -434,6 +376,7 @@ extern "C" int stark_merkle_commit_gpu(
     
     return 0;
 }
+
 
 extern "C" void stark_merkle_free_gpu(void* device_tree_handle) {
     if (!device_tree_handle) return;
@@ -461,8 +404,12 @@ extern "C" void stark_merkle_free_gpu(void* device_tree_handle) {
 
 ////For GpuMerkleTreeMmcs::open_batch
 extern "C" int stark_merkle_open_batch_gpu(
-    void* device_tree_handle, int index, const int* matrix_info, int num_matrices,
-    bb31_t* flat_opened_values_out, bb31_t* proof_out)
+    void* device_tree_handle, 
+    int index, 
+    const int* matrix_info, 
+    int num_matrices,
+    bb31_t* flat_opened_values_out, 
+    bb31_t* proof_out)
 {
     if (!device_tree_handle) return -1;
     GpuMerkleTree* tree = static_cast<GpuMerkleTree*>(device_tree_handle);
@@ -536,6 +483,8 @@ extern "C" int stark_merkle_generate_proofs_gpu(
         const GpuMerkleTree* tree = static_cast<const GpuMerkleTree*>(h_prover_data_handles[i]);
         unsigned int num_queries_for_tree = h_query_offsets[i+1] - h_query_offsets[i];
         total_proof_elements += (size_t)num_queries_for_tree * tree->log_max_height;
+        //printf("&&& stark_merkle_generate_proofs_gpu--000,num=%u, total_queries=%u,tree.addr=%p, log_max_height=%u\n", 
+         //   i, total_queries, h_prover_data_handles[i], tree->log_max_height);
     }
     total_proof_elements *= digest_size;
     
@@ -553,7 +502,6 @@ extern "C" int stark_merkle_generate_proofs_gpu(
         const GpuMerkleTree* tree = static_cast<const GpuMerkleTree*>(h_prover_data_handles[i]);
         unsigned int query_start_offset = h_query_offsets[i];
         unsigned int num_queries_for_tree = h_query_offsets[i+1] - query_start_offset;
-        
         if (num_queries_for_tree > 0) {
             bb31_t** d_digest_layers;
             CUDA_CHECK(cudaMalloc(&d_digest_layers, tree->digest_layers_device.size() * sizeof(bb31_t*)));
@@ -564,10 +512,10 @@ extern "C" int stark_merkle_generate_proofs_gpu(
             dim3 grid_dim((num_queries_for_tree + num_threads - 1) / num_threads);
 
             // We need the first layer of digests (the leaves' parents)
-            // Your GpuMerkleTree struct stores all layers. The one we need for proofs
+            // The GpuMerkleTree struct stores all layers. The one we need for proofs
             // is the one containing the siblings of the leaves.
-            // Assuming your tree layers are stored leaf-parents-upwards.
-            const bb31_t* d_tree_leaf_parent_layer = tree->digest_layers_device[0]; 
+            // Assuming  tree layers are stored leaf-parents-upwards.
+            //const bb31_t* d_tree_leaf_parent_layer = tree->digest_layers_device[0]; 
 
             generate_merkle_proofs_kernel<<<grid_dim, block_dim>>>(
                 d_digest_layers,
@@ -695,10 +643,10 @@ extern "C" int fri_commit_on_gpu(
         CUDA_CHECK(cudaMalloc(&d_next_layer, (size_t)num_compressions * DIGEST_SIZE * sizeof(bb31_t)));
         tree->digest_layers_device.push_back(d_next_layer);
 
-        dim3 grid_dim_compress((num_compressions + num_threads - 1) / num_threads);
+        dim3 grid_dim((num_compressions + num_threads - 1) / num_threads);
         
         // Call the modified compression kernel.
-        inject_and_compress_kernel<bb31_t, 16, 8, DIGEST_SIZE><<<grid_dim_compress, block_dim>>>(
+        inject_and_compress_kernel<bb31_t, 16, 8, DIGEST_SIZE><<<grid_dim, block_dim>>>(
                 d_prev_layer,
                 current_layer_nodes, // Pass the actual number of nodes from the previous layer
                 d_next_layer,
@@ -891,164 +839,297 @@ extern "C" int stark_test_poseidon2_permute_gpu(bb31_t* state) {
     return 0;
 }
 
-//memor alloc op
-/*
-extern "C" int fri_commit_on_gpu(
-    const bb31_quartic_extension_t* d_evals,
-    int num_evals,
-    bb31_t* h_root_out,
-    void** device_tree_handle_out
+/////////////////new sep 10 /////////////////////////
+
+
+template <typename F, int WIDTH, int RATE, int OUT_ELEMS>
+__global__ void hash_leaves_from_pointers_kernel(
+    const gpu_matrix_t* d_matrices, // Array of matrix descriptors (ON DEVICE)
+    int num_matrices,
+    int leaf_height,                // The height of all matrices in this batch
+    F* d_leaf_digests               // Output buffer for leaf digests
 ) {
-    if (num_evals == 0) return -1;
+    int row_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (row_idx >= leaf_height) return;
 
-    const int h = num_evals;
-    const int w = 4;
-    const int num_matrices = 1;
-    int matrix_info[3] = {0, h, w};
-    int log_h_padded = (h > 0) ? integer_log2(next_power_of_two(h)) : 0;
+    F sponge_state[WIDTH] = {F(0)};
+    int input_pos = 0;
 
-    // --- 1. Pre-calculate total memory needed for all digest layers ---
-    size_t total_digest_elements = 0;
-    int current_nodes = next_power_of_two(h);
-    for (int i = 0; i < log_h_padded; ++i) {
-        total_digest_elements += current_nodes;
-        current_nodes /= 2;
+    // This thread is responsible for hashing all elements for `row_idx`.
+    // It iterates through all matrices passed in `d_matrices`.
+    for (int i = 0; i < num_matrices; ++i) {
+        // Since we group by height, we can assume mat.height == leaf_height.
+        const gpu_matrix_t& mat = d_matrices[i];
+        
+        // Cast the void* to the correct type.
+        const F* mat_ptr = static_cast<const F*>(mat.d_data);
+        const F* row_ptr = mat_ptr + (size_t)row_idx * mat.width;
+
+        for (int c = 0; c < mat.width; ++c) {
+            sponge_state[input_pos++] = row_ptr[c];
+            if (input_pos == RATE) {
+                poseidon2_permute_mut<F, WIDTH>(sponge_state);
+                input_pos = 0;
+            }
+        }
     }
-    total_digest_elements *= DIGEST_SIZE;
 
-    // --- 2. Allocate ALL memory in ONE go ---
-    bb31_t* d_all_digest_layers;
-    CUDA_CHECK(cudaMalloc(&d_all_digest_layers, total_digest_elements * sizeof(bb31_t)));
+    // Final permutation if there are remaining elements in the sponge.
+    if (input_pos > 0) {
+        poseidon2_permute_mut<F, WIDTH>(sponge_state);
+    }
+
+    // Squeeze and write the output digest.
+    F* digest_out = d_leaf_digests + (size_t)row_idx * OUT_ELEMS;
+    for (int i = 0; i < OUT_ELEMS; ++i) {
+        digest_out[i] = sponge_state[i];
+    }
+}
+
+template <typename F, int WIDTH, int OUT_ELEMS>
+__global__ void compress_two_digests_kernel(
+    const F* d_input_A,
+    const F* d_input_B,
+    F* d_output,
+    int num_pairs
+) {
+    int tid = threadIdx.x + blockIdx.x * blockDim.x;
+    if (tid >= num_pairs) return;
+
+    const F* left = d_input_A + (size_t)tid * OUT_ELEMS;
+    const F* right = d_input_B + (size_t)tid * OUT_ELEMS;
+
+    F compression_state[WIDTH];
+    for(int k=0; k<OUT_ELEMS; ++k) 
+        compression_state[k] = left[k];
     
-    int* d_matrix_info;
-    CUDA_CHECK(cudaMalloc(&d_matrix_info, sizeof(matrix_info)));
-    CUDA_CHECK(cudaMemcpy(d_matrix_info, matrix_info, sizeof(matrix_info), cudaMemcpyHostToDevice));
+    for(int k=0; k<OUT_ELEMS; ++k) 
+        compression_state[OUT_ELEMS + k] = right[k];
 
-    // Create the handle. It will now own the single large digest buffer.
-    GpuMerkleTree* tree = new GpuMerkleTree();
-    tree->d_flat_data = nullptr; // Still not owned
-    tree->d_matrix_info = d_matrix_info;
-    tree->log_max_height = log_h_padded;
-    // We store the single pointer in the first slot for freeing later.
-    tree->digest_layers_device.push_back(d_all_digest_layers);
+    for(int k=2*OUT_ELEMS; k<WIDTH; ++k) 
+        compression_state[k] = F(0);
+    poseidon2_permute_mut<F, WIDTH>(compression_state);
 
-    // --- 3. Kernel Launch Config ---
+    F* dest = d_output + (size_t)tid * OUT_ELEMS;
+    for(int k=0; k<OUT_ELEMS; ++k) 
+        dest[k] = compression_state[k];
+}
+
+template <typename F, int WIDTH, int OUT_ELEMS>
+__global__ void compress_layer_kernel(
+    const F* d_prev_layer,
+    int num_prev_layer_nodes,
+    F* d_next_layer,
+    int num_compressions // This is num_prev_layer_nodes / 2
+) {
+    int tid = threadIdx.x + blockIdx.x * blockDim.x;
+    if (tid >= num_compressions) return;
+
+    // Get left sibling
+    const F* left = d_prev_layer + (size_t)tid * 2 * OUT_ELEMS;
+
+    // Get right sibling, handling padding for odd-length layers
+    F right_buffer[OUT_ELEMS];
+    if ((tid == num_compressions - 1) && (num_prev_layer_nodes % 2 != 0)) {
+        for (int k = 0; k < OUT_ELEMS; ++k) right_buffer[k] = F(0);
+    } else {
+        const F* right_ptr = left + OUT_ELEMS;
+        for (int k = 0; k < OUT_ELEMS; ++k) right_buffer[k] = right_ptr[k];
+    }
+    
+    // Perform the compression
+    F compression_state[WIDTH];
+    for(int k = 0; k < OUT_ELEMS; ++k) compression_state[k] = left[k];  
+    for(int k = 0; k < OUT_ELEMS; ++k) compression_state[OUT_ELEMS + k] = right_buffer[k];
+    for(int k = 2 * OUT_ELEMS; k < WIDTH; ++k) compression_state[k] = F(0);
+    poseidon2_permute_mut<F, WIDTH>(compression_state);
+
+    // Write the result
+    F* dest = d_next_layer + (size_t)tid * OUT_ELEMS;
+    for(int k = 0; k < OUT_ELEMS; ++k) dest[k] = compression_state[k];
+}
+
+// Helper function to launch the leaf hasher for a set of matrices
+bb31_t* hash_leaves_for_height(const std::vector<gpu_matrix_t>& h_matrices_for_height) {
+    if (h_matrices_for_height.empty()) return nullptr; // Should not happen
+
+    //tranfer matrix to row-major
     int num_threads = 256;
     dim3 block_dim(num_threads);
+    /*std::vector<gpu_matrix_t> new_matrices;//the rust need the the old data
+   
+    for (gpu_matrix_t mat : h_matrices_for_height) {
+        size_t lde_h  = mat.height;
+        int log_lde_h = integer_log2(mat.height);
+        int w =mat.width;
+        dim3 grid_dim_flat_ldeh((lde_h * w + num_threads - 1) / num_threads);
 
-    // --- 4. Stage 1: Leaf Hashing ---
-    int h_padded = 1 << log_h_padded;
-    bb31_t* d_layer_0 = d_all_digest_layers; // First layer starts at the beginning
-    if (h_padded > h) {
-        CUDA_CHECK(cudaMemset(d_layer_0 + (size_t)h * DIGEST_SIZE, 0, (size_t)(h_padded - h) * DIGEST_SIZE * sizeof(bb31_t)));
+        gpu_matrix_t local_mat;
+        local_mat.height = lde_h;
+        local_mat.width = w;
+        CUDA_CHECK(cudaMalloc(&local_mat.d_data, w * lde_h * sizeof(bb31_t)));
+        CUDA_CHECK(cudaMemcpy(local_mat.d_data, mat.d_data,  w * lde_h * sizeof(bb31_t), cudaMemcpyDeviceToDevice));
+
+        bit_reverse_rows_kernel<bb31_t><<<grid_dim_flat_ldeh, block_dim>>>(local_mat.d_data, lde_h, w, log_lde_h);
+        new_matrices.push_back(local_mat);
     }
-    dim3 grid_dim_leaves((h + num_threads - 1) / num_threads);
-    hash_leaves_kernel<bb31_t, 16, 8, DIGEST_SIZE><<<grid_dim_leaves, block_dim>>>(
-        (const bb31_t*)d_evals, d_matrix_info, num_matrices, h, d_layer_0);
-    
-    // --- 5. Stage 2: Compressing Layers ---
-    bb31_t* d_prev_layer = d_layer_0;
-    size_t current_buffer_offset = 0;
-    current_nodes = h_padded;
+    */
 
-    for (int i = 0; i < log_h_padded; ++i) {
-        int num_compressions = current_nodes / 2;
+    int leaf_height = h_matrices_for_height[0].height;
+
+    // Transfer matrix descriptors to the device
+    gpu_matrix_t* d_matrices;
+    CUDA_CHECK(cudaMalloc(&d_matrices, h_matrices_for_height.size() * sizeof(gpu_matrix_t)));
+    CUDA_CHECK(cudaMemcpy(d_matrices, h_matrices_for_height.data(), h_matrices_for_height.size() * sizeof(gpu_matrix_t), cudaMemcpyHostToDevice));
+
+    // Allocate output buffer for digests
+    bb31_t* d_leaf_digests;
+    CUDA_CHECK(cudaMalloc(&d_leaf_digests, (size_t)leaf_height * DIGEST_SIZE * sizeof(bb31_t)));
+
+    // Launch kernel
+    //dim3 block_dim(256);
+    dim3 grid_dim((leaf_height + 256 - 1) / 256);
+    hash_leaves_from_pointers_kernel<bb31_t, 16, 8, DIGEST_SIZE><<<grid_dim, block_dim>>>(
+        d_matrices,
+        h_matrices_for_height.size(),
+        leaf_height,
+        d_leaf_digests
+    );
+
+    CUDA_CHECK(cudaFree(d_matrices));
+    // The caller is responsible for freeing d_leaf_digests
+    return d_leaf_digests;
+}
+
+
+// In merkle.cu
+
+extern "C" int stark_merkle_commit_data_in_gpu(
+    const gpu_matrix_t* h_matrices,
+    int num_matrices,
+    bb31_t* root_out,
+    void** device_tree_handle) 
+{
+    if (num_matrices == 0) return -1;
+
+    // === 1. Host-side Setup  ===
+    std::map<int, std::vector<int>> matrices_by_log_height;
+    int max_log_height = 0;
+    for (int i = 0; i < num_matrices; ++i) {
+        int h = h_matrices[i].height;
+        int log_h_pow2 = (h > 0) ? integer_log2(h) : 0;
+        matrices_by_log_height[log_h_pow2].push_back(i);
+        if (log_h_pow2 > max_log_height) 
+            max_log_height = log_h_pow2;
+    }
+
+    // === 2. GPU Handle Setup  ===
+    GpuMerkleTree* tree = new GpuMerkleTree();
+    tree->log_max_height = max_log_height;
+
+    // === 3. Stage 1: Leaf Hashing for TALLEST matrices ===
+    const auto& tallest_indices = matrices_by_log_height.at(max_log_height);
+    std::vector<gpu_matrix_t> h_tallest_matrices;
+    for (int idx : tallest_indices) {
+        h_tallest_matrices.push_back(h_matrices[idx]);
+    }
+    
+    bb31_t* d_current_layer = hash_leaves_for_height(h_tallest_matrices);
+    tree->digest_layers_device.push_back(d_current_layer);
+    int current_layer_height = 1 << max_log_height;
+    // === 4. REFACTORED Stage 2: Compressing Layers with Correct Injection ===
+    for (int current_log_size = max_log_height; current_log_size > 0; --current_log_size) {
+        int num_nodes_prev_layer = current_layer_height;
+        int num_compressions = num_nodes_prev_layer / 2;
         if (num_compressions == 0) break;
 
-        current_buffer_offset += (size_t)current_nodes * DIGEST_SIZE;
-        bb31_t* d_next_layer = d_all_digest_layers + current_buffer_offset;
-
-        dim3 grid_dim_compress((num_compressions + num_threads - 1) / num_threads);
+        bb31_t* d_compressed_layer;
+        CUDA_CHECK(cudaMalloc(&d_compressed_layer, (size_t)num_compressions * DIGEST_SIZE * sizeof(bb31_t)));
         
-        inject_and_compress_kernel<bb31_t, 16, 8, DIGEST_SIZE><<<grid_dim_compress, block_dim>>>(
-                d_prev_layer, d_next_layer, num_compressions,
-                nullptr, nullptr, 0, 0);
+        // A. Compress the current layer
+        dim3 grid_dim((num_compressions + 255) / 256);
+        dim3 block_dim(256);
+        compress_layer_kernel<bb31_t, 16, DIGEST_SIZE><<<grid_dim, block_dim>>>(
+            d_current_layer, num_nodes_prev_layer, d_compressed_layer, num_compressions);
         
-        d_prev_layer = d_next_layer;
-        current_nodes = num_compressions;
-    }
-    
-    // --- 6. Finalize ---
-    CUDA_CHECK(cudaDeviceSynchronize());
-    CUDA_CHECK(cudaMemcpy(h_root_out, d_prev_layer, DIGEST_SIZE * sizeof(bb31_t), cudaMemcpyDeviceToHost));
-    
-    *device_tree_handle_out = tree;
-    return 0;
-}
+        // Check for matrices to inject at the new height
+        int next_log_size = current_log_size - 1;
+        auto injection_entry = matrices_by_log_height.find(next_log_size);
 
-// =========================================================================
-//            NEW, BATCHED FFI FUNCTION for FRI Query Phase
-// =========================================================================
-extern "C" int stark_fri_generate_proofs_gpu(
-    // Input: A batch of proof generation tasks for multiple trees (layers)
-    const void* const* h_prover_data_handles,   // Host array of GpuMerkleTree* handles for each layer
-    const unsigned int* h_query_indices_flat,   // Host array of all UNIQUE leaf indices to query for each tree
-    const unsigned int* h_query_offsets,        // Host array of offsets, indicating which indices belong to which tree
-    int num_trees,                              // The number of trees (layers) to process
-    int total_queries,                          // The total number of unique queries
-    int digest_size,
-
-    // Output: A pointer to a host buffer where the flattened proofs will be written.
-    bb31_t* h_proofs_out_flat
-) {
-    if (total_queries == 0) return 0;
-
-    // This function is now IDENTICAL in structure to the `stark_merkle_generate_proofs_gpu`
-    // we designed for the STARK data openings. We can reuse that logic entirely.
-
-    // --- 1. Calculate total size for GPU output buffer ---
-    size_t total_proof_elements = 0;
-    for (int i = 0; i < num_trees; ++i) {
-        const GpuMerkleTree* tree = static_cast<const GpuMerkleTree*>(h_prover_data_handles[i]);
-        unsigned int num_queries_for_tree = h_query_offsets[i+1] - h_query_offsets[i];
-        total_proof_elements += (size_t)num_queries_for_tree * tree->log_max_height;
-    }
-    total_proof_elements *= digest_size;
-    
-    bb31_t* d_proofs_out_flat;
-    CUDA_CHECK(cudaMalloc(&d_proofs_out_flat, total_proof_elements * sizeof(bb31_t)));
-
-    // --- 2. Copy all query indices to the GPU ---
-    unsigned int* d_query_indices_flat;
-    CUDA_CHECK(cudaMalloc(&d_query_indices_flat, (size_t)total_queries * sizeof(unsigned int)));
-    CUDA_CHECK(cudaMemcpy(d_query_indices_flat, h_query_indices_flat, (size_t)total_queries * sizeof(unsigned int), cudaMemcpyHostToDevice));
-
-    // --- 3. Launch one kernel for each tree (layer) ---
-    size_t current_proof_output_offset = 0;
-    for (int i = 0; i < num_trees; ++i) {
-        const GpuMerkleTree* tree = static_cast<const GpuMerkleTree*>(h_prover_data_handles[i]);
-        unsigned int query_start_offset = h_query_offsets[i];
-        unsigned int num_queries_for_tree = h_query_offsets[i+1] - query_start_offset;
-        
-        if (num_queries_for_tree > 0) {
-            int num_threads = 256;
-            dim3 block_dim(num_threads);
-            dim3 grid_dim((num_queries_for_tree + num_threads - 1) / num_threads);
-
-            // The `tree_data` for a layer is the first (and only) buffer in `digest_layers_device`
-            // for the GpuMerkleTree created by `fri_commit_on_gpu`.
-            const bb31_t* d_tree_digest_layer = tree->digest_layers_device[0]; 
-
-            generate_merkle_proofs_kernel<<<grid_dim, block_dim>>>(
-                d_tree_digest_layer,
-                tree->log_max_height,
-                d_query_indices_flat + query_start_offset,
-                num_queries_for_tree,
-                d_proofs_out_flat + current_proof_output_offset,
-                digest_size
+        bb31_t* d_next_layer;
+        if (injection_entry != matrices_by_log_height.end()) {
+            // B. We have an injection! Hash the leaves of the injected matrices.
+            const auto& injection_indices = injection_entry->second;
+            std::vector<gpu_matrix_t> h_injected_matrices;
+            for (int idx : injection_indices) h_injected_matrices.push_back(h_matrices[idx]);
+            
+            bb31_t* d_injected_leaves = hash_leaves_for_height(h_injected_matrices);
+            
+            d_next_layer = d_compressed_layer; // Reuse the buffer for the final output
+            
+            // This is a new kernel that takes two input digest arrays.
+            compress_two_digests_kernel<bb31_t, 16, DIGEST_SIZE><<<grid_dim, block_dim>>>(
+                d_compressed_layer, // Input A
+                d_injected_leaves,  // Input B
+                d_next_layer,       // Output
+                num_compressions
             );
+            
+            cudaFree(d_injected_leaves);
+        } else {
+            // D. No injection, the next layer is just the compressed layer.
+            d_next_layer = d_compressed_layer;
         }
-        current_proof_output_offset += (size_t)num_queries_for_tree * tree->log_max_height * digest_size;
-    }
 
-    // --- 4. Synchronize and copy all generated proofs back ---
-    CUDA_CHECK(cudaDeviceSynchronize());
-    CUDA_CHECK(cudaMemcpy(h_proofs_out_flat, d_proofs_out_flat, total_proof_elements * sizeof(bb31_t), cudaMemcpyDeviceToHost));
+        d_current_layer = d_next_layer;
+        current_layer_height = num_compressions;
+        tree->digest_layers_device.push_back(d_current_layer);
+    }
     
-    // --- 5. Cleanup ---
-    CUDA_CHECK(cudaFree(d_proofs_out_flat));
-    CUDA_CHECK(cudaFree(d_query_indices_flat));
+    // --- 5. Finalize (Unchanged) ---
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(root_out, d_current_layer, DIGEST_SIZE * sizeof(bb31_t), cudaMemcpyDeviceToHost));
+    
+    *device_tree_handle = tree;
+    // Don't free the final d_current_layer, it's the root layer and is stored in the tree handle.
     
     return 0;
 }
-*/
+//test
+extern "C" int stark_test_hash_leaves_data_in_gpu(
+    const gpu_matrix_t* h_matrices, // Array of structs, from HOST
+    int num_matrices,
+    bb31_t* hash_out) 
+{
+    if (num_matrices == 0) return -1;
+
+    // === 1. Host-side Setup: Replicate plonky3's grouping logic ===
+    // Group matrix indices by their next_power_of_two height.
+    // The key is the log2 of the padded height.
+    std::map<int, std::vector<int>> matrices_by_log_height;
+    int max_log_height = 0;
+    for (int i = 0; i < num_matrices; ++i) {
+        int h = h_matrices[i].height;
+        int log_h_pow2 = (h > 0) ? integer_log2(h) : 0;
+        matrices_by_log_height[log_h_pow2].push_back(i);
+        if (log_h_pow2 > max_log_height) {
+            max_log_height = log_h_pow2;
+        }
+    }
+
+    
+    // === 3. Stage 1: Leaf Hashing for TALLEST matrices ===
+    const auto& tallest_indices = matrices_by_log_height[max_log_height];
+    std::vector<gpu_matrix_t> h_tallest_matrices;
+    for (int idx : tallest_indices) {
+        h_tallest_matrices.push_back(h_matrices[idx]);
+    }
+    
+    bb31_t* d_current_layer = hash_leaves_for_height(h_tallest_matrices);
+    
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(hash_out, d_current_layer, h_tallest_matrices[0].height*DIGEST_SIZE * sizeof(bb31_t), cudaMemcpyDeviceToHost));
+    
+    CUDA_CHECK(cudaFree(d_current_layer));
+    return 0;
+}

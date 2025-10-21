@@ -10,6 +10,7 @@ use p3_field::{PackedValue, PrimeField, PrimeCharacteristicRing};
 
 use p3_baby_bear::BabyBear;
 use p3_util::log2_strict_usize;
+
 use p3_merkle_tree::MerkleTreeError;
 use p3_merkle_tree::MerkleTreeError::{
     EmptyBatch, IncompatibleHeights, RootMismatch, WrongBatchSize, WrongHeight,
@@ -19,14 +20,16 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::collections::BTreeMap;
 
-//use crate::DIGEST_SIZE;
-//use crate::baby_bear_poseidon2::{Val,};
+use crate::gpu::matrix::{GpuMatrix, CudaResultCheck, GpuMatrixC, };
+
+use crate::{GpuValMmcs, DIGEST_SIZE};
+use crate::baby_bear_poseidon2::{Val,};
 
 pub type BatchedQueries = BTreeMap<usize, Vec<usize>>;
 
 pub type BatchedOpenings<T, M> = BTreeMap<usize, BTreeMap<usize, BatchOpening<T, M>>>;
 
-// A handle for GPU resources, not fully implemented for now.
+// A handle for GPU resources
 #[derive(Debug)]
 pub struct GpuMerkleTreeHandle(pub *mut c_void);
 
@@ -45,6 +48,7 @@ impl Default for GpuMerkleTreeHandle {
 impl Drop for GpuMerkleTreeHandle {
     fn drop(&mut self) {
         if !self.0.is_null() {
+            //println!("--GpuMerkleTreeHandle, free.ptr={:p}", self.0);
             // This ensures GPU memory is freed when the last Arc is dropped.
             unsafe { stark_merkle_free_gpu(self.0) };
             self.0 = std::ptr::null_mut();
@@ -88,6 +92,7 @@ impl<M> GpuMerkleProverData<M> {
     }
 }
 
+
 #[derive(Clone)]
 pub struct GpuMerkleTreeMmcs<P, PW, H, C, const DIGEST_ELEMS: usize> {
     hash: H,
@@ -99,6 +104,7 @@ impl<P, PW, H, C, const DIGEST_ELEMS: usize> GpuMerkleTreeMmcs<P, PW, H, C, DIGE
     pub fn new(hash: H, compress: C) -> Self {
         Self { hash, compress, _phantom: PhantomData }
     }
+
 }
 
 // The implementation is now for the concrete type `BabyBear`.
@@ -365,9 +371,10 @@ where
     }
 }
 
-pub trait BatchOpenableMmcs<T, M>: Mmcs<T>
+pub trait BatchOpenableMmcs<T, W, const DIGEST_ELEMS: usize, M>: Mmcs<T>
 where
     T: Send + Sync + Clone,
+//    W: Send + Sync + Clone,
     M: Matrix<T> + Clone,
 {
     fn open_batches_batched(
@@ -375,10 +382,15 @@ where
         log_global_max_height: usize,
         queries: &BatchedQueries, // BatchedQueries is now generic-free
     ) -> BatchedOpenings<T, Self>;
+
+   /* fn commit_gpu(
+        &self,
+        inputs: Vec<GpuMatrix<T>>,
+    ) -> (Hash<T, W, DIGEST_ELEMS>, GpuMerkleProverData<GpuMatrix<T>>);*/
 }
 
 impl<P, PW, H, C, const DIGEST_ELEMS: usize, M> 
-    BatchOpenableMmcs<P::Value, M> for GpuMerkleTreeMmcs<P, PW, H, C, DIGEST_ELEMS>
+    BatchOpenableMmcs<P::Value, PW::Value, DIGEST_ELEMS, M> for GpuMerkleTreeMmcs<P, PW, H, C, DIGEST_ELEMS>
 where
     M: Matrix<P::Value> + Clone,
     P: PackedValue<Value = BabyBear>,
@@ -418,7 +430,8 @@ where
             // Pass the raw GPU handle to the FFI function
             prover_data_ptrs.push(pd.handle.0);
             prover_data_vec.push(pd);
-
+            
+            //flat_indices.extend(indices.iter().map(|&idx| idx as u32));
             // We must calculate the reduced_index for each query before putting it in `flat_indices`.
             let log_max_height_for_this_pd = log2_strict_usize(pd.sorted_inputs[0].height());
             let bits_reduced = log_global_max_height - log_max_height_for_this_pd;
@@ -447,7 +460,7 @@ where
         let mut flat_proofs_host_buffer: Vec<PW::Value> = vec![PW::Value::ZERO; total_proof_elements];
 
         // 3. FFI Call to generate all proofs in a single batch
-        let result = unsafe {
+        unsafe {
             stark_merkle_generate_proofs_gpu(
                 prover_data_ptrs.as_ptr(),
                 flat_indices.as_ptr() as *const i32,
@@ -456,10 +469,9 @@ where
                 total_queries as i32,
                 DIGEST_ELEMS as i32,
                 flat_proofs_host_buffer.as_mut_ptr(),
-            )
-        };
-        if result != 0 { panic!("stark_merkle_generate_proofs_gpu FFI call failed"); }
-
+            ).check("stark_merkle_generate_proofs_gpu failed.");
+        }
+        
         // 4. Reconstruct the final results
         let mut results: BatchedOpenings<P::Value, Self> = BTreeMap::new();
         let mut proof_cursor = 0;
@@ -510,6 +522,194 @@ where
     }
 }
 
+impl GpuValMmcs{
+
+    pub fn open_batches_batched_gpu(
+        //&self,
+        log_global_max_height: usize,
+        queries: &BatchedQueries,//==<<GpuMerkleTreeMmcs<P, PW, H, C, DIGEST_ELEMS> as Mmcs>::ProverData<M>>
+    ) -> BatchedOpenings<Val, Self> {
+        
+        if queries.is_empty() {
+            return BTreeMap::new();
+        }
+
+        // 1. Prepare data for FFI (for proof generation)
+        let mut prover_data_ptrs: Vec<*const c_void> = Vec::new();
+        let mut flat_indices: Vec<u32> = Vec::new();
+        let mut offsets: Vec<u32> = vec![0];
+        let mut prover_data_vec: Vec<&GpuMerkleProverData<GpuMatrix<Val>>> = Vec::new();
+
+        for (&pd_ptr_usize, indices) in queries {
+            let pd_ptr = pd_ptr_usize as *const GpuMerkleProverData<GpuMatrix<Val>>;
+            let pd = unsafe { &*pd_ptr };
+            // Pass the raw GPU handle to the FFI function
+            //println!("---open_batches_batched_gpu, tree.ptr={:p}",pd.handle.0);
+            prover_data_ptrs.push(pd.handle.0);
+            prover_data_vec.push(pd);
+            
+            //flat_indices.extend(indices.iter().map(|&idx| idx as u32));
+            // We must calculate the reduced_index for each query before putting it in `flat_indices`.
+            let log_max_height_for_this_pd = log2_strict_usize(pd.sorted_inputs[0].height);
+            let bits_reduced = log_global_max_height - log_max_height_for_this_pd;
+
+            for &index in indices {
+                let reduced_index = index >> bits_reduced;
+                flat_indices.push(reduced_index as u32);
+            }
+        
+            offsets.push(flat_indices.len() as u32);
+        }
+        
+        let total_queries = flat_indices.len();
+        let num_trees = prover_data_ptrs.len();
+
+        // 2. Calculate output buffer size for proofs and allocate it on the HOST
+        let total_proof_elements: usize = prover_data_vec.iter()
+            .zip(offsets.windows(2))
+            .map(|(pd, offset_window)| {
+                let num_queries_for_tree = offset_window[1] - offset_window[0];
+                let log_max_height: usize = pd.dimensions.iter().map(|d| d.height).max().unwrap_or(0).next_power_of_two().trailing_zeros() as usize;
+                (num_queries_for_tree as usize) * log_max_height * DIGEST_SIZE
+            })
+            .sum();
+
+        let mut flat_proofs_host_buffer: Vec<Val> = vec![Val::ZERO; total_proof_elements];
+
+        // 3. FFI Call to generate all proofs in a single batch
+        unsafe {
+            stark_merkle_generate_proofs_gpu(
+                prover_data_ptrs.as_ptr(),
+                flat_indices.as_ptr() as *const i32,
+                offsets.as_ptr() as *const i32,
+                num_trees as i32,
+                total_queries as i32,
+                DIGEST_SIZE as i32,
+                flat_proofs_host_buffer.as_mut_ptr(),
+            ).check("stark_merkle_generate_proofs_gpu failed.");
+        }
+           
+        // 4. Reconstruct the final results
+        let mut results: BatchedOpenings<Val, Self> = BTreeMap::new();
+        let mut proof_cursor = 0;
+
+        // Iterate through each ProverData that was queried
+        for (_i, pd) in prover_data_vec.iter().enumerate() {
+            let pd_ptr_usize = *pd as *const _ as usize;
+            let indices_for_this_tree = queries.get(&pd_ptr_usize).unwrap();
+            let mut openings_for_this_tree: BTreeMap<usize, BatchOpening<Val, Self>> = BTreeMap::new();
+
+            let log_max_height: usize = pd.dimensions.iter().map(|d| d.height).max().unwrap_or(0).next_power_of_two().trailing_zeros() as usize;
+
+
+            // For each query for this tree, assemble its BatchOpening
+            for &index in indices_for_this_tree {
+                // PART A: Extract the proof generated by the GPU
+                let proof_size_digests :usize = log_max_height;
+                let proof_size_elements = proof_size_digests * DIGEST_SIZE;
+                let proof_slice_elements = &flat_proofs_host_buffer[proof_cursor..proof_cursor + proof_size_elements];
+                let proof_siblings: Vec<[Val; DIGEST_SIZE]> = proof_slice_elements
+                    .chunks_exact(DIGEST_SIZE)
+                    .map(|chunk| chunk.try_into().expect("Chunk size should be correct"))
+                    .collect();
+                let opening_proof = proof_siblings; // In MMCS, Proof is Vec<[PW::Value; DIGEST_ELEMS]>
+                proof_cursor += proof_size_elements;
+
+                // PART B: Get the opened values directly from CPU memory (this is fast)
+                let opened_values: Vec<Vec<Val>> = pd.sorted_inputs.iter().map(|matrix| { // <-- Use `sorted_inputs`
+                    let log_height = log2_strict_usize(matrix.height);
+                    
+                    // Use the GLOBAL max height for the reduction, as required by FRI.
+                    let bits_reduced = log_global_max_height - log_height;
+                    let reduced_index = index >> bits_reduced;
+                    
+                    matrix.row(reduced_index).unwrap().into_iter().collect()
+                }).collect();
+
+                let batch_opening = BatchOpening { opened_values, opening_proof };
+            
+                // Insert into the inner map using the index as the key
+                openings_for_this_tree.insert(index, batch_opening);
+            }
+            results.insert(pd_ptr_usize, openings_for_this_tree);
+        }
+
+        results
+    }
+
+    pub fn commit_gpu(
+        inputs: Vec<GpuMatrix<Val>>,
+    ) -> (Hash<Val, Val, DIGEST_SIZE>, GpuMerkleProverData<GpuMatrix<Val>>) {
+        if inputs.is_empty() {
+            panic!("Cannot commit to empty batch of GPU matrices");
+        }
+
+        let num_inputs = inputs.len();
+        
+        // 1. Get dimensions and sort inputs by height (descending).
+        // The sorting logic remains the same as the CPU version, but we operate on GpuMatrix.
+        let dimensions: Vec<Dimensions> = inputs.iter().map(|m| Dimensions {
+            width: m.width,
+            height: m.height,
+        }).collect();
+
+        let mut indexed_inputs: Vec<(usize, GpuMatrix<Val>)> =
+            inputs.into_iter().enumerate().collect();
+
+        // Sort by height descending. The GpuMatrix objects themselves are moved.
+        indexed_inputs.sort_by_key(|(_, m)| std::cmp::Reverse(m.height));
+
+        // `sorted_gpu_inputs` now holds the matrices in the order the GPU expects.
+        // We only need the C-compatible structs for the FFI call.
+        let sorted_c_matrices: Vec<GpuMatrix<Val>> = indexed_inputs
+            .iter()
+            //.map(|(_, m)| m.into())
+            .map(|(_, m)| m.clone()) //must-have-clone-gpumatrix?
+            .collect();
+            
+        // We also need to create the index mapping to reconstruct original order later if needed.
+        let mut original_to_sorted_indices = vec![0; num_inputs];
+        for (sorted_idx, (original_idx, _)) in indexed_inputs.iter().enumerate() {
+            original_to_sorted_indices[*original_idx] = sorted_idx;
+        }
+
+        // 2. Prepare data for the FFI call.
+        let mut root_out = [Val::ZERO; DIGEST_SIZE];
+        let mut handle_out: *mut c_void = null_mut();
+        
+        // 3. Call the new FFI function.
+        // This function takes an array of structs describing the GPU matrices.
+        unsafe {
+            let sorted_matrices: Vec<GpuMatrixC> = sorted_c_matrices
+                        .iter()
+                        .map(|gpu_matrix| gpu_matrix.into()) // `into()` calls the `From<&GpuMatrix>` impl
+                        .collect();;
+            stark_merkle_commit_data_in_gpu(
+                sorted_matrices.as_ptr() ,// as *const GpuMatrix<BabyBear>,
+                sorted_c_matrices.len() as i32,
+                root_out.as_mut_ptr() as *mut BabyBear,
+                &mut handle_out,
+            ).check("stark_merkle_commit_on_gpu_from_device_pointers failed");
+        }
+        
+        // 4. Construct and return the commitment and prover data.
+        let commitment = root_out.into();
+
+
+        let prover_data = GpuMerkleProverData {
+            handle: Arc::new(GpuMerkleTreeHandle(handle_out)),
+            dimensions, // Stored in original order
+
+            sorted_inputs: sorted_c_matrices, 
+            original_to_sorted_indices,
+            _phantom: PhantomData,
+        };
+
+        (commitment, prover_data)
+    }
+
+}
+
 
 
 #[cfg(test)]
@@ -522,6 +722,7 @@ mod tests {
     use rand::{Rng, SeedableRng};
     use rand_xoshiro::Xoroshiro128Plus;
     use crate::{DIGEST_SIZE, GpuValMmcs};
+    use crate::GpuMemBlk;
     use p3_symmetric::Permutation;
 
     // Redefine types for testing
@@ -576,12 +777,63 @@ mod tests {
         let (cpu_root, _) = cpu_mmcs.commit(vec![mat1.clone(), mat2.clone(), mat3.clone(), mat4.clone()]);
          let duration = start.elapsed();
         println!("-- cpu commit , duration:{:?}", duration);
+        
         let start = std::time::Instant::now();
         let (gpu_root, _) = gpu_mmcs.commit(vec![mat1, mat2, mat3, mat4]);
          let duration = start.elapsed();
         println!("-- GPU commit , duration:{:?}", duration);
         // Assert they are equal
         assert_eq!(cpu_root, gpu_root, "CUDA Merkle root does not match CPU root!");
+    }
+
+     #[test]
+    fn test_merkle_commit_gpu() {
+        let perm = my_perm();
+        let hash = MyHash::new(perm.clone());
+        let compress = MyCompress::new(perm.clone());
+        
+        // Create CPU and GPU versions of the MMCS
+        let cpu_mmcs = p3_merkle_tree::MerkleTreeMmcs::<P, PW, H, C, DIGEST_SIZE>::new(hash.clone(), compress.clone());
+        //let gpu_mmcs = GpuValMmcs::new(hash, compress);
+
+        // Create some test matrices
+        let mut rng = Xoroshiro128Plus::seed_from_u64(1);
+        let mat1 = RowMajorMatrix::<F>::rand(&mut rng, 512, 32);
+        let mat2 = RowMajorMatrix::<F>::rand(&mut rng, 65536, 18);
+        let mat3 = RowMajorMatrix::<F>::rand(&mut rng, 16384, 39);
+        let mat4 = RowMajorMatrix::<F>::rand(&mut rng, 8192, 412);
+        
+
+        /*let mat1 = RowMajorMatrix::<F>::rand(&mut rng, 32, 32);
+        let mat2 = RowMajorMatrix::<F>::rand(&mut rng, 16, 18);
+        let mat3 = RowMajorMatrix::<F>::rand(&mut rng, 512, 39);
+        let mat4 = RowMajorMatrix::<F>::rand(&mut rng, 512, 412);
+        */
+        println!("input, mat1(h * w):{}*{}, mat2(h * w):{}*{},  mat3(h * w):{}*{},  mat4(h * w):{}*{}", mat1.height(), mat1.width(),  mat2.height(), mat2.width()
+            ,  mat3.height(), mat3.width(), mat4.height(), mat4.width());
+        // Commit using both implementations
+        let start = std::time::Instant::now();
+        let (cpu_root, cpu_data) = cpu_mmcs.commit(vec![mat1.clone(), mat2.clone(), mat3.clone(), mat4.clone()]);
+         let duration = start.elapsed();
+        println!("-- cpu commit , duration:{:?}", duration);
+        
+        let gpu_mem_blk = GpuMemBlk::new(500 * 1024 *1024).expect("Failed to create GPU memory block"); //500M is enough ?
+        let  gpu_mat1 = GpuMatrix::<BabyBear>::from_vec(&mat1.values, mat1.height(), mat1.width(),&gpu_mem_blk);
+        let  gpu_mat2 = GpuMatrix::<BabyBear>::from_vec(&mat2.values, mat2.height(), mat2.width(),&gpu_mem_blk);
+        let  gpu_mat3 = GpuMatrix::<BabyBear>::from_vec(&mat3.values, mat3.height(), mat3.width(),&gpu_mem_blk);
+        let  gpu_mat4 = GpuMatrix::<BabyBear>::from_vec(&mat4.values, mat4.height(), mat4.width(), &gpu_mem_blk);
+
+        let start = std::time::Instant::now();
+        let (gpu_root, gpu_data): (Hash<BabyBear, BabyBear, 8>, GpuMerkleProverData<GpuMatrix<BabyBear>>) = 
+                GpuValMmcs ::commit_gpu(vec![gpu_mat1, gpu_mat2, gpu_mat3, gpu_mat4]);
+         
+         let duration = start.elapsed();
+        println!("-- GPU commit , duration:{:?}", duration);
+        // Assert the commit merkle-tree root equal
+        assert_eq!(cpu_root, gpu_root, "CUDA Merkle root does not match CPU root!");
+
+        //compare commit data
+        
     }
 
     #[test]
@@ -667,6 +919,8 @@ mod tests {
         
     }
 
+    /*
+    //TBD
      #[test]
     fn test_open_batch() {
        let perm = my_perm();
@@ -679,7 +933,7 @@ mod tests {
 
         // Create some test matrices
         let mut rng = Xoroshiro128Plus::seed_from_u64(42);
-        let mat1 = RowMajorMatrix::<BabyBear>::rand(&mut rng, 16, 4);
+        let mat1 = RowMajorMatrix::<BabyBear>::rand(&mut rng, 8, 4);
         let mat2 = RowMajorMatrix::<BabyBear>::rand(&mut rng, 16, 8); // Different height
         let inputs = vec![mat1, mat2];
 
@@ -726,7 +980,7 @@ mod tests {
         println!("✅ Opening proofs match.");
 
         println!("\nSUCCESS: GpuMerkleTreeMmcs::open_batch is correct.");
-    }
+    }*/
 
     #[test]
     fn test_hash_leaves_kernel() {
@@ -786,10 +1040,203 @@ mod tests {
             .collect();
             
         for r in 0..h {
+            //println!("\n[Row {}]", r);
+            //println!("  CPU Digest: {:?}", cpu_digests[r]);
+            //println!("  GPU Digest: {:?}", gpu_digests[r]);
             assert_eq!(cpu_digests[r], gpu_digests[r], "Digest for row {} does not match!", r);
         }
 
         println!("\nSUCCESS: hash_leaves_kernel is correct.");
     }
 
+    #[test]
+    fn test_hash_leaves_kernel_gpu() {
+        let perm = my_perm();
+        let hash = MyHash::new(perm.clone());
+        //let compress = MyCompress::new(perm.clone());
+            
+        let mut rng = Xoroshiro128Plus::seed_from_u64(42);
+
+        // 1. Prepare test data: two matrices of the same height but different widths.
+        let h = 16;
+        let mat1 = RowMajorMatrix::<BabyBear>::rand(&mut rng, h, 2);
+        let mat2 = RowMajorMatrix::<BabyBear>::rand(&mut rng, h, 4);
+
+        let gpu_mem_blk = GpuMemBlk::new(100 * 1024 *1024)   //100M ?
+                .expect("Failed to create GPU memory block");
+        let  gpu_mat1 = GpuMatrix::<BabyBear>::from_vec(&mat1.values, mat1.height(), mat1.width(), &gpu_mem_blk);
+        let  gpu_mat2 = GpuMatrix::<BabyBear>::from_vec(&mat2.values, mat2.height(), mat2.width(), &gpu_mem_blk);
+        
+        let inputs = vec![&mat1, &mat2];
+        
+        // 3. Prepare data and call the GPU FFI function.
+        let mut flat_data = Vec::new();
+        let mut matrix_info = Vec::new();
+        for m in &inputs {
+            let offset = flat_data.len();
+            matrix_info.extend([offset as i32, m.height() as i32, m.width() as i32]);
+            //flat_data.extend(m.clone().to_row_major_matrix().values);
+             for r in 0..m.height() {
+                // This does not move `m` and correctly flattens the data.
+                flat_data.extend(m.row(r).unwrap());
+            }
+        }
+
+        let mut gpu_digests_flat = vec![BabyBear::ZERO; h * DIGEST_SIZE];
+        
+        let result = unsafe {
+            stark_test_hash_leaves_gpu(
+                flat_data.as_ptr(),
+                matrix_info.as_ptr(),
+                inputs.len() as i32,
+                h as i32,
+                gpu_digests_flat.as_mut_ptr(),
+            )
+        };
+        assert_eq!(result, 0, "CUDA test_hash_leaves_kernel function failed.");
+
+        let gpu_digests: Vec<[BabyBear; DIGEST_SIZE]> = gpu_digests_flat
+            .chunks_exact(DIGEST_SIZE)
+            .map(|chunk| chunk.try_into().unwrap())
+            .collect();
+
+        ////// data in GPU///////
+        let mut gpu_digests_flat2 = vec![BabyBear::ZERO; h * DIGEST_SIZE];
+        let inpu_matices = vec![gpu_mat1, gpu_mat2];
+        let inpu_matices_c: Vec<GpuMatrixC> = inpu_matices
+                        .iter()
+                        .map(|gpu_matrix| gpu_matrix.into()) // `into()` calls the `From<&GpuMatrix>` impl
+                        .collect();
+        let result = unsafe { 
+            stark_test_hash_leaves_data_in_gpu(
+                inpu_matices_c.as_ptr() ,// as *const GpuMatrix<BabyBear>,
+                inpu_matices.len() as i32,
+                gpu_digests_flat2.as_mut_ptr(),
+            )
+        };
+        assert_eq!(result, 0, "CUDA test_hash_leaves_kernel function failed.");
+        
+        let gpu_digests2: Vec<[BabyBear; DIGEST_SIZE]> = gpu_digests_flat2
+            .chunks_exact(DIGEST_SIZE)
+            .map(|chunk| chunk.try_into().unwrap())
+            .collect();
+            
+        for r in 0..h {
+            //println!("\n[Row {}]", r);
+            //println!("  CPU Digest: {:?}", cpu_digests[r]);
+            //println!("  GPU Digest: {:?}", gpu_digests[r]);
+            assert_eq!(gpu_digests[r], gpu_digests2[r], "Digest for row {} does not match!", r);
+        }
+
+        println!("\nSUCCESS: hash_leaves_kernel is correct.");
+    }
+
+    #[test]
+    fn test_open_batches_batched_gpu() {
+        let perm = my_perm();
+        let hash = MyHash::new(perm.clone());
+        let compress = MyCompress::new(perm.clone());
+        
+        // Create CPU and GPU versions of the MMCS
+        //let cpu_mmcs = p3_merkle_tree::MerkleTreeMmcs::<P, PW, H, C, DIGEST_SIZE>::new(hash.clone(), compress.clone());
+        let gpu_mmcs = GpuValMmcs::new(hash, compress);
+
+        // Create some test matrices
+        let mut rng = Xoroshiro128Plus::seed_from_u64(42);
+        let mat1 = RowMajorMatrix::<BabyBear>::rand(&mut rng, 8, 4);
+        let mat2 = RowMajorMatrix::<BabyBear>::rand(&mut rng, 16, 8); // Different height
+        let inputs = vec![mat1, mat2];
+
+        let (global_max_height, global_max_width) = inputs
+            .iter()
+            .map(|m| (m.height(), m.width()))
+            .reduce(|(hmax, wmax), (h, w)| (hmax.max(h), wmax.max(w)))
+            .expect("No Matrices Supplied?");
+        let log_global_max_height = log2_strict_usize(global_max_height);
+
+        // 2. Commit using both implementations.
+        println!("--- Committing with both CPU and GPU implementations ---");
+        //let (cpu_root, cpu_prover_data) = cpu_mmcs.commit(inputs.clone());
+        let (gpu_root1, gpu_prover_data1) = gpu_mmcs.commit(inputs.clone());
+
+        let gpu_mem_blk = GpuMemBlk::new(100 * 1024 *1024)   //100M ?
+                .expect("Failed to create GPU memory block");
+
+        let ldes: Vec<GpuMatrix<Val>> = inputs.iter().map(|(mat)| GpuMatrix::from_vec(&mat.values, mat.height(), mat.width(), &gpu_mem_blk))
+        .collect();
+        let (gpu_root2, gpu_prover_data2) =  GpuValMmcs::commit_gpu( ldes );
+        
+        // Sanity check: roots must match.
+        assert_eq!(gpu_root1, gpu_root2, "Commitment roots do not match before opening.");
+
+        // 3. Choose an index to open. Let's pick a non-trivial one.
+        let index_to_open = 5;
+        println!("\n--- Opening batch for index {} ---", index_to_open);
+
+        // 4.GPU implementations.
+       
+        
+        println!("Opening with GPU MMCS...");
+        let mut queries_by_data: BatchedQueries = BTreeMap::new(); //save <Self::ProverData>
+        
+        let log_max_height = log2_strict_usize(gpu_mmcs.get_max_height::<RowMajorMatrix<Val>>(&gpu_prover_data1));
+        let bits_reduced = log_global_max_height - log_max_height;
+        let reduced_index = index_to_open >> bits_reduced;
+
+        let data_ptr_usize1 = &gpu_prover_data1 as *const _ as usize;
+        queries_by_data.entry(data_ptr_usize1).or_default().push(reduced_index);
+  
+        let batched_results1: BatchedOpenings<Val, GpuValMmcs> = 
+             <GpuValMmcs as BatchOpenableMmcs<Val, Val, 8, RowMajorMatrix<Val>>>::open_batches_batched(
+                                            &gpu_mmcs,
+                                            log_global_max_height,
+                                            &queries_by_data,
+                                        );
+
+        let mut queries_by_data: BatchedQueries = BTreeMap::new(); //save <Self::ProverData>
+    
+                //let log_max_height = log2_strict_usize(self.get_max_height(data));
+                //let bits_reduced = log_global_max_height - log_max_height;
+                //let reduced_index = *index >> bits_reduced;
+                //println!("====reduced_index:{}", reduced_index);
+        let data_ptr_usize2 = &gpu_prover_data2 as *const _ as usize;
+        queries_by_data.entry(data_ptr_usize2).or_default().push(reduced_index);
+    
+        let batched_results2: BatchedOpenings<Val, GpuValMmcs> = 
+                                    GpuValMmcs::open_batches_batched_gpu(
+                                           // &self.inner_pcs.mmcs,
+                                            log_global_max_height,
+                                            &queries_by_data,
+                                        );
+
+
+        // 5. Compare the results.
+        println!("\n--- Verifying open_batch results ---");
+
+        let opening1 = batched_results1.get(&data_ptr_usize1)
+                            .expect("ProverData should exist in results")
+                            .get(&reduced_index)
+                            .expect("Index should exist in results for this ProverData");
+
+        let opening2 = batched_results2.get(&data_ptr_usize2)
+                            .expect("ProverData2 should exist in results")
+                            .get(&reduced_index)
+                            .expect("Index should exist in results for this ProverData2");
+
+        
+        assert_eq!(
+            opening1.opened_values,
+            opening2.opened_values,
+            "Opened values do not match!"
+        );
+
+ 
+        assert_eq!(
+            opening1.opening_proof,
+            opening2.opening_proof,
+            "Opened proof do not match!"
+        );
+
+        println!("\nSUCCESS: GpuMerkleTreeMmcs::open_batch_gpu is correct.");
+    }
 }

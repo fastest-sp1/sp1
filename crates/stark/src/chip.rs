@@ -17,6 +17,8 @@ use super::{
     PROOF_MAX_NUM_PVS,
 };
 
+use crate::gpu::matrix::GpuMatrix;
+
 /// An Air that encodes lookups based on interactions.
 pub struct Chip<F: Field, A> {
     /// The underlying AIR of the chip for constraint evaluation.
@@ -239,6 +241,20 @@ where
     fn local_only(&self) -> bool {
         self.air.local_only()
     }
+
+    fn generate_trace_gpu(&self, input: &Self::Record, output: &mut Self::Record) -> RowMajorMatrix<F> {
+        // Forward the call to the underlying AIR `A`.
+        //println!("---chips--gen-tr-gpu--");
+        self.air.generate_trace_gpu(input, output)
+    }
+
+    fn generate_preprocessed_trace_gpu(
+        &self,
+        program: &Self::Program,
+    ) -> Option<RowMajorMatrix<F>> {
+        // Forward the call to the underlying AIR `A`.
+        self.air.generate_preprocessed_trace_gpu(program)
+    }
 }
 
 // Implement AIR directly on Chip, evaluating both execution and permutation constraints.
@@ -250,17 +266,17 @@ where
 {
     fn eval(&self, builder: &mut AB) {
         // Evaluate the execution trace constraints.
-        //tracing::debug!("---chip-name:{}", self.air.name());
         self.air.eval(builder);
         // Evaluate permutation constraints.
         let batch_size = self.logup_batch_size();
+        //println!("--CPU--eval-----chip-name:{}, batch_size:{}", self.air.name(), batch_size);
         eval_permutation_constraints(
             &self.sends,
             &self.receives,
             batch_size,
             self.air.commit_scope(),
             builder,
-        );
+        ); 
     }
 }
 

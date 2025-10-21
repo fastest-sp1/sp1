@@ -24,71 +24,10 @@ use super::{
 use crate::{
     air::MachineAir, lookup::InteractionBuilder, opts::SP1CoreOpts, record::MachineRecord,
     Challenger, DebugConstraintBuilder, MachineChip, MachineProof, PackedChallenge, PcsProverData,
-    ProverConstraintFolder, ShardCommitment, ShardMainData, ShardProof, StarkVerifyingKey,
+    ProverConstraintFolder, ShardCommitment, ShardMainData, ShardProof, StarkVerifyingKey, 
+    quotient_values_gpu, CudaResultCheck, 
 };
 
-use crate::DIGEST_SIZE;
-use crate::gpu::ffi::quotient_values_gpu;
-use std::collections::HashSet;
-use once_cell::sync::Lazy; // Add this to your imports
-
-//debug
-use serde::{Deserialize};
-use std::fs::{File, OpenOptions}; //debug
-use std::io::Write;
-use std::io::BufReader;
-use std::path::{Path, PathBuf};
-use serde_json;
-
-// 1. Define the set of GPU-accelerated chip names.
-// Using Lazy and HashSet for efficient, one-time initialization.
-static GPU_ACCELERATED_CHIPS: Lazy<HashSet<String>> = Lazy::new(|| {
-    [
-        "BaseAlu", 
-        "ExtAlu",
-        "BatchFRI",        
-        "ExpReverseBitsLen",
-        "FriFold",
-        "PublicValues",
-        "Select",
-        "Poseidon2WideDeg3",
-        "Poseidon2SkinnyDeg9",
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect()
-});
-
-// An enum to pass to the GPU, matching the one in your CUDA code.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum GpuChipId {   
-    BaseAlu = 0,
-    ExtAlu = 1,
-    BatchFRI = 2,
-    ExpReverseBitsLen = 3,
-    FriFold = 4,
-    PublicValues = 5,
-    Select = 6,
-    Poseidon2WideDeg3 = 7,
-    Poseidon2SkinnyDeg9 = 8,
-    // Add any others if needed
-}
-
-// Helper function to map name to ID
-fn map_chip_name_to_gpu_id(name: &str) -> Option<GpuChipId> {
-    match name {
-        "Poseidon2SkinnyDeg9" => Some(GpuChipId::Poseidon2SkinnyDeg9),
-        "Poseidon2WideDeg3" => Some(GpuChipId::Poseidon2WideDeg3),
-        "BaseAlu" => Some(GpuChipId::BaseAlu),
-        "ExtAlu" => Some(GpuChipId::ExtAlu),
-        "BatchFRI" => Some(GpuChipId::BatchFRI),
-        "ExpReverseBitsLen" => Some(GpuChipId::ExpReverseBitsLen),
-        "FriFold" => Some(GpuChipId::FriFold),
-        "PublicValues" => Some(GpuChipId::PublicValues),
-        "Select" => Some(GpuChipId::Select),
-        _ => None,
-    }
-}
 
 /// An algorithmic & hardware independent prover implementation for any [`MachineAir`].
 pub trait MachineProver<SC: StarkGenericConfig, A: MachineAir<SC::Val>>:
@@ -96,6 +35,7 @@ pub trait MachineProver<SC: StarkGenericConfig, A: MachineAir<SC::Val>>:
 {
     /// The type used to store the traces.
     type DeviceMatrix: Matrix<SC::Val>;
+    //type DeviceMatrix;
 
     /// The type used to store the polynomial commitment schemes data.
     type DeviceProverData;
@@ -270,8 +210,8 @@ where
     SC::Challenger: Clone,
     //GPU 
     <SC as StarkGenericConfig>::Domain: Into<TwoAdicMultiplicativeCoset<SC::Val>>,
-    <SC as StarkGenericConfig>::Val: TwoAdicField,
-    <SC as StarkGenericConfig>::Val: Into<InnerVal>, 
+    <SC as StarkGenericConfig>::Val: TwoAdicField,  
+    <SC as StarkGenericConfig>::Val: Into<InnerVal>,  
     <SC as StarkGenericConfig>::Challenge: Into<InnerChallenge>,
 {
     type DeviceMatrix = RowMajorMatrix<Val<SC>>;
@@ -280,8 +220,8 @@ where
     type Error = CpuProverError;
 
     fn new(machine: StarkMachine<SC, A>) -> Self 
-    where 
-        <SC as StarkGenericConfig>::Val: TwoAdicField,
+   // where 
+   //     <SC as StarkGenericConfig>::Val: TwoAdicField,
     {
         Self { machine }
     }
@@ -464,6 +404,7 @@ where
             challenger.observe_slice(local_sum.as_basis_coefficients_slice());
             challenger.observe_slice(&global_sum.0.x.0);
             challenger.observe_slice(&global_sum.0.y.0);
+            
         }
 
         // Compute the quotient polynomial for all chips.
@@ -510,98 +451,7 @@ where
                             let mut powers_of_alpha_rev = powers_of_alpha.clone();
                             powers_of_alpha_rev.reverse();
 
-                            if cfg!(feature = "recursion_cuda") && GPU_ACCELERATED_CHIPS.contains(&chips[i].name()) {
-                                // *** GPU PATH ***
-                                // Get the GPU-specific chip ID
-                                let gpu_chip_id = map_chip_name_to_gpu_id(&chips[i].name())
-                                    .expect("Chip name in GPU set but not in ID map");
-                                
-                                let qdb = log2_strict_usize(quotient_domain.size()) - log2_strict_usize(trace_domains[i].size());
-                                let next_step = 1 << qdb;
-
-                                let mut batch_size = 2;
-                                if gpu_chip_id == GpuChipId::Poseidon2SkinnyDeg9 { //poseidon2 skinny chip
-                                    batch_size = 8;
-                                }
-
-                                let mut public_values_digest_slice: &[SC::Val] = &[];
-                                //&data.public_values[pv_len - DIGEST_SIZE..];
-                                if gpu_chip_id == GpuChipId::PublicValues { //public values chip
-                                    let pv_len = data.public_values.len();
-                                    public_values_digest_slice = &data.public_values[pv_len - DIGEST_SIZE..];
-                                }
-
-                                let trace_domain_generic = &trace_domains[i];
-
-                                // `quotient_domain` is of type `<SC as StarkGenericConfig>::Domain`
-                                let quotient_domain_generic = &quotient_domain;
-
-                                // *** THE CRITICAL STEP: CONVERT TO THE CONCRETE TYPE ***
-                                // The `Into` bound guarantees this conversion will work. We dereference (*)
-                                // to get the value, then call .into().
-                                let trace_domain_coset: TwoAdicMultiplicativeCoset<SC::Val> = (*trace_domain_generic).into();
-                                let quotient_domain_coset: TwoAdicMultiplicativeCoset<SC::Val> = (*(*quotient_domain_generic)).into();
-
-
-                                // *** NOW, CALL THE METHODS ON THE NEW, CONCRETELY-TYPED VARIABLES ***
-                                // These calls will now succeed because `trace_domain_coset` and `quotient_domain_coset`
-                                // are of the concrete type `TwoAdicMultiplicativeCoset`, which is known to have these methods.
-
-                                let trace_gen = trace_domain_coset.subgroup_generator();
-                                let coset_shift = quotient_domain_coset.shift();
-                                let coset_gen = quotient_domain_coset.subgroup_generator();
-                                                                                       
-                                let alpha_offset = 0; //?
-                                // Allocate output buffer for GPU results
-                                let mut gpu_quotients = vec![SC::Challenge::ZERO; quotient_domain.size()];
-                                let main_trace_quotient_domains_width = main_trace_on_quotient_domains.width();
-                                let main_trace_quotient_domains_height = main_trace_on_quotient_domains.height();
-
-                                let prep_trace_quotient_domains_width = preprocessed_trace_on_quotient_domains.clone().unwrap().width();
-                                let permutation_trace_quotient_domains_width = permutation_trace_on_quotient_domains.width();
-                                
-                                let trace_domain_coset_log_size = trace_domain_coset.log_size() ;
-                                let quotient_domain_coset_log_size = quotient_domain_coset.log_size();
-        
-                                   // Call the GPU FFI function
-                                let result_code = unsafe {
-                                    // Correctly handle pointers to single items passed by reference
-                                    let local_sum_ptr = &local_cumulative_sums[i] as *const SC::Challenge;
-                                    let global_sum_ptr = &global_cumulative_sums[i] as *const SepticDigest<SC::Val>;
-          
-                                    quotient_values_gpu(
-                                        gpu_chip_id  as i32, 
-                                        main_trace_on_quotient_domains.values.as_ptr() as *const InnerVal,
-                                        main_trace_quotient_domains_width  as i32,
-                                        main_trace_quotient_domains_height  as i32,
-                                        preprocessed_trace_on_quotient_domains.unwrap().values.as_ptr() as *const InnerVal,
-                                        prep_trace_quotient_domains_width  as i32,
-                                        powers_of_alpha_rev.as_ptr()  as *const InnerChallenge,
-                                        *chip_num_constraints as i32,
-                                        quotient_domain.size() as i32,
-                                        permutation_trace_on_quotient_domains.values.as_ptr() as *const InnerVal, 
-                                        permutation_trace_quotient_domains_width as i32, 
-                                        next_step as i32,
-                                        batch_size as i32, 
-                                        local_permutation_challenges.as_ptr() as *const InnerChallenge,
-                                        local_sum_ptr  as *const InnerChallenge, 
-                                        public_values_digest_slice.as_ptr()  as *const InnerVal, 
-                                        public_values_digest_slice.len() as i32,
-                                        global_sum_ptr as *const SepticDigest<InnerVal>, 
-                                        alpha_offset as i32, 
-                                        trace_domain_coset_log_size as i32,
-                                        quotient_domain_coset_log_size as i32,
-                                        trace_gen.into(),
-                                        coset_shift.into(),
-                                        coset_gen.into(),
-                                        gpu_quotients.as_mut_ptr() as *mut InnerChallenge,
-                                    )
-                                };
-                                assert_eq!(result_code, 0, "GPU quotient calculation failed for chip {}", chips[i].name());
-                                gpu_quotients
-                            
-                            } else {
-                                quotient_values(
+                            quotient_values(
                                     chips[i],
                                     &local_cumulative_sums[i],
                                     &global_cumulative_sums[i],
@@ -614,11 +464,11 @@ where
                                     &powers_of_alpha_rev,
                                     &data.public_values,
                                 )
-                            }
                         })
                 })
                 .collect::<Vec<_>>()
             });
+        
 
         // Split the quotient values and commit to them.
         let quotient_domains_and_chunks = quotient_domains

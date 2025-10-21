@@ -211,6 +211,45 @@ struct ExpReverseBitsLenPreprocessedCols {
 };
 //end exp_reverse chip
 
+//memory const
+#define NUM_CONST_MEM_ENTRIES_PER_ROW 2
+
+// A simple pair struct to hold the (value, access) tuple
+template <typename T>
+struct ValueAccessPair {
+    Block<T> value;
+    MemoryAccessCols<T> access;
+};
+
+// Corresponds to Rust's MemoryPreprocessedCols<T>
+template <typename T>
+struct MemoryPreprocessedCols {
+    ValueAccessPair<T> values_and_accesses[NUM_CONST_MEM_ENTRIES_PER_ROW];
+};
+
+// Corresponds to Rust's MemoryCols<T>
+template <typename T>
+struct MemoryCols {
+    T _nothing;
+};
+
+//end memory const
+
+//memory var
+#define NUM_VAR_MEM_ENTRIES_PER_ROW 2
+template <typename T>
+struct MemoryVarPreprocessedCols {
+    MemoryAccessCols<T> accesses[NUM_VAR_MEM_ENTRIES_PER_ROW];
+};
+
+// Corresponds to Rust's MemoryCols<T> for MemoryVar
+template <typename T>
+struct MemoryVarCols {
+    Block<T> values[NUM_VAR_MEM_ENTRIES_PER_ROW];
+};
+
+//end memory var
+
 //fri_fold chip
 template <typename T>
 struct FriFoldPreprocessedCols {
@@ -452,8 +491,42 @@ enum ChipId {
     PUBLIC_VALUES = 5,
     SELECT = 6,
     P2_WIDE = 7,
-    P2_SKINNY = 8
+    P2_SKINNY = 8,
+    MEM_CONST = 9,
+    MEM_VAR = 10
 };
 
+template <typename T>
+struct GpuMatrix {
+    T*  d_data;
+    std::size_t width;  // Use std::size_t to match Rust's usize
+    std::size_t height;
+};
 
+// Flat representation of a single term in a VirtualPairCol
+// Corresponds to (PairCol, Weight)
+struct FfiVpcTerm {
+    int col_type; // 0 for Preprocessed, 1 for Main
+    int col_index;
+    Val weight;
+};
+
+// Flat representation of a VirtualPairCol
+struct FfiVirtualPairCol {
+    FfiVpcTerm* terms_ptr;
+    int num_terms;
+    Val constant;
+};
+
+// Flat representation of an Interaction
+struct FfiInteraction {
+    FfiVirtualPairCol values[8]; // MAX_INTERACTION_VALUES
+    int num_values;
+    FfiVirtualPairCol multiplicity;
+    //int argument_index;
+    int kind;
+    /// The scope of the interaction.
+    int scope;
+    bool is_send;
+};
 

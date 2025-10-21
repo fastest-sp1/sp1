@@ -99,7 +99,7 @@ extern "C" void process_exp_reverse_bits_events_gpu(
                         size_t exp_index_info_len,
                         const BabyBear* all_events_exp_h,
                         size_t all_events_exp_len,
-                        BabyBear* output_h,
+                        BabyBear* output_d,
                         size_t output_len,
                         int total_events,
                         int num_cols_per_row
@@ -110,7 +110,7 @@ extern "C" void process_exp_reverse_bits_events_gpu(
     ExpReverseBitsEventFlatFFI<BabyBear> *events_d = nullptr;
     BabyBear *all_events_exp_d = nullptr;
     ExpReverseBitsFlatIdex<BabyBear> *exp_index_info_d = nullptr; 
-    BabyBear *output_d = nullptr;
+    //BabyBear *output_d = nullptr;
     cudaError_t err = cudaSuccess;
     int num_blocks = 0;
 
@@ -127,8 +127,9 @@ extern "C" void process_exp_reverse_bits_events_gpu(
     err = cudaMalloc(&all_events_exp_d, all_events_exp_bytes);
     if (err != cudaSuccess) { fprintf(stderr, "_exp_reverse_bits_events: cudaMalloc all_events_exp_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
    
-    err = cudaMalloc(&output_d, output_bytes);
-    if (err != cudaSuccess) { fprintf(stderr, "_exp_reverse_bits_events: cudaMalloc output_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
+    //err = cudaMalloc(&output_d, output_bytes);
+    //if (err != cudaSuccess) { fprintf(stderr, "_exp_reverse_bits_events: cudaMalloc output_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
+    
     err = cudaMalloc(&exp_index_info_d, exp_index_info_bytes); 
     if (err != cudaSuccess) { fprintf(stderr, "_exp_reverse_bits_events: cudaMalloc exp_index_info_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
@@ -161,14 +162,14 @@ extern "C" void process_exp_reverse_bits_events_gpu(
     err = cudaDeviceSynchronize();
     if (err != cudaSuccess) { fprintf(stderr, "_exp_reverse_bits_events: cudaDeviceSynchronize failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
-    err = cudaMemcpy(output_h, output_d, output_bytes, cudaMemcpyDeviceToHost);
-    if (err != cudaSuccess) { fprintf(stderr, "_exp_reverse_bits_events: cudaMemcpy DtoH failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
+    //err = cudaMemcpy(output_h, output_d, output_bytes, cudaMemcpyDeviceToHost);
+    //if (err != cudaSuccess) { fprintf(stderr, "_exp_reverse_bits_events: cudaMemcpy DtoH failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
 cleanup:
     if (events_d) cudaFree(events_d);
     if (exp_index_info_d) cudaFree(exp_index_info_d);
     if (all_events_exp_d) cudaFree(all_events_exp_d);
-    if (output_d) cudaFree(output_d);
+    //if (output_d) cudaFree(output_d);
     if (err != cudaSuccess) {
         fprintf(stderr, "_exp_reverse_bits_events: CUDA error : %s\n", cudaGetErrorString(err));
     }
@@ -182,7 +183,7 @@ extern "C" void process_exp_reverse_bits_instructions_gpu(
                     size_t instrs_index_info_len,
                     const Address<BabyBear>* all_exp_bits_h,
                     size_t all_exp_bits_len,
-                    BabyBear* output_h,
+                    BabyBear* output_d,
                     size_t output_len,
                     int total_instrs,
                     int num_cols_per_row
@@ -193,7 +194,7 @@ extern "C" void process_exp_reverse_bits_instructions_gpu(
     ExpReverseBitsInstrFlatFFI<BabyBear> *instrs_d = nullptr;
     Address<BabyBear> *all_exp_bits_d = nullptr;
     InstrsFlatIdex *instrs_index_info_d = nullptr; 
-    BabyBear *output_d = nullptr;
+    //BabyBear *output_d = nullptr;
     cudaError_t err = cudaSuccess;
     int num_blocks = 0;
 
@@ -210,8 +211,9 @@ extern "C" void process_exp_reverse_bits_instructions_gpu(
     err = cudaMalloc(&all_exp_bits_d, exp_bits_bytes);
     if (err != cudaSuccess) { fprintf(stderr, "_exp_reverse_bits_instrs: cudaMalloc all_exp_bits failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
     
-    err = cudaMalloc(&output_d, output_bytes);
-    if (err != cudaSuccess) { fprintf(stderr, "_exp_reverse_bits_instrs: cudaMalloc output_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
+    //err = cudaMalloc(&output_d, output_bytes);
+    //if (err != cudaSuccess) { fprintf(stderr, "_exp_reverse_bits_instrs: cudaMalloc output_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
+     
      err = cudaMalloc(&instrs_index_info_d, instrs_index_info_bytes); 
     if (err != cudaSuccess) { fprintf(stderr, "_exp_reverse_bits_instrs: cudaMalloc instrs_index_info_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
@@ -243,202 +245,17 @@ extern "C" void process_exp_reverse_bits_instructions_gpu(
     err = cudaDeviceSynchronize();
     if (err != cudaSuccess) { fprintf(stderr, "_exp_reverse_bits_instrs: cudaDeviceSynchronize failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
-    err = cudaMemcpy(output_h, output_d, output_bytes, cudaMemcpyDeviceToHost);
-    if (err != cudaSuccess) { fprintf(stderr, "_exp_reverse_bits_instrs: cudaMemcpy DtoH failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
+    //err = cudaMemcpy(output_h, output_d, output_bytes, cudaMemcpyDeviceToHost);
+    //if (err != cudaSuccess) { fprintf(stderr, "_exp_reverse_bits_instrs: cudaMemcpy DtoH failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
 cleanup:
     if (instrs_d) cudaFree(instrs_d);
     if (instrs_index_info_d) cudaFree(instrs_index_info_d);
     if (all_exp_bits_d) cudaFree(all_exp_bits_d);
 
-    if (output_d) cudaFree(output_d);
+    //if (output_d) cudaFree(output_d);
     if (err != cudaSuccess) {
         fprintf(stderr, "_exp_reverse_bits_instrs: CUDA error : %s\n", cudaGetErrorString(err));
     }
 }
-/*//using child kernel
-typedef struct {  
-    BabyBear multiplier;
-    BabyBear prev_accum;
-} ExpReverseBitsInfo;
-
-__global__ void kernel_process_exp_reverse_bits_events_child_gpu(
-                    const ExpReverseBitsEventFlatFFI<BabyBear>* events_d,
-                    ExpReverseBitsInfo* exp_index_info_d,
-                    const BabyBear* all_events_exp_d,
-                    BabyBear* output_d,  
-                    uint32_t start_output_idx,           
-                    uint32_t sub_events,               
-                    uint32_t num_cols_per_row          
-) {
-    uint32_t child_idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (child_idx < sub_events) {
-        const ExpReverseBitsInfo& index_info = exp_index_info_d[child_idx];
-
-        uint32_t exp_idx = child_idx;
-        BabyBear multiplier = index_info.multiplier;
-        BabyBear prev_accum = index_info.prev_accum;
-
-
-        uint32_t global_output_row_idx = start_output_idx + child_idx;
-
-        BabyBear* target_output_ptr = output_d + global_output_row_idx * num_cols_per_row;
-        ExpReverseBitsLenCols<BabyBear>& cols = 
-            *reinterpret_cast<ExpReverseBitsLenCols<BabyBear>*>(target_output_ptr);
-
-        BabyBear accum = prev_accum * prev_accum * multiplier;
-
-        cols.x = events_d->base_val;
-        cols.current_bit = all_events_exp_d[events_d->exp_bits_offset + exp_idx];
-        //printf("child_idx:%u, exp_idx:%u, sub_events:%u, offset:%u, current_bit:%u \n", child_idx, exp_idx, sub_events, events_d->exp_bits_offset, cols.current_bit);
-        cols.multiplier = multiplier;
-        cols.accum = accum;
-        cols.accum_squared = accum * accum;
-        cols.prev_accum_squared = prev_accum * prev_accum;
-        cols.prev_accum_squared_times_multiplier = cols.prev_accum_squared * cols.multiplier;
-    }
-}
-
-//v2
-//GPU 100%
-__global__ void kernel_process_exp_reverse_bits_events_parent_gpu(
-                    const ExpReverseBitsEventFlatFFI<BabyBear>* events_d,
-                    ExpReverseBitsInfo* exp_index_info_d,
-                    const BabyBear* all_events_exp_d,
-                    BabyBear* output_d,  
-                    uint32_t total_events,               
-                    uint32_t num_cols_per_row          
-) {
-    uint32_t parent_idx = blockIdx.x * blockDim.x + threadIdx.x; 
-
-    if (parent_idx < total_events) {
-
-        const ExpReverseBitsEventFlatFFI<BabyBear>& current_event = events_d[parent_idx];
-        uint32_t event_exp_len = current_event.exp_len; 
-       
-        uint32_t start_output_idx = current_event.exp_bits_offset;
-
-        // Launch child kernel
-        uint32_t child_threads_per_block = 256;
-        uint32_t child_num_blocks = (event_exp_len + child_threads_per_block - 1) / child_threads_per_block;
-
-        //
-        
-
-    
-        BabyBear accum = 1;
-        for (uint32_t j = 0; j < event_exp_len; j++) {
-            BabyBear current_exp_bit = all_events_exp_d[current_event.exp_bits_offset + j];//current_event.exp[j];
-            BabyBear multiplier = (current_exp_bit == 1) ? current_event.base_val : 1;
-            BabyBear prev_accum = accum;
-            //printf("parent_idx:%u , j=%u , current_exp_bit=%u , event_exp_len=%u, exp_bits_offset:%u\n", parent_idx, j, current_exp_bit, event_exp_len, current_event.exp_bits_offset);
-            ExpReverseBitsInfo& device_events_idx = exp_index_info_d[current_event.exp_bits_offset + j];
-
-            device_events_idx.multiplier = multiplier;
-            device_events_idx.prev_accum = prev_accum;
-           
-            accum = prev_accum * prev_accum * multiplier;
-        }
-       //
-        kernel_process_exp_reverse_bits_events_child_gpu<<<child_num_blocks, child_threads_per_block>>>(
-            &current_event, 
-            //device_events_idx,
-            &exp_index_info_d[current_event.exp_bits_offset],
-            all_events_exp_d,
-            output_d,
-            start_output_idx,
-            event_exp_len,
-            num_cols_per_row
-        );  
-    }
-}
-
-//v2 GPU-->100%
-extern "C" void process_exp_reverse_bits_events_gpu_v2(
-                        const ExpReverseBitsEventFlatFFI<BabyBear>* events_h,
-                        size_t events_len,
-                        // const ExpReverseBitsFlatIdex<BabyBear>* exp_index_info_h,
-                        //size_t exp_index_info_len,
-                        const BabyBear* all_events_exp_h,
-                        size_t all_events_exp_len,
-                        BabyBear* output_h,
-                        size_t output_len,
-                        int total_events,
-                        int num_cols_per_row
-) {
-    if (events_len == 0) return;
-
-    // Declare device pointers
-    ExpReverseBitsEventFlatFFI<BabyBear> *events_d = nullptr;
-    BabyBear *all_events_exp_d = nullptr;
-    ExpReverseBitsInfo *exp_info_d = nullptr; 
-    BabyBear *output_d = nullptr;
-    cudaError_t err = cudaSuccess;
-    int num_blocks = 0;
-
-    // 1. Allocate device memory for all input arrays
-    size_t events_bytes = events_len * sizeof(ExpReverseBitsEventFlatFFI<BabyBear>);
-    size_t all_events_exp_bytes = all_events_exp_len * sizeof(BabyBear);
-
-    size_t output_bytes = output_len * sizeof(BabyBear);
-    size_t exp_index_info_bytes = total_events * sizeof(ExpReverseBitsInfo);
-
-    // Malloc all inputs
-    err = cudaMalloc(&events_d, events_bytes);
-    if (err != cudaSuccess) { fprintf(stderr, "_exp_reverse_bits_events: cudaMalloc events_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-    err = cudaMalloc(&all_events_exp_d, all_events_exp_bytes);
-    if (err != cudaSuccess) { fprintf(stderr, "_exp_reverse_bits_events: cudaMalloc all_events_exp_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-   
-    err = cudaMalloc(&output_d, output_bytes);
-    if (err != cudaSuccess) { fprintf(stderr, "_exp_reverse_bits_events: cudaMalloc output_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-    err = cudaMalloc(&exp_info_d, exp_index_info_bytes); 
-    if (err != cudaSuccess) { fprintf(stderr, "_exp_reverse_bits_events: cudaMalloc exp_info_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-
-    err = cudaMemset(exp_info_d, 0, exp_index_info_bytes); 
-    if (err != cudaSuccess) { fprintf(stderr, "_exp_reverse_bits_events: cudaMemset exp_info_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-
-
-    // 2. Copy all input data from host to device
-    err = cudaMemcpy(events_d, events_h, events_bytes, cudaMemcpyHostToDevice);
-    if (err != cudaSuccess) { fprintf(stderr, "_exp_reverse_bits_events: cudaMemcpy ffi_instrs_h failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-    
-    //err = cudaMemcpy(exp_index_info_d, exp_index_info_h, exp_index_info_bytes, cudaMemcpyHostToDevice);
-    //if (err != cudaSuccess) { fprintf(stderr, "_exp_reverse_bits_events: cudaMemcpy exp_index_info_h failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-    
-    err = cudaMemcpy(all_events_exp_d, all_events_exp_h, all_events_exp_bytes, cudaMemcpyHostToDevice);
-    if (err != cudaSuccess) { fprintf(stderr, "_exp_reverse_bits_events: cudaMemcpy all_base_p_at_x_h failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-       
-    // 3. Launch kernel
-    //int num_total_output_rows = num_original_instrs * rows_per_single_instr;
-    num_blocks = (events_len + 256 - 1) / 256;
-
-    kernel_process_exp_reverse_bits_events_parent_gpu<<<num_blocks, 256>>>(
-        events_d,
-        exp_info_d,
-        all_events_exp_d,
-        output_d,
-        events_len,
-        num_cols_per_row
-    );
-    err = cudaGetLastError();
-    if (err != cudaSuccess) { fprintf(stderr, "kernel_process_exp_reverse_bits_events_gpu launch failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-
-    // 4. Synchronize and copy output from device to host
-    err = cudaDeviceSynchronize();
-    if (err != cudaSuccess) { fprintf(stderr, "_exp_reverse_bits_events: cudaDeviceSynchronize failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-
-    err = cudaMemcpy(output_h, output_d, output_bytes, cudaMemcpyDeviceToHost);
-    if (err != cudaSuccess) { fprintf(stderr, "_exp_reverse_bits_events: cudaMemcpy DtoH failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-
-cleanup:
-    if (events_d) cudaFree(events_d);
-    if (exp_info_d) cudaFree(exp_info_d);
-    if (all_events_exp_d) cudaFree(all_events_exp_d);
-    if (output_d) cudaFree(output_d);
-    if (err != cudaSuccess) {
-        fprintf(stderr, "_exp_reverse_bits_events: CUDA error : %s\n", cudaGetErrorString(err));
-    }
-}
-
-*/
 

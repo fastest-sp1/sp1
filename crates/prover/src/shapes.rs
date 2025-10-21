@@ -19,7 +19,7 @@ use sp1_recursion_core::{
     shape::{RecursionShape, RecursionShapeConfig},
     RecursionProgram,
 };
-use sp1_stark::{shape::OrderedShape, MachineProver, DIGEST_SIZE};
+use sp1_stark::{shape::OrderedShape, MachineProver, DIGEST_SIZE, GpuMachineProver};
 use thiserror::Error;
 
 pub use sp1_recursion_circuit::machine::{
@@ -136,6 +136,7 @@ pub fn check_shapes<C: SP1ProverComponents>(
     compress_ok
 }
 
+#[cfg(not(feature = "recursion_cuda"))]
 pub fn build_vk_map<C: SP1ProverComponents + 'static>(
     reduce_batch_size: usize,
     dummy: bool,
@@ -306,6 +307,7 @@ pub fn build_vk_map<C: SP1ProverComponents + 'static>(
     (vk_set, panic_indices, height)
 }
 
+#[cfg(not(feature = "recursion_cuda"))]
 pub fn build_vk_map_to_file<C: SP1ProverComponents + 'static>(
     build_dir: PathBuf,
     reduce_batch_size: usize,

@@ -10,6 +10,8 @@ use spin::RwLock;
 use p3_util::log2_strict_usize;
 use p3_baby_bear::BabyBear;
 
+use crate::{GpuMatrix, GpuMatrixC, GpuMemBlk};
+use crate::gpu::matrix::CudaResultCheck;
 
 /// A thread-safe cache for twiddle factors.
 #[derive(Default, Clone, Debug)]
@@ -82,17 +84,15 @@ where
         let log_h = log2_strict_usize(h);
         let twiddles = self.twiddle_cache.get_forward_twiddles(log_h);
 
-        let result = unsafe {
+        unsafe {
             fast_dft_batch_gpu(
                 mat.values.as_mut_ptr() as *mut BabyBear,
                 h as i32,
                 mat.width() as i32,
                 twiddles.as_ptr() as *const BabyBear,
-            )
+            ).check("fast_dft_batch_gpu failed.");
         };
-        if result != 0 {
-            panic!("fast_dft_batch_gpu  failed: {}", result);
-        }
+      
         
         mat
     }
@@ -104,18 +104,16 @@ where
 
         let inverse_twiddles = self.twiddle_cache.get_inverse_twiddles(log_h);
    
-        let result = unsafe {
+        unsafe {
             fast_idft_gpu(
                 mat.values.as_mut_ptr() as *mut BabyBear,
                 h as i32,
                 mat.width() as i32,
                 inverse_twiddles.as_ptr() as *const BabyBear,
-            )
+            ).check("fast_idft_gpu failed.");
         };
 
-        if result != 0 {
-            panic!("fast_idft_gpu  failed: {}", result);
-        }
+   
         
         mat
     }
@@ -134,14 +132,11 @@ where
         let inverse_twiddles = self.twiddle_cache.get_inverse_twiddles(log_h);
         let forward_twiddles = self.twiddle_cache.get_forward_twiddles(log_lde_h);
         
-        //debug
-        //let duration = start.elapsed();
-        //println!("coset_lde_batch:twiddles, duration:{:?}", duration);
-
         mat.values.resize(lde_h * w, F::ZERO);
-        //fast ok
-        let result = unsafe {
+    
+        unsafe {
             fast_coset_lde_batch_gpu(
+            //op_fast_coset_lde_batch_gpu(
                 mat.values.as_mut_ptr() as *mut BabyBear,
                 h as i32,
                 w as i32,
@@ -149,22 +144,83 @@ where
                 shift.into(),
                 inverse_twiddles.as_ptr()  as *const BabyBear,
                 forward_twiddles.as_ptr() as *const BabyBear,
-            )
+            ).check("fast_coset_lde_batch_gpu failed.");
         };
 
-        if result != 0 {
-            panic!("fast_coset_lde_batch_gpu  failed: {}", result);
-        }
-
-        //let duration = start.elapsed();
-        //println!("coset_lde_batch:op_fast_coset_lde_batch_gpu, duration:{:?}", duration);
         mat
     }
 
 }
 
+impl GpuDft {
+    /// Performs an out-of-place LDE, reading from one GPU buffer and writing to a new one.
+    pub fn coset_lde_batch_gpu(
+        &self,
+        input_matrix: &GpuMatrix<BabyBear>,
+        added_bits: usize,
+        shift: BabyBear,
+        gpu_mem_blk: &GpuMemBlk,
+    ) -> GpuMatrix<BabyBear> {
+        let h = input_matrix.height;
+        let w = input_matrix.width;
+        let log_h = log2_strict_usize(h);
+        let log_lde_h = log_h + added_bits;
+        let lde_h = 1 << log_lde_h;
+        // Allocate a *new* GPU matrix for the output LDE.
+        let mut lde_matrix = GpuMatrix::<BabyBear>::new(lde_h, w, gpu_mem_blk);
+       
+        // Precompute twiddles on the CPU (this is fast).
+        let inverse_twiddles = self.twiddle_cache.get_inverse_twiddles(log_h);
+        let forward_twiddles = self.twiddle_cache.get_forward_twiddles(log_lde_h);
 
-// It requires the `recursion_cuda` feature to be enabled for the test to run.
+        // Call a new FFI function that takes separate input and output pointers.
+        unsafe {
+            let input_matrix_c: GpuMatrixC = (input_matrix).into();
+            let mut lde_matrix_c: GpuMatrixC = (&lde_matrix).into();
+            fast_coset_lde_batch_data_in_gpu(
+                &input_matrix_c,
+                &mut lde_matrix_c,
+                h as i32,
+                w as i32,
+                added_bits as i32,
+                shift,
+                inverse_twiddles.as_ptr(),
+                forward_twiddles.as_ptr(),
+            ).check("fast_coset_lde_batch_out_of_place_gpu failed");
+        }
+        
+        lde_matrix 
+    }
+
+    pub fn bit_reverse_rows(
+        &self,
+        input_matrix: &GpuMatrix<BabyBear>,
+        domain_size: usize,
+        gpu_mem_blk: &GpuMemBlk,
+    ) -> GpuMatrix<BabyBear> {
+        let lde_h = input_matrix.height;
+        let w = input_matrix.width;
+        let log_lde_h = log2_strict_usize(lde_h);
+        
+        // Allocate a *new* GPU matrix for the output LDE.
+        let mut lde_matrix = GpuMatrix::<BabyBear>::new(domain_size, w, gpu_mem_blk);
+        
+        unsafe {
+            let input_matrix_c: GpuMatrixC = (input_matrix).into();
+            let mut lde_matrix_c: GpuMatrixC = (&lde_matrix).into();
+            bit_reverse_rows_gpu( 
+                &input_matrix_c,
+                &mut lde_matrix_c,
+               
+            ).check("bit_reverse_rows_gpu failed");
+        }
+        
+        lde_matrix 
+    }
+
+}
+
+
 //#[cfg(all(test, feature = "recursion_cuda"))]
 #[cfg(test)]
 mod tests {
@@ -215,6 +271,71 @@ mod tests {
 
         // --- Verification ---
         assert_eq!(cpu_result_matrix, cuda_result_matrix, "test_naive_coset_lde_batch results do not match!");
+        println!("test finished.");
+    }
+
+    #[test]
+    fn test_fast_coset_lde_batch_gpu() { 
+        //const H: usize = 16; //pass
+        //const W: usize = 49;
+
+        //const H: usize = 1; //pass
+        //const W: usize = 6;
+
+        //const H: usize = 4096; //pass
+        //const W: usize = 10;
+        //const H: usize = 256; //pass
+        //const W: usize = 12;
+
+        const H: usize = 8192; //pass
+        const W: usize = 32;
+
+        let log_h = log2_strict_usize(H);
+
+        const ADDED_BITS: usize = 2; // blowup_factor = 4
+
+        println!("Generating random matrix of size {}x{}", H, W);
+        let input_matrix = generate_random_matrix(H, W);
+        //let values :Vec<BabyBear>= vec![BabyBear::from_u32(1), BabyBear::from_u32(2),BabyBear::from_u32(3),BabyBear::from_u32(4),
+        //                                BabyBear::from_u32(5),BabyBear::from_u32(6),BabyBear::from_u32(7),BabyBear::from_u32(8)];
+        //let input_matrix = DenseMatrix::<BabyBear>::new(values, 2);
+
+        let shift: BabyBear = BabyBear::from_u32(31);
+    
+        // --- CPU reference ---
+        let cpu_dft = Radix2DitParallel::<BabyBear>::default();
+        let cpu_origin_evals = cpu_dft.coset_lde_batch(input_matrix.clone(), ADDED_BITS, shift);
+        
+        println!("CPU implementation finished.");
+
+        // --- CUDA version ---
+        let cuda_dft = GpuDft::default();
+
+        // Allocate the matrix directly on the GPU.
+        //println!("--cpu-matrix, H={}, W={}, values={:?}.",H, W, input_matrix.values);
+        let gpu_mem_blk = GpuMemBlk::new(100* 1024*1024) //enough?
+                    .expect("Failed to create GPU memory block.");
+        let  gpu_matrix = GpuMatrix::<BabyBear>::from_vec(&input_matrix.values, H, W, &gpu_mem_blk);
+
+        println!("--gpu-matrix, H={}, W={},",gpu_matrix.height, gpu_matrix.width);
+        //test
+        //let temp = gpu_matrix.to_host();
+        //println!("--gpu-matrix, =values={:?}--", temp);
+
+        let lde_matrix = cuda_dft.coset_lde_batch_gpu(&gpu_matrix, ADDED_BITS, shift, &gpu_mem_blk); //borrow the name coset_lde_batch
+        let gpu_origin_evals = lde_matrix.to_host();
+        
+        let bit_reverse_lde = cuda_dft.bit_reverse_rows(&lde_matrix, lde_matrix.height, &gpu_mem_blk);
+        let row_major_values = bit_reverse_lde.to_host();
+        let gpu_result_rowmajor_matrix = RowMajorMatrix::new(row_major_values, W);
+
+        // --- Verification ---
+        
+        assert_eq!(cpu_origin_evals.inner.values, gpu_origin_evals, "cpu_origin_evals results do not match!");
+        
+        let cpu_result_rowmajor_matrix = cpu_origin_evals.to_row_major_matrix();
+        assert_eq!(cpu_result_rowmajor_matrix, gpu_result_rowmajor_matrix, "cpu_result_rowmajor_matrix results do not match!");
+
         println!("test finished.");
     }
 
@@ -278,19 +399,30 @@ mod tests {
         println!("CUDA implementation finished.");
 
         // --- Verification ---
+        // ... (the rest of the verification logic is the same)
         assert_eq!(cpu_dft_matrix, cuda_dft_matrix, "DFT results do not match!");
     }
 
     #[test]
     fn test_transpose() {//pass
+        //use p3_matrix::dense::transpose; 
+        // Use non-square dimensions to catch errors
         const H: usize = 131072;
         const W: usize = 57;
 
         println!("\nTesting transpose for a {}x{} matrix...", H, W);
         let input_matrix = generate_random_matrix(H, W);
+        //println!("input_matrix:");
+        //for row in input_matrix.row_slices() {
+        //    println!("row:{:?}", row);
+        //}
 
         let cpu_result = input_matrix.transpose(); // New width is H
-        
+        //println!("after transpose:");
+        //for row in cpu_result.row_slices() {
+        //    println!("row:{:?}", row);
+       // }
+
         // --- Run our CUDA implementation ---
         let mut gpu_transposed_values = vec![BabyBear::default(); W * H];
         let result = unsafe {

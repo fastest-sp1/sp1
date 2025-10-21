@@ -192,13 +192,17 @@ extern "C" int cuda_malloc_and_memset_zero(void** devPtr, size_t size) {
     return 0;
 }
 
-// You should already have this one:
+
 extern "C" int cuda_memcpy_dtoh(void* dst, const void* src, size_t count) {
     if (cudaMemcpy(dst, src, count, cudaMemcpyDeviceToHost) != cudaSuccess) return -1;
     return 0;
 }
 
-// You should already have this one:
+extern "C" int cuda_memcpy_dtod(void* dst, const void* src, size_t count) {
+    if (cudaMemcpy(dst, src, count, cudaMemcpyDeviceToDevice) != cudaSuccess) return -1;
+    return 0;
+}
+
 extern "C" int cuda_free(void* devPtr) {
     if (cudaFree(devPtr) != cudaSuccess) return -1;
     return 0;

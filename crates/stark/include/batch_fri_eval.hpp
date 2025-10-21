@@ -3,9 +3,10 @@
 #include "gpu_types.hpp"
 #include "virtual_pair_col.hpp"
 
-#include "permutation_eval.hpp"
+#include "permutation.hpp"
 
 #define BATCH_FRI_DEGREE 3
+
 
 __device__ void eval_batch_fri_chip(
     ProverConstraintFolder<Challenge>& folder,
@@ -59,71 +60,7 @@ __device__ void eval_batch_fri_chip(
 
     // 3. Memory Interactions (Permutation Argument)
     Interaction interaction_buffer[4];
-    int interaction_count = 0;
-
-    // Send `acc` with multiplicity `is_end`
-    interaction_buffer[interaction_count++] = {
-        .values = {
-            VirtualPairCol::single_preprocessed(offsetof(BatchFRIPreprocessedCols<Val>, acc_addr) / sizeof(Val)),
-            VirtualPairCol::single_main(offsetof(BatchFRICols<Val>, acc._0[0]) / sizeof(Val)),
-            VirtualPairCol::single_main(offsetof(BatchFRICols<Val>, acc._0[1]) / sizeof(Val)),
-            VirtualPairCol::single_main(offsetof(BatchFRICols<Val>, acc._0[2]) / sizeof(Val)),
-            VirtualPairCol::single_main(offsetof(BatchFRICols<Val>, acc._0[3]) / sizeof(Val))
-         
-        },
-        .num_values = 5,
-        .multiplicity = VirtualPairCol::single_preprocessed(offsetof(BatchFRIPreprocessedCols<Val>, is_end) / sizeof(Val)),
-        .kind = InteractionKind::Memory,
-        .scope = InteractionScope::Local,
-        .is_send = true
-    };
-    
-    // Receive `alpha_pow` with multiplicity `is_real`
-    interaction_buffer[interaction_count++] = {
-        .values = {
-            VirtualPairCol::single_preprocessed(offsetof(BatchFRIPreprocessedCols<Val>, alpha_pow_addr) / sizeof(Val)),
-            VirtualPairCol::single_main(offsetof(BatchFRICols<Val>, alpha_pow._0[0]) / sizeof(Val)),
-            VirtualPairCol::single_main(offsetof(BatchFRICols<Val>, alpha_pow._0[1]) / sizeof(Val)),
-            VirtualPairCol::single_main(offsetof(BatchFRICols<Val>, alpha_pow._0[2]) / sizeof(Val)),
-            VirtualPairCol::single_main(offsetof(BatchFRICols<Val>, alpha_pow._0[3]) / sizeof(Val))
-        },
-        .num_values = 5,
-        .multiplicity = VirtualPairCol::single_preprocessed(offsetof(BatchFRIPreprocessedCols<Val>, is_real) / sizeof(Val)),
-        .kind = InteractionKind::Memory,
-        .scope = InteractionScope::Local,
-        .is_send = false
-    };
-
-    // Receive `p_at_z` with multiplicity `is_real`
-    interaction_buffer[interaction_count++] = {
-        .values = {
-            VirtualPairCol::single_preprocessed(offsetof(BatchFRIPreprocessedCols<Val>, p_at_z_addr) / sizeof(Val)),
-            VirtualPairCol::single_main(offsetof(BatchFRICols<Val>, p_at_z._0[0]) / sizeof(Val)),
-            VirtualPairCol::single_main(offsetof(BatchFRICols<Val>, p_at_z._0[1]) / sizeof(Val)),
-            VirtualPairCol::single_main(offsetof(BatchFRICols<Val>, p_at_z._0[2]) / sizeof(Val)),
-            VirtualPairCol::single_main(offsetof(BatchFRICols<Val>, p_at_z._0[3]) / sizeof(Val))
-             
-        },
-        .num_values = 5,
-        .multiplicity = VirtualPairCol::single_preprocessed(offsetof(BatchFRIPreprocessedCols<Val>, is_real) / sizeof(Val)),
-        .kind = InteractionKind::Memory,
-        .scope = InteractionScope::Local,
-        .is_send = false
-    };
-
-    // Receive `p_at_x` with multiplicity `is_real`
-    interaction_buffer[interaction_count++] = {
-        .values = {
-            VirtualPairCol::single_preprocessed(offsetof(BatchFRIPreprocessedCols<Val>, p_at_x_addr) / sizeof(Val)),
-            VirtualPairCol::single_main(offsetof(BatchFRICols<Val>, p_at_x) / sizeof(Val))
-      
-        },
-        .num_values = 2, 
-        .multiplicity = VirtualPairCol::single_preprocessed(offsetof(BatchFRIPreprocessedCols<Val>, is_real) / sizeof(Val)),
-        .kind = InteractionKind::Memory,
-        .scope = InteractionScope::Local,
-        .is_send = false
-    };
+    int interaction_count = get_batch_fri_interactions(interaction_buffer);
 
     //const int perm_width_ef = perm_width / 4;
     const Challenge* perm_local = reinterpret_cast<const Challenge*>(perm_local_flat);
@@ -132,7 +69,7 @@ __device__ void eval_batch_fri_chip(
     eval_permutation_constraints(
         folder,
         interaction_buffer,
-        4,
+        interaction_count,
         main_local_row,
         prep_local_row,
         perm_local,

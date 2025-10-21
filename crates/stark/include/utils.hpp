@@ -121,3 +121,34 @@ inline int next_power_of_two(int n) {
     }
     return p;
 }
+
+// A helper function to check if a pointer is a valid CUDA device pointer.
+// Returns `true` if valid, `false` otherwise.
+inline bool is_valid_device_pointer(void* ptr) {
+    if (ptr == nullptr) {
+        printf("DEBUG: Pointer is NULL.\n");
+        return false;
+    }
+    
+    cudaPointerAttributes attributes;
+    cudaError_t err = cudaPointerGetAttributes(&attributes, ptr);
+
+    if (err != cudaSuccess) {
+        // If the call itself fails, the pointer is almost certainly invalid.
+        // `cudaErrorInvalidValue` is the expected error for a non-device pointer.
+        printf("DEBUG: cudaPointerGetAttributes failed for ptr %p with error: %s\n", 
+               ptr, cudaGetErrorString(err));
+        return false;
+    }
+
+    // The `type` field tells you what kind of memory it is.
+    // For our case, we expect `cudaMemoryTypeDevice`.
+    if (attributes.type == cudaMemoryTypeDevice) {
+        printf("DEBUG: Pointer %p is a VALID device pointer.\n", ptr);
+        return true;
+    } else {
+        printf("DEBUG: Pointer %p is NOT a device pointer. Type is: %d (1=Host, 2=Device)\n", 
+               ptr, attributes.type);
+        return false;
+    }
+}

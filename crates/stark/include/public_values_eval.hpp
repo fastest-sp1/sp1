@@ -2,14 +2,12 @@
 #include "air_folder.hpp"
 #include "gpu_types.hpp"
 #include "virtual_pair_col.hpp"
-#include "permutation_eval.hpp"
+#include "permutation.hpp"
 
 
 // We only need the digest part for this chip
 #define  DIGEST_SIZE  8
 
-
-// --- UNPACKED EVAL FUNCTION ---
 __device__ void eval_public_values_chip(
     ProverConstraintFolder<Challenge>& folder,
     const Val* main_local_row,
@@ -42,22 +40,7 @@ __device__ void eval_public_values_chip(
     // 2. Memory Interactions (Permutation Argument)
     // There is only one memory interaction.
     Interaction interaction_buffer[1];
-    int interaction_count = 0;
-
-    // Constrain mem read for the public value element.
-    // builder.send_single(local_prepr.pv_mem.addr, local.pv_element, local_prepr.pv_mem.mult);
-    interaction_buffer[interaction_count++] = {
-        .values = {
-            VirtualPairCol::single_preprocessed(offsetof(PublicValuesPreprocessedCols<Val>, pv_mem.addr) / sizeof(Val)),
-            VirtualPairCol::single_main(offsetof(PublicValuesCols<Val>, pv_element) / sizeof(Val))
-            
-        },
-        .num_values = 2,
-        .multiplicity = VirtualPairCol::single_preprocessed(offsetof(PublicValuesPreprocessedCols<Val>, pv_mem.mult) / sizeof(Val)),
-        .kind = InteractionKind::Memory,
-        .scope = InteractionScope::Local,
-        .is_send = true
-    };
+    int interaction_count = get_public_values_interactions(interaction_buffer);
     
     //const int perm_width_ef = perm_width / 4;
     const Challenge* perm_local = reinterpret_cast<const Challenge*>(perm_local_flat);

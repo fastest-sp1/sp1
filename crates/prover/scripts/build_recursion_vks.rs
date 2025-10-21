@@ -24,7 +24,7 @@ struct Args {
     //     #[clap(short, long)]
     //     end: Option<usize>,
 }
-
+#[cfg(not(feature = "recursion_cuda"))]
 fn main() {
     setup_logger();
     let args = Args::parse();

@@ -401,6 +401,7 @@ struct Word {
   T _0[WORD_SIZE];
 };
 
+
 /// A septic extension with an irreducible polynomial `z^7 - 2z - 5`.
 ///
 /// The field can be constructed as `F_{p^7} = F_p[z]/(z^7 - 2z - 5)`.
@@ -920,6 +921,14 @@ extern int32_t fast_coset_lde_batch_gpu(BabyBearP3 *data,
                                         BabyBearP3 shift,
                                         const BabyBearP3 *inverse_twiddles,
                                         const BabyBearP3 *forward_twiddles);
+
+extern int32_t op_fast_coset_lde_batch_gpu(BabyBearP3 *data,
+                                           int32_t rows,
+                                           int32_t cols,
+                                           int32_t added_bits,
+                                           BabyBearP3 shift,
+                                           const BabyBearP3 *inverse_twiddles,
+                                           const BabyBearP3 *forward_twiddles);
 
 extern int32_t naive_dft_gpu(BabyBearP3 *data, int32_t h, int32_t w);
 

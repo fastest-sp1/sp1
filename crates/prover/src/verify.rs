@@ -19,7 +19,7 @@ use sp1_recursion_gnark_ffi::{
 use sp1_stark::{
     air::{PublicValues, POSEIDON_NUM_WORDS, PV_DIGEST_NUM_WORDS},
     baby_bear_poseidon2::BabyBearPoseidon2,
-    MachineProof, MachineProver, MachineVerificationError, StarkGenericConfig, Word,
+    MachineProof, MachineProver, GpuMachineProver, MachineVerificationError, StarkGenericConfig, Word,
 };
 use thiserror::Error;
 

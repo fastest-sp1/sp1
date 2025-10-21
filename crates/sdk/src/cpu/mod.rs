@@ -103,7 +103,10 @@ impl CpuProver {
         opts: SP1ProverOpts,
         context: SP1Context<'a>,
         mode: SP1ProofMode,
-    ) -> Result<SP1ProofWithPublicValues> {
+        ) -> Result<SP1ProofWithPublicValues> {
+        //debug
+        let start = std::time::Instant::now();
+        
         let program = self.prover.get_program(&pk.elf).unwrap();
 
         // If we're in mock mode, return a mock proof.
@@ -121,6 +124,11 @@ impl CpuProver {
                 self.version().to_string(),
             ));
         }
+//debug
+        let duration = start.elapsed();
+        tracing::info!("Finish core proof successfully, duration:{:?}", duration);
+
+        let start = std::time::Instant::now();
 
         // Generate the compressed proof.
         let deferred_proofs =
@@ -134,7 +142,10 @@ impl CpuProver {
                 self.version().to_string(),
             ));
         }
-        tracing::info!("Finish compress proof successfully");
+        //debug
+        let duration = start.elapsed();
+        tracing::info!("Finish compress proof successfully, duration:{:?}", duration);
+
         // Generate the shrink proof.
         let compress_proof = self.prover.shrink(reduce_proof, opts)?;
         tracing::info!("Finish shrink proof successfully");

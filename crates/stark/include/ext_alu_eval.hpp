@@ -3,7 +3,8 @@
 #include "gpu_types.hpp"
 #include "virtual_pair_col.hpp"
 
-#include "permutation_eval.hpp"
+#include "permutation.hpp"
+
 
 __device__ void eval_ext_alu_chip(
     ProverConstraintFolder<Challenge>& folder,
@@ -31,12 +32,9 @@ __device__ void eval_ext_alu_chip(
     // We have 12 interactions total. With batch_size=2, we have 6 chunks/batches.
     // interaction_buffer will hold the components for all 12 interactions.
     Interaction interaction_buffer[12];
-    int interaction_send_count = 0;
-    int interaction_receive_idx = 4;
-
+    
     Challenge rlcs[12];
     Challenge multiplicities[12];
-    int interaction_idx = 0;
 
     for (int i = 0; i < 4; ++i) {
          const auto& vals = main_cols->values[i].vals;
@@ -60,58 +58,15 @@ __device__ void eval_ext_alu_chip(
           folder_assert_ext_eq(folder, bb31_quartic_extension_t::from_block(vals.in1) * bb31_quartic_extension_t::from_block(vals.in2), bb31_quartic_extension_t::from_block(vals.out),  access.is_mul);
           folder_assert_ext_eq(folder, bb31_quartic_extension_t::from_block(vals.in1), bb31_quartic_extension_t::from_block(vals.in2) * bb31_quartic_extension_t::from_block(vals.out),  access.is_div);
         
-          //RLC: first computes the send intentions!!
-          interaction_buffer[interaction_send_count++] = { // send(out) 
-              .values = {
-                  VirtualPairCol::single_preprocessed(offsetof(ExtAluPreprocessedCols<Val>, accesses[i].addrs.out.val) / sizeof(Val)),
-                  VirtualPairCol::single_main(offsetof(ExtAluCols<Val>, values[i].vals.out._0) / sizeof(Val)),
-                  VirtualPairCol::single_main(offsetof(ExtAluCols<Val>, values[i].vals.out._0[1]) / sizeof(Val)),
-                  VirtualPairCol::single_main(offsetof(ExtAluCols<Val>, values[i].vals.out._0[2]) / sizeof(Val)),
-                  VirtualPairCol::single_main(offsetof(ExtAluCols<Val>, values[i].vals.out._0[3]) / sizeof(Val))
-              }, 
-              .num_values = 5, 
-              //.multiplicity = VirtualPairCol::single_preprocessed(prep_base_idx + 7), 
-              .multiplicity = VirtualPairCol::single_preprocessed(offsetof(ExtAluPreprocessedCols<Val>, accesses[i].mult) / sizeof(Val)),
-              .kind = InteractionKind::Memory,
-              .scope = InteractionScope::Local,
-              .is_send = true
-          };
-
-          interaction_buffer[interaction_receive_idx++] = { // receive(in1) 
-              .values = {
-                  VirtualPairCol::single_preprocessed(offsetof(ExtAluPreprocessedCols<Val>, accesses[i].addrs.in1.val) / sizeof(Val)),
-                  VirtualPairCol::single_main(offsetof(ExtAluCols<Val>, values[i].vals.in1._0) / sizeof(Val)),
-                  VirtualPairCol::single_main(offsetof(ExtAluCols<Val>, values[i].vals.in1._0[1]) / sizeof(Val)),
-                  VirtualPairCol::single_main(offsetof(ExtAluCols<Val>, values[i].vals.in1._0[2]) / sizeof(Val)),
-                  VirtualPairCol::single_main(offsetof(ExtAluCols<Val>, values[i].vals.in1._0[3]) / sizeof(Val))
-              }, 
-              .num_values = 5,
-              .multiplicity = vpc_is_real, // multiplicity for receive is `is_real`
-              .kind = InteractionKind::Memory,
-              .scope = InteractionScope::Local,
-              .is_send = false
-          };
-          interaction_buffer[interaction_receive_idx++] = { // receive(in2) 
-              .values = {
-                  VirtualPairCol::single_preprocessed(offsetof(ExtAluPreprocessedCols<Val>, accesses[i].addrs.in2.val) / sizeof(Val)),
-                  VirtualPairCol::single_main(offsetof(ExtAluCols<Val>, values[i].vals.in2._0 ) / sizeof(Val)),
-                  VirtualPairCol::single_main(offsetof(ExtAluCols<Val>, values[i].vals.in2._0[1]) / sizeof(Val)),
-                  VirtualPairCol::single_main(offsetof(ExtAluCols<Val>, values[i].vals.in2._0[2]) / sizeof(Val)),
-                  VirtualPairCol::single_main(offsetof(ExtAluCols<Val>, values[i].vals.in2._0[3]) / sizeof(Val))
-              }, 
-              .num_values = 5,
-              .multiplicity = vpc_is_real, // multiplicity for receive is `is_real`
-              .kind = InteractionKind::Memory,
-              .scope = InteractionScope::Local,
-              .is_send = false
-          };
     }
 
+    int num_interactions = get_ext_alu_interactions(interaction_buffer);
+
     //refactor
-      eval_permutation_constraints(
+    eval_permutation_constraints(
           folder,
           interaction_buffer,
-          12,
+          num_interactions,
           main_local_row,
           prep_local_row,
           perm_local,
@@ -124,7 +79,6 @@ __device__ void eval_ext_alu_chip(
           is_last_row,
           is_transition
       );
-
 
     // Note: No global sum verification, because BaseAluChip is `InteractionScope::Local`.
 }

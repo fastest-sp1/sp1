@@ -210,13 +210,13 @@ __global__ void kernel_process_fri_fold_instructions_parent_gpu(
 extern "C" void process_fri_fold_events_gpu(
                     const FriFoldEvent<BabyBear>* events_h, 
                     uint32_t events_len,  
-                    BabyBear* output_h, 
+                    BabyBear* output_d, 
                     uint32_t output_len,              
                     int num_value_cols                        
 ) {
     if (events_len == 0) return; // Nothing to process
     FriFoldEvent<BabyBear> *events_d = nullptr; // Declare at top
-    BabyBear *output_d = nullptr; // Declare at top
+    //BabyBear *output_d = nullptr; // Declare at top
     cudaError_t err = cudaSuccess; // Initialize err at top
 
     // Declare all other variables that might be bypassed by goto
@@ -235,13 +235,13 @@ extern "C" void process_fri_fold_events_gpu(
     if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_events: cudaMemcpy events_h to events_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
     // 3. Allocate device memory for output
-    output_size_bytes = (uint32_t)events_len * num_value_cols * sizeof(BabyBear); // Assignment here
-    err = cudaMalloc(&output_d, output_size_bytes);
-    if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_events: cudaMalloc output_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
+    //output_size_bytes = (uint32_t)events_len * num_value_cols * sizeof(BabyBear); // Assignment here
+    //err = cudaMalloc(&output_d, output_size_bytes);
+    //if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_events: cudaMalloc output_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
     
     // Optional: Initialize device output memory to zero
-    err = cudaMemset(output_d, 0, output_size_bytes);
-    if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_events: cudaMemset output_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
+    //err = cudaMemset(output_d, 0, output_size_bytes);
+    //if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_events: cudaMemset output_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
     // Define launch configuration
     num_blocks = (events_len + threads_per_block - 1) / threads_per_block; // Assignment here
@@ -256,182 +256,19 @@ extern "C" void process_fri_fold_events_gpu(
     err = cudaDeviceSynchronize();
     if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_events: cudaDeviceSynchronize failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
-    err = cudaMemcpy(output_h, output_d, output_size_bytes, cudaMemcpyDeviceToHost);
-    if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_events: cudaMemcpy output_d to output_h failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
+    //err = cudaMemcpy(output_h, output_d, output_size_bytes, cudaMemcpyDeviceToHost);
+    //if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_events: cudaMemcpy output_d to output_h failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
 cleanup:
     // 6. Free device memory
     if (events_d) cudaFree(events_d);
-    if (output_d) cudaFree(output_d);
+    //if (output_d) cudaFree(output_d);
     if (err != cudaSuccess) {
         fprintf(stderr, "_fri_fold_events: CUDA error: %s\n", cudaGetErrorString(err));
     }
 }
 
-//v2, using child kernel
-//GPU->100%
-/*
-extern "C" void process_fri_fold_instructions_gpu(
-    const FriFoldInstrFlat<BabyBear>* instrs_h,
-    uint32_t instrs_len,                     
-    const Address<BabyBear>* all_ext_mat_opening_h,
-    uint32_t all_ext_mat_opening_len,
-    const Address<BabyBear>* all_ext_ps_at_z_h,
-    uint32_t all_ext_ps_at_z_len,
-    const Address<BabyBear>* all_alpha_pow_input_h,
-    uint32_t all_alpha_pow_input_len,
-    const Address<BabyBear>* all_ro_input_h,
-    uint32_t all_ro_input_len,
-    const Address<BabyBear>* all_alpha_pow_output_h,
-    uint32_t all_alpha_pow_output_len,
-    const Address<BabyBear>* all_ro_output_h,
-    uint32_t all_ro_output_len,
-    const BabyBear* all_alpha_pow_mults_h,
-    uint32_t all_alpha_pow_mults_len,
-    const BabyBear* all_ro_mults_h,
-    uint32_t all_ro_mults_len,
-    BabyBear* output_h,
-    uint32_t output_len,
-    uint32_t num_total_output_rows,
-    uint32_t num_cols_per_row
-) {
-    if (num_total_output_rows == 0) return;
 
-    FriFoldInstrFlat<BabyBear> *instrs_d = nullptr;
-    //InstrsFlatIdex *instrs_index_info_d = nullptr; 
-    Address<BabyBear> *all_ext_mat_opening_d = nullptr;
-    Address<BabyBear> *all_ext_ps_at_z_d = nullptr;
-    Address<BabyBear> *all_alpha_pow_input_d = nullptr;
-    Address<BabyBear> *all_ro_input_d = nullptr;
-    Address<BabyBear> *all_alpha_pow_output_d = nullptr;
-    Address<BabyBear> *all_ro_output_d = nullptr;
-    BabyBear *all_alpha_pow_mults_d = nullptr;
-    BabyBear *all_ro_mults_d = nullptr;
-
-    BabyBear *output_d = nullptr;
-    cudaError_t err = cudaSuccess;
-    int num_blocks = 0;
-
-    uint32_t instrs_bytes = instrs_len * sizeof(FriFoldInstrFlat<BabyBear>);
-    //uint32_t instrs_index_info_bytes = instrs_index_info_len * sizeof(InstrsFlatIdex); 
-    uint32_t ext_mat_opening_bytes = all_ext_mat_opening_len * sizeof(Address<BabyBear>);
-    uint32_t ext_ps_at_z_bytes = all_ext_ps_at_z_len * sizeof(Address<BabyBear>);
-    uint32_t alpha_pow_input_bytes = all_alpha_pow_input_len * sizeof(Address<BabyBear>);
-    uint32_t ro_input_bytes = all_ro_input_len * sizeof(Address<BabyBear>);
-    uint32_t alpha_pow_output_bytes = all_alpha_pow_output_len * sizeof(Address<BabyBear>);
-    uint32_t ro_output_bytes = all_ro_output_len * sizeof(Address<BabyBear>);
-    uint32_t output_bytes = output_len * sizeof(BabyBear);
-    uint32_t alpha_pow_mults_bytes = all_alpha_pow_mults_len * sizeof(BabyBear);
-    uint32_t ro_mults_bytes = all_ro_mults_len * sizeof(BabyBear);
-
-    err = cudaMalloc(&instrs_d, instrs_bytes);
-    if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_instrs: cudaMalloc instrs_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-    
-    //err = cudaMalloc(&instrs_index_info_d, instrs_index_info_bytes); // <--- 新增
-    //if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_instrs: cudaMalloc instrs_index_info_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-    
-    err = cudaMalloc(&all_ext_mat_opening_d, ext_mat_opening_bytes);
-    if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_instrs: cudaMalloc all_ext_mat_opening_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-    
-    err = cudaMalloc(&all_ext_ps_at_z_d, ext_ps_at_z_bytes);
-    if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_instrs: cudaMalloc all_ext_ps_at_z_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-    
-    err = cudaMalloc(&all_alpha_pow_input_d, alpha_pow_input_bytes);
-    if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_instrs: cudaMalloc all_alpha_pow_input_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-    
-    err = cudaMalloc(&all_ro_input_d, ro_input_bytes);
-    if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_instrs: cudaMalloc all_ro_input_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-    
-    err = cudaMalloc(&all_alpha_pow_output_d, alpha_pow_output_bytes);
-    if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_instrs: cudaMalloc all_alpha_pow_output_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-    
-    err = cudaMalloc(&all_ro_output_d, ro_output_bytes);
-    if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_instrs: cudaMalloc all_ro_output_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-    
-    err = cudaMalloc(&all_alpha_pow_mults_d, alpha_pow_mults_bytes);
-    if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_instrs: cudaMalloc all_alpha_pow_mults_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-    
-    err = cudaMalloc(&all_ro_mults_d, ro_mults_bytes);
-    if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_instrs: cudaMalloc all_ro_mults_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-
-    err = cudaMalloc(&output_d, output_bytes);
-    if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_instrs: cudaMalloc output_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-
-    err = cudaMemcpy(instrs_d, instrs_h, instrs_bytes, cudaMemcpyHostToDevice);
-    if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_instrs: cudaMemcpy instrs_h failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-    //err = cudaMemcpy(instrs_index_info_d, instrs_index_info_h, instrs_index_info_bytes, cudaMemcpyHostToDevice); // <--- 新增
-    //if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_instrs: cudaMemcpy instrs_index_info_h failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-    
-    err = cudaMemcpy(all_ext_mat_opening_d, all_ext_mat_opening_h, ext_mat_opening_bytes, cudaMemcpyHostToDevice);
-    if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_instrs: cudaMemcpy all_ext_mat_opening_h failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-    
-    err = cudaMemcpy(all_ext_ps_at_z_d, all_ext_ps_at_z_h, ext_ps_at_z_bytes, cudaMemcpyHostToDevice);
-    if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_instrs: cudaMemcpy all_ext_ps_at_z_h failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-    
-    err = cudaMemcpy(all_alpha_pow_input_d, all_alpha_pow_input_h, alpha_pow_input_bytes, cudaMemcpyHostToDevice);
-    if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_instrs: cudaMemcpy all_alpha_pow_input_h failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-    
-    err = cudaMemcpy(all_ro_input_d, all_ro_input_h, ro_input_bytes, cudaMemcpyHostToDevice);
-    if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_instrs: cudaMemcpy all_ro_input_h failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-    
-    err = cudaMemcpy(all_alpha_pow_output_d, all_alpha_pow_output_h, alpha_pow_output_bytes, cudaMemcpyHostToDevice);
-    if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_instrs: cudaMemcpy all_alpha_pow_output_h failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-    
-    err = cudaMemcpy(all_ro_output_d, all_ro_output_h, ro_output_bytes, cudaMemcpyHostToDevice);
-    if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_instrs: cudaMemcpy all_ro_output_h failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-     
-    err = cudaMemcpy(all_alpha_pow_mults_d, all_alpha_pow_mults_h, alpha_pow_mults_bytes, cudaMemcpyHostToDevice);
-    if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_instrs: cudaMemcpy all_alpha_pow_mults_h failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-    
-    err = cudaMemcpy(all_ro_mults_d, all_ro_mults_h, ro_mults_bytes, cudaMemcpyHostToDevice);
-    if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_instrs: cudaMemcpy all_ro_mults_h failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-
-    num_blocks = (instrs_len + 256 - 1) / 256;
-
-    kernel_process_fri_fold_instructions_parent_gpu<<<num_blocks, 256>>>(
-        instrs_d,
-        //instrs_index_info_d,
-        all_ext_mat_opening_d,
-        all_ext_ps_at_z_d,
-        all_alpha_pow_input_d,
-        all_ro_input_d,
-        all_alpha_pow_output_d,
-        all_ro_output_d,
-        all_alpha_pow_mults_d,
-        all_ro_mults_d,
-        output_d,
-        instrs_len,
-        num_total_output_rows,
-        num_cols_per_row
-    );
-    err = cudaGetLastError();
-    if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_instrs: Kernel launch failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-
-    // 4. Synchronize and copy output from device to host
-    err = cudaDeviceSynchronize();
-    if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_instrs: cudaDeviceSynchronize failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-
-    err = cudaMemcpy(output_h, output_d, output_bytes, cudaMemcpyDeviceToHost);
-    if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_instrs: cudaMemcpy DtoH failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-
-cleanup:
-    if (instrs_d) cudaFree(instrs_d);
-    //if (instrs_index_info_d) cudaFree(instrs_index_info_d);
-    if (all_ext_ps_at_z_d) cudaFree(all_ext_ps_at_z_d);
-    if (all_ext_mat_opening_d) cudaFree(all_ext_mat_opening_d);
-    if (all_alpha_pow_input_d) cudaFree(all_alpha_pow_input_d);
-    if (all_ro_input_d) cudaFree(all_ro_input_d);
-    if (all_alpha_pow_output_d) cudaFree(all_alpha_pow_output_d);
-    if (all_ro_output_d) cudaFree(all_ro_output_d);
-    if (all_alpha_pow_mults_d) cudaFree(all_alpha_pow_mults_d);
-    if (all_ro_mults_d) cudaFree(all_ro_mults_d);
-    if (output_d) cudaFree(output_d);
-    if (err != cudaSuccess) {
-        fprintf(stderr, "_fri_fold_instrs: CUDA error : %s\n", cudaGetErrorString(err));
-    }
-} */
-
-//v1 ok
 extern "C" void process_fri_fold_instructions_gpu(
     const FriFoldInstrFlat<BabyBear>* instrs_h,
     uint32_t instrs_len,
@@ -453,7 +290,7 @@ extern "C" void process_fri_fold_instructions_gpu(
     uint32_t all_alpha_pow_mults_len,
     const BabyBear* all_ro_mults_h,
     uint32_t all_ro_mults_len,
-    BabyBear* output_h,
+    BabyBear* output_d,
     uint32_t output_len,
     uint32_t num_total_output_rows,
     uint32_t num_cols_per_row
@@ -471,7 +308,7 @@ extern "C" void process_fri_fold_instructions_gpu(
     BabyBear *all_alpha_pow_mults_d = nullptr;
     BabyBear *all_ro_mults_d = nullptr;
 
-    BabyBear *output_d = nullptr;
+    //BabyBear *output_d = nullptr;
     cudaError_t err = cudaSuccess;
     int num_blocks = 0;
 
@@ -509,8 +346,8 @@ extern "C" void process_fri_fold_instructions_gpu(
     err = cudaMalloc(&all_ro_mults_d, ro_mults_bytes);
     if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_instrs: cudaMalloc all_ro_mults_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
-    err = cudaMalloc(&output_d, output_bytes);
-    if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_instrs: cudaMalloc output_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
+    //err = cudaMalloc(&output_d, output_bytes);
+    //if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_instrs: cudaMalloc output_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
     err = cudaMemcpy(instrs_d, instrs_h, instrs_bytes, cudaMemcpyHostToDevice);
     if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_instrs: cudaMemcpy instrs_h failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
@@ -558,8 +395,8 @@ extern "C" void process_fri_fold_instructions_gpu(
     err = cudaDeviceSynchronize();
     if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_instrs: cudaDeviceSynchronize failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
-    err = cudaMemcpy(output_h, output_d, output_bytes, cudaMemcpyDeviceToHost);
-    if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_instrs: cudaMemcpy DtoH failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
+    //err = cudaMemcpy(output_h, output_d, output_bytes, cudaMemcpyDeviceToHost);
+    //if (err != cudaSuccess) { fprintf(stderr, "_fri_fold_instrs: cudaMemcpy DtoH failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
 
 cleanup:
     if (instrs_d) cudaFree(instrs_d);
@@ -572,110 +409,8 @@ cleanup:
     if (all_ro_output_d) cudaFree(all_ro_output_d);
     if (all_alpha_pow_mults_d) cudaFree(all_alpha_pow_mults_d);
     if (all_ro_mults_d) cudaFree(all_ro_mults_d);
-    if (output_d) cudaFree(output_d);
+    //if (output_d) cudaFree(output_d);
     if (err != cudaSuccess) {
         fprintf(stderr, "_fri_fold_instrs: CUDA error : %s\n", cudaGetErrorString(err));
     }
 } 
-
-/*
-//v0
-extern "C" void process_batch_fri_instructions_gpu(
-    const BatchFRIInstrFlat<BabyBear>* instrs_h,
-    uint32_t instrs_len,
-     const InstrsFlatIdex* instrs_index_info_h,
-    uint32_t instrs_index_info_len,
-    const Address<BabyBear>* all_base_p_at_x_h,
-    uint32_t all_base_p_at_x_len,
-    const Address<BabyBear>* all_ext_p_at_z_h,
-    uint32_t all_ext_p_at_z_len,
-    const Address<BabyBear>* all_ext_alpha_pow_h,
-    uint32_t all_ext_alpha_pow_len,
-    BabyBear* output_h,
-    uint32_t output_len,
-    int original_instrs,
-    int total_instrs,
-    int num_cols_per_row
-) {
-    if (instrs_len == 0) return;
-
-    // Declare device pointers
-    BatchFRIInstrFlat<BabyBear> *instrs_d = nullptr;
-    Address<BabyBear> *all_base_p_at_x_d = nullptr;
-    Address<BabyBear> *all_ext_p_at_z_d = nullptr;
-    Address<BabyBear> *all_ext_alpha_pow_d = nullptr;
-    InstrsFlatIdex *instrs_index_info_d = nullptr; 
-    BabyBear *output_d = nullptr;
-    cudaError_t err = cudaSuccess;
-    int num_blocks = 0;
-
-    // 1. Allocate device memory for all input arrays
-    uint32_t instrs_bytes = instrs_len * sizeof(BatchFRIInstrFlat<BabyBear>);
-    uint32_t base_p_at_x_bytes = all_base_p_at_x_len * sizeof(Address<BabyBear>);
-    uint32_t ext_p_at_z_bytes = all_ext_p_at_z_len * sizeof(Address<BabyBear>);
-    uint32_t ext_alpha_pow_bytes = all_ext_alpha_pow_len * sizeof(Address<BabyBear>);
-    uint32_t output_bytes = output_len * sizeof(BabyBear);
-    uint32_t instrs_index_info_bytes = instrs_index_info_len * sizeof(InstrsFlatIdex);
-
-    // Malloc all inputs
-    err = cudaMalloc(&instrs_d, instrs_bytes);
-    if (err != cudaSuccess) { fprintf(stderr, "cudaMalloc instrs_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-    err = cudaMalloc(&all_base_p_at_x_d, base_p_at_x_bytes);
-    if (err != cudaSuccess) { fprintf(stderr, "cudaMalloc all_base_p_at_x_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-    err = cudaMalloc(&all_ext_p_at_z_d, ext_p_at_z_bytes);
-    if (err != cudaSuccess) { fprintf(stderr, "cudaMalloc all_ext_p_at_z_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-    err = cudaMalloc(&all_ext_alpha_pow_d, ext_alpha_pow_bytes);
-    if (err != cudaSuccess) { fprintf(stderr, "cudaMalloc all_ext_alpha_pow_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-    err = cudaMalloc(&output_d, output_bytes);
-    if (err != cudaSuccess) { fprintf(stderr, "cudaMalloc output_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-     err = cudaMalloc(&instrs_index_info_d, instrs_index_info_bytes); 
-    if (err != cudaSuccess) { fprintf(stderr, "cudaMalloc instrs_index_info_d failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-
-    // 2. Copy all input data from host to device
-    err = cudaMemcpy(instrs_d, instrs_h, instrs_bytes, cudaMemcpyHostToDevice);
-    if (err != cudaSuccess) { fprintf(stderr, "cudaMemcpy ffi_instrs_h failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-    
-    err = cudaMemcpy(instrs_index_info_d, instrs_index_info_h, instrs_index_info_bytes, cudaMemcpyHostToDevice);
-
-    err = cudaMemcpy(all_base_p_at_x_d, all_base_p_at_x_h, base_p_at_x_bytes, cudaMemcpyHostToDevice);
-    if (err != cudaSuccess) { fprintf(stderr, "cudaMemcpy all_base_p_at_x_h failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-    err = cudaMemcpy(all_ext_p_at_z_d, all_ext_p_at_z_h, ext_p_at_z_bytes, cudaMemcpyHostToDevice);
-    if (err != cudaSuccess) { fprintf(stderr, "cudaMemcpy all_ext_p_at_z_h failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-    err = cudaMemcpy(all_ext_alpha_pow_d, all_ext_alpha_pow_h, ext_alpha_pow_bytes, cudaMemcpyHostToDevice);
-    if (err != cudaSuccess) { fprintf(stderr, "cudaMemcpy all_ext_alpha_pow_h failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-    
-    // 3. Launch kernel
-    //int num_total_output_rows = num_original_instrs * rows_per_single_instr;
-    num_blocks = (total_instrs + 256 - 1) / 256;
-
-    kernel_process_batch_fri_instructions_gpu<<<num_blocks, 256>>>(
-        instrs_d,
-        instrs_index_info_d,
-        all_base_p_at_x_d,
-        all_ext_p_at_z_d,
-        all_ext_alpha_pow_d,
-        output_d,
-        total_instrs,
-        num_cols_per_row
-    );
-    err = cudaGetLastError();
-    if (err != cudaSuccess) { fprintf(stderr, "Kernel launch failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-
-    // 4. Synchronize and copy output from device to host
-    err = cudaDeviceSynchronize();
-    if (err != cudaSuccess) { fprintf(stderr, "cudaDeviceSynchronize failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-
-    err = cudaMemcpy(output_h, output_d, output_bytes, cudaMemcpyDeviceToHost);
-    if (err != cudaSuccess) { fprintf(stderr, "cudaMemcpy DtoH failed: %s\n", cudaGetErrorString(err)); goto cleanup; }
-
-cleanup:
-    if (instrs_d) cudaFree(instrs_d);
-    if (instrs_index_info_d) cudaFree(instrs_index_info_d);
-    if (all_base_p_at_x_d) cudaFree(all_base_p_at_x_d);
-    if (all_ext_p_at_z_d) cudaFree(all_ext_p_at_z_d);
-    if (all_ext_alpha_pow_d) cudaFree(all_ext_alpha_pow_d);
-    if (output_d) cudaFree(output_d);
-    if (err != cudaSuccess) {
-        fprintf(stderr, "CUDA error in process_batch_fri_instructions_gpu: %s\n", cudaGetErrorString(err));
-    }
-}*/

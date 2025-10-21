@@ -106,17 +106,8 @@ mod sys {
             ])
             .with_parse_extra_bindings(&["sp1-stark", "sp1-primitives", "p3-baby-bear", "p3-monty-31"])
             .rename_item("BabyBear", "BabyBearP3") //
-            .exclude_item("fri_pcs_compute_quotient_for_height_gpu")
-            .exclude_item("compute_and_accumulate_quotient_gpu") //stark/src/gpu/ffi
-            .exclude_item("fold_even_odd_gpu")
-            .exclude_item("fri_commit_on_gpu")
-            .exclude_item("quotient_values_gpu")
-            .exclude_item("fri_fold_on_gpu")
-            .exclude_item("fri_injection_gpu")
-            .exclude_item("stark_test_mat_compress_gpu")
-            .exclude_item("stark_test_inv_denoms_gpu")
-            .exclude_item("stark_test_quotient_loop_gpu")
-            .exclude_item("stark_test_quartic_mul")
+            //.exclude_item("fri_pcs_compute_quotient_for_height_gpu")
+            
             .include_item("MemoryRecord") // Just for convenience. Not exposed, so we need to manually do this.
             .include_item("SyscallCode") // Required for populating the CPU columns for ECALL.
             .include_item("SepticExtension")

@@ -11,6 +11,8 @@ use std::{borrow::BorrowMut, iter::zip};
 use itertools::Itertools;
 use crate::{builder::SP1RecursionAirBuilder, *};
 
+use sp1_stark::GpuMatrix;
+
 pub const NUM_EXT_ALU_ENTRIES_PER_ROW: usize = 4;
 
 #[derive(Default)]
@@ -113,47 +115,22 @@ impl<F: PrimeField32 + BinomiallyExtendable<D>> MachineAir<F> for ExtAluChip {
             ));
         }
     
-        // Using GPU (via the new alu_trace module)
-        if cfg!(feature = "recursion_cuda") {
-            let instrs_for_gpu: Vec<ExtAluInstr<BabyBear>> = instrs
-                .iter()
-                .map(|&instr_ref| *instr_ref)
-                .collect_vec();
-            //println!("--alu_ext instr GPU, instrs.len:{}", instrs_for_gpu.len());
-            unsafe {
-                crate::sys::process_alu_ext_instructions_gpu(
-                    instrs_for_gpu.as_ptr(), 
-                    instrs_for_gpu.len(),
-                    values.as_mut_ptr(),
-                    values.len(),
-                    NUM_EXT_ALU_ACCESS_COLS,
-                );
-            }
-            
-        } else {
-            //println!("---cpu alu_ext_instructions---, instrs.len:{}, NUM_EXT_ALU_ACCESS_COLS:{}", instrs.len(), NUM_EXT_ALU_ACCESS_COLS);
-            // Generate the trace rows & corresponding records for each chunk of events in parallel.
-            let populate_len = instrs.len() * NUM_EXT_ALU_ACCESS_COLS;
-            values[..populate_len].par_chunks_mut(NUM_EXT_ALU_ACCESS_COLS).zip_eq(instrs).for_each(
+        let populate_len = instrs.len() * NUM_EXT_ALU_ACCESS_COLS;
+        values[..populate_len].par_chunks_mut(NUM_EXT_ALU_ACCESS_COLS).zip_eq(instrs).for_each(
                 |(row, instr)| {
                     let access: &mut ExtAluAccessCols<_> = row.borrow_mut();
                     unsafe {
                         crate::sys::alu_ext_instr_to_row_babybear(instr, access);
                     }
                 },
-            );
-        }
-        //
-        //println!("----alu_ext_instructions-values[..100]:{:?}", &values[..100]);
-
+        );
+             
         // Convert the trace to a row major matrix.
         let trace = RowMajorMatrix::new(
             unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
             NUM_EXT_ALU_PREPROCESSED_COLS,
         );
-        //let duration = start.elapsed();
-        //println!("--  p2-ale-ext-instrs, duration:{:?}", duration);
-        //println!("--p2-ale-ext-instrs, trace_heigth:{}", trace.height());
+        
         Some(trace)
     }
 
@@ -177,9 +154,7 @@ impl<F: PrimeField32 + BinomiallyExtendable<D>> MachineAir<F> for ExtAluChip {
             std::any::TypeId::of::<BabyBear>(),
             "generate_trace only supports BabyBear field"
         );
-        //let start = std::time::Instant::now();
-
-
+        
         let events = unsafe {
             std::mem::transmute::<&Vec<ExtAluIo<Block<F>>>, &Vec<ExtAluIo<Block<BabyBear>>>>(
                 &input.ext_alu_events,
@@ -194,41 +169,25 @@ impl<F: PrimeField32 + BinomiallyExtendable<D>> MachineAir<F> for ExtAluChip {
                 NUM_EXT_ALU_COLS,
             );
         }
-    
-        // using GPU (via the new alu_trace module)
-        if cfg!(feature = "recursion_cuda") {
-            //println!("--alu_ext events GPU, events.len:{}, col_len:{}", events.len(), NUM_EXT_ALU_VALUE_COLS);
-            unsafe {
-                crate::sys::process_alu_ext_events_gpu(
-                    events.as_ptr(),
-                    events.len(),
-                    values.as_mut_ptr(),
-                    values.len(),
-                    NUM_EXT_ALU_VALUE_COLS,
-                );
-            }
-        } else {
-            //CPU
-            // Generate the trace rows & corresponding records for each chunk of events in parallel.
-            let populate_len = events.len() * NUM_EXT_ALU_VALUE_COLS;
-            values[..populate_len].par_chunks_mut(NUM_EXT_ALU_VALUE_COLS).zip_eq(events).for_each(
+          
+        // Generate the trace rows & corresponding records for each chunk of events in parallel.
+        let populate_len = events.len() * NUM_EXT_ALU_VALUE_COLS;
+        values[..populate_len].par_chunks_mut(NUM_EXT_ALU_VALUE_COLS).zip_eq(events).for_each(
                 |(row, &vals)| {
                     let cols: &mut ExtAluValueCols<_> = row.borrow_mut();
                     unsafe {
                         crate::sys::alu_ext_event_to_row_babybear(&vals, cols);
                     }
                 },
-            );
-        }
+        );
+        
 
         // Convert the trace to a row major matrix.
         let trace = RowMajorMatrix::new(
             unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
             NUM_EXT_ALU_COLS,
         );
-        //let duration = start.elapsed();
-//println!("-- p2-ale-ext-events , duration:{:?}", duration);
-        //println!("--p2-ale-ext-events, trace_heigth:{}", trace.height());
+  
         trace
     }
 
@@ -239,6 +198,84 @@ impl<F: PrimeField32 + BinomiallyExtendable<D>> MachineAir<F> for ExtAluChip {
     fn local_only(&self) -> bool {
         true
     }
+
+    /*
+    fn generate_trace_gpu(&self, input: &Self::Record, _: &mut Self::Record) -> GpuMatrix<F> {
+        let events = unsafe {
+            // Transmute is okay here if you've checked the types.
+            std::mem::transmute::<&Vec<ExtAluIo<Block<F>>>, &Vec<ExtAluIo<Block<BabyBear>>>>(
+                &input.ext_alu_events,
+            )
+        };
+        
+        let padded_nb_rows = self.num_rows(input).unwrap();
+        //let num_cols = Self::width(self);
+        let num_cols = <Self as BaseAir<F>>::width(self);
+
+        // Allocate the matrix directly on the GPU.
+        let mut gpu_matrix = GpuMatrix::<F>::new(padded_nb_rows, num_cols);
+
+        if !events.is_empty() {
+            // The FFI function will write the trace data directly into `gpu_matrix.ptr`.
+            unsafe {
+                crate::sys::process_alu_ext_events_gpu(
+                    events.as_ptr(),
+                    events.len(),
+                    gpu_matrix.as_mut_ptr() as *mut BabyBear, // Pass the device pointer
+                    gpu_matrix.height * gpu_matrix.width, // Pass total elements
+                    NUM_EXT_ALU_VALUE_COLS,
+                );
+            }
+        }
+        
+        // Return the GpuMatrix handle.
+        gpu_matrix
+    }
+
+ 
+    fn generate_preprocessed_trace_gpu(
+        &self,
+        program: &Self::Program,
+    ) -> Option<GpuMatrix<F>> {
+        let instrs = unsafe {
+            std::mem::transmute::<Vec<&ExtAluInstr<F>>, Vec<&ExtAluInstr<BabyBear>>>(
+                program
+                    .inner
+                    .iter()
+                    .filter_map(|instruction| match instruction {
+                        Instruction::ExtAlu(x) => Some(x),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        };
+        let padded_nb_rows = self.preprocessed_num_rows(program, instrs.len()).unwrap();
+        //let num_cols = self.preprocessed_width();
+        let num_cols = <Self as MachineAir<F>>::preprocessed_width(self);
+        
+        // 1. Allocate the matrix directly on the GPU.
+        let mut gpu_matrix = GpuMatrix::<F>::new(padded_nb_rows, num_cols);
+
+        if !instrs.is_empty() {
+            let instrs_for_gpu: Vec<ExtAluInstr<BabyBear>> = instrs
+                .iter()
+                .map(|&instr_ref| *instr_ref)
+                .collect_vec();
+            
+            unsafe {
+                crate::sys::process_alu_ext_instructions_gpu(
+                    instrs_for_gpu.as_ptr(), 
+                    instrs_for_gpu.len(),
+                    gpu_matrix.as_mut_ptr() as *mut BabyBear, 
+                    gpu_matrix.height * gpu_matrix.width, 
+                    NUM_EXT_ALU_ACCESS_COLS,
+                );
+            }
+             
+        }
+               
+        Some(gpu_matrix)
+    }*/
 }
 
 impl<AB> Air<AB> for ExtAluChip
@@ -317,7 +354,6 @@ mod tests {
 
     #[test]
     fn generate_trace() {
-        //init_gpu_context();
         let shard = test_fixtures::shard();
         let mut execution_record = test_fixtures::default_execution_record();
         let trace = ExtAluChip.generate_trace(&shard, &mut execution_record);

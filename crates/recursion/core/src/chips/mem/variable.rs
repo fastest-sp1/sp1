@@ -34,7 +34,7 @@ pub const NUM_MEM_PREPROCESSED_INIT_COLS: usize =
 #[derive(AlignedBorrow, Debug, Clone, Copy)]
 #[repr(C)]
 pub struct MemoryPreprocessedCols<F: Copy> {
-    accesses: [MemoryAccessCols<F>; NUM_VAR_MEM_ENTRIES_PER_ROW],
+    pub accesses: [MemoryAccessCols<F>; NUM_VAR_MEM_ENTRIES_PER_ROW],
 }
 
 impl<F: Send + Sync> BaseAir<F> for MemoryChip<F> {

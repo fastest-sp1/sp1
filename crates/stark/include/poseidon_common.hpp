@@ -55,14 +55,15 @@ __device__ void eval_external_round(
     Val state_after_linear_layer[POSEIDON2_STATE_WIDTH];
     for(int i = 0; i < POSEIDON2_STATE_WIDTH; ++i) {
         state_after_linear_layer[i] = current_state_trace[i];
-   }
+   // printf("---- GPU---000, i=%u, cur_state=%u\n", i, current_state_trace[i].as_canonical_u32());
+    }
 
     // a) In the very first round (r=0), an extra linear layer is applied at the beginning.
     if (r == 0) {
         sp1_recursion_core_sys::poseidon2::external_linear_layer(state_after_linear_layer);
     }
-   
-   // b) Add Round Constants.
+
+    // b) Add Round Constants.
     int round_idx_rc = (r < NUM_EXTERNAL_ROUNDS / 2) ? r : r + NUM_INTERNAL_ROUNDS;
     Val state_rc[POSEIDON2_STATE_WIDTH];
     for (int i = 0; i < POSEIDON2_STATE_WIDTH; ++i) {
@@ -78,6 +79,7 @@ __device__ void eval_external_round(
         // THE CRUCIAL CONSTRAINT:
         // Assert that the value from the trace (`sbox_deg3_trace`) matches the computed value.
         // This corresponds to: `builder.assert_eq(external_sbox[r][i].into(), calculated_sbox_deg_3);`
+
         folder_assert_zero(folder, sbox_deg3_trace[i] - calculated_sbox_deg_3);
 
         // For the next computational step, use the (now verified) value from the trace
@@ -143,10 +145,11 @@ __device__ void eval_internal_rounds(
     Val state_computed[POSEIDON2_STATE_WIDTH];
     for (int i = 0; i < POSEIDON2_STATE_WIDTH; ++i) {
         state_computed[i] = internal_state_trace_initial[i];
-    }
+     }
 
     // 3. Loop through all internal rounds and apply/verify constraints.
     for (int r = 0; r < NUM_INTERNAL_ROUNDS; ++r) {
+    //for (int r = 0; r < 1; ++r) {
         // a) Add Round Constant to state[0].
         // The input to this operation depends on the round.
         // `let add_rc = if r == 0 { state[0].clone() } else { s0[r - 1].into() } + ...`
@@ -164,7 +167,6 @@ __device__ void eval_internal_rounds(
         folder_assert_zero(folder, internal_sbox_trace[r] - calculated_sbox_deg_3);
       
         // Use the verified value from the trace for degree reduction.
-        // `sbox_deg_3 = internal_sbox[r].into();`
         Val sbox_deg3_from_trace = internal_sbox_trace[r];
 
         // `let sbox_deg_7 = sbox_deg_3.clone() * sbox_deg_3.clone() * add_rc.clone();`
@@ -191,6 +193,5 @@ __device__ void eval_internal_rounds(
     const Val* external_state_after_internal = get_external_round_state_ptr(main_row, NUM_EXTERNAL_ROUNDS / 2);
     for (int i = 0; i < POSEIDON2_STATE_WIDTH; ++i) {
         folder_assert_zero(folder, external_state_after_internal[i] - state_computed[i]);
-
     }
 }

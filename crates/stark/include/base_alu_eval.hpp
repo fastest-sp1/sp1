@@ -5,12 +5,13 @@
 //#include "sp1-recursion-core-sys-cbindgen.hpp" 
 #include "virtual_pair_col.hpp"
 
-#include "permutation_eval.hpp"
+#include "permutation.hpp"
 
 
- // --- UNPACKED EVAL FUNCTION ---
 __device__ void eval_base_alu_chip(
     ProverConstraintFolder<Challenge>& folder,
+    //const BaseAluCols<Val>& main_cols,
+    //const BaseAluPreprocessedCols<Val>& prep_cols,
     const Val* main_local_row,
     const Val* main_next_row,
     const Val* prep_local_row,
@@ -25,89 +26,50 @@ __device__ void eval_base_alu_chip(
     Val is_last_row, 
     Val is_transition
 ) {
-  const Challenge* perm_local = reinterpret_cast<const Challenge*>(perm_local_flat);
-  const Challenge* perm_next = reinterpret_cast<const Challenge*>(perm_next_flat);
 
-  const auto* main_cols = reinterpret_cast<const BaseAluCols<Val>*>(main_local_row);
-  const auto* prep_cols = reinterpret_cast<const BaseAluPreprocessedCols<Val>*>(prep_local_row);
+    const Challenge* perm_local = reinterpret_cast<const Challenge*>(perm_local_flat);
+    const Challenge* perm_next = reinterpret_cast<const Challenge*>(perm_next_flat);
+
+    const auto* main_cols = reinterpret_cast<const BaseAluCols<Val>*>(main_local_row);
+    const auto* prep_cols = reinterpret_cast<const BaseAluPreprocessedCols<Val>*>(prep_local_row);
     
-  // We have 12 interactions total. 
-  // interaction_buffer will hold the components for all 12 interactions.
-  Interaction interaction_buffer[12];
-  int interaction_send_count = 0;
-  int interaction_receive_idx = 4;
+    // We have 12 interactions total. With batch_size=2, we have 6 chunks/batches.
+    // interaction_buffer will hold the components for all 12 interactions.
+    Interaction interaction_buffer[12];
 
-  Challenge rlcs[12];
-  Challenge multiplicities[12];
-  int interaction_idx = 0;
+    Challenge rlcs[12];
+    Challenge multiplicities[12];
+   
+    for (int i = 0; i < 4; ++i) {
+         const auto& vals = main_cols->values[i].vals;
+         const auto& access = prep_cols->accesses[i];
+          
+          // These VirtualPairCols are created dynamically, just like in Rust's symbolic builder.
+          // Note: The column indices (e.g., `offsetof(...)`) must be correct.
+          VirtualPairCol vpc_is_add = VirtualPairCol::single_preprocessed(offsetof(BaseAluPreprocessedCols<Val>, accesses[i].is_add) / sizeof(Val));
+          VirtualPairCol vpc_is_sub = VirtualPairCol::single_preprocessed(offsetof(BaseAluPreprocessedCols<Val>, accesses[i].is_sub) / sizeof(Val));
+          VirtualPairCol vpc_is_mul = VirtualPairCol::single_preprocessed(offsetof(BaseAluPreprocessedCols<Val>, accesses[i].is_mul) / sizeof(Val));
+          VirtualPairCol vpc_is_div = VirtualPairCol::single_preprocessed(offsetof(BaseAluPreprocessedCols<Val>, accesses[i].is_div) / sizeof(Val));
 
-  for (int i = 0; i < 4; ++i) {
-      const auto& vals = main_cols->values[i].vals;
-      const auto& access = prep_cols->accesses[i];
-              
-      // These VirtualPairCols are created dynamically, just like in Rust's symbolic builder.
-      // Note: The column indices (e.g., `offsetof(...)`) must be correct.
-      VirtualPairCol vpc_is_add = VirtualPairCol::single_preprocessed(offsetof(BaseAluPreprocessedCols<Val>, accesses[i].is_add) / sizeof(Val));
-      VirtualPairCol vpc_is_sub = VirtualPairCol::single_preprocessed(offsetof(BaseAluPreprocessedCols<Val>, accesses[i].is_sub) / sizeof(Val));
-      VirtualPairCol vpc_is_mul = VirtualPairCol::single_preprocessed(offsetof(BaseAluPreprocessedCols<Val>, accesses[i].is_mul) / sizeof(Val));
-      VirtualPairCol vpc_is_div = VirtualPairCol::single_preprocessed(offsetof(BaseAluPreprocessedCols<Val>, accesses[i].is_div) / sizeof(Val));
+          VirtualPairCol vpc_is_real = vpc_is_add + vpc_is_sub + vpc_is_mul + vpc_is_div;
 
-      VirtualPairCol vpc_is_real = vpc_is_add + vpc_is_sub + vpc_is_mul + vpc_is_div;
+          // INTERNAL CONSTRAINTS (5 constraints per op)
+          Val is_real = vpc_is_real.apply(main_local_row, prep_local_row);
+         
+          folder_assert_bool(folder, is_real);
 
+          folder_assert_zero(folder, (vals.in1 + vals.in2 - vals.out) * access.is_add);
+          folder_assert_zero(folder, (vals.in1 - vals.in2 - vals.out ) * access.is_sub);
+          folder_assert_zero(folder, (vals.out - vals.in1 * vals.in2 ) * access.is_mul);
+          folder_assert_zero(folder, (vals.in2 * vals.out - vals.in1) * access.is_div); 
+    }
 
-      // INTERNAL CONSTRAINTS (5 constraints per op)
-      Val is_real = vpc_is_real.apply(main_local_row, prep_local_row);
-             
-      folder_assert_bool(folder, is_real);
-      folder_assert_zero(folder, (vals.in1 + vals.in2 - vals.out) * access.is_add);
-      folder_assert_zero(folder, (vals.in1 - vals.in2 - vals.out ) * access.is_sub);
-      folder_assert_zero(folder, (vals.out - vals.in1 * vals.in2 ) * access.is_mul);
-      folder_assert_zero(folder, (vals.in2 * vals.out - vals.in1) * access.is_div); 
-            
-      //RLC: first computes the send intentions!!
-      interaction_buffer[interaction_send_count++] = { // send(out) 
-                .values = {
-                      VirtualPairCol::single_preprocessed(offsetof(BaseAluPreprocessedCols<Val>, accesses[i].addrs.out.val) / sizeof(Val)),
-                      VirtualPairCol::single_main(offsetof(BaseAluCols<Val>, values[i].vals.out) / sizeof(Val))
-                      
-                  }, 
-                  .num_values = 2, 
-                  .multiplicity = VirtualPairCol::single_preprocessed(offsetof(BaseAluPreprocessedCols<Val>, accesses[i].mult) / sizeof(Val)),
-                  .kind = InteractionKind::Memory,
-                  .scope = InteractionScope::Local,
-                  .is_send = true
-      };
+    int num_interactions = get_base_alu_interactions(interaction_buffer);
 
-      interaction_buffer[interaction_receive_idx++] = { // receive(in1) 
-                  .values = {
-                      VirtualPairCol::single_preprocessed(offsetof(BaseAluPreprocessedCols<Val>, accesses[i].addrs.in1.val) / sizeof(Val)),
-                      VirtualPairCol::single_main(offsetof(BaseAluCols<Val>, values[i].vals.in1) / sizeof(Val))
-                      
-                  }, 
-                  .num_values = 2,
-                  .multiplicity = vpc_is_real, // multiplicity for receive is `is_real`
-                  .kind = InteractionKind::Memory,
-                  .scope = InteractionScope::Local,
-                  .is_send = false
-      };
-      interaction_buffer[interaction_receive_idx++] = { // receive(in2) 
-                  .values = {
-                      VirtualPairCol::single_preprocessed(offsetof(BaseAluPreprocessedCols<Val>, accesses[i].addrs.in2.val) / sizeof(Val)),
-                      VirtualPairCol::single_main(offsetof(BaseAluCols<Val>, values[i].vals.in2) / sizeof(Val))
-                      
-      }, 
-        .num_values = 2,
-        .multiplicity = vpc_is_real, // multiplicity for receive is `is_real`
-        .kind = InteractionKind::Memory,
-        .scope = InteractionScope::Local,
-        .is_send = false
-        };
-      }
-
-  eval_permutation_constraints(
+    eval_permutation_constraints(
           folder,
           interaction_buffer,
-          12,
+          num_interactions,
           main_local_row,
           prep_local_row,
           perm_local,

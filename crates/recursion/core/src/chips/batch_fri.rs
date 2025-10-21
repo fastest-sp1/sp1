@@ -17,6 +17,8 @@ use sp1_stark::air::{BaseAirBuilder, BinomialExtension, ExtensionAirBuilder, Mac
 use std::borrow::BorrowMut;
 use tracing::instrument;
 
+use sp1_stark::GpuMatrix;
+
 pub const NUM_BATCH_FRI_COLS: usize = core::mem::size_of::<BatchFRICols<u8>>();
 pub const NUM_BATCH_FRI_PREPROCESSED_COLS: usize =
     core::mem::size_of::<BatchFRIPreprocessedCols<u8>>();
@@ -75,8 +77,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for BatchFRIChip<DEGREE
             std::any::TypeId::of::<BabyBear>(),
             "generate_preprocessed_trace only supports BabyBear field"
         );
-        //let start = std::time::Instant::now();
-
+        
         let instrs: Vec<&BatchFRIInstr<BabyBear>> = program
             .inner
             .iter()
@@ -89,9 +90,170 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for BatchFRIChip<DEGREE
                 _ => None,
             })
             .collect_vec();
+
+        if instrs.is_empty() {
+            let mut values = vec![BabyBear::ZERO;  NUM_BATCH_FRI_PREPROCESSED_COLS];
+             return Some(RowMajorMatrix::new(
+                 unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
+                 NUM_BATCH_FRI_PREPROCESSED_COLS,
+            ));
+        }
+
         let mut values: Vec<BabyBear>;
 
-        if cfg!(feature = "recursion_cuda") {
+        
+        let mut cpu_rows: Vec<[BabyBear; NUM_BATCH_FRI_PREPROCESSED_COLS]> = Vec::new();
+        instrs.iter().for_each(|instruction| {
+                let BatchFRIInstr { base_vec_addrs: _, ext_single_addrs: _, ext_vec_addrs, acc_mult } =
+                    *instruction;
+                let len: usize = ext_vec_addrs.p_at_z.len();
+                let mut row_add = vec![[BabyBear::ZERO; NUM_BATCH_FRI_PREPROCESSED_COLS]; len];
+                debug_assert_eq!(*acc_mult, BabyBear::ONE);
+
+                row_add.iter_mut().enumerate().for_each(|(i, row)| {
+                    let cols: &mut BatchFRIPreprocessedCols<BabyBear> = row.as_mut_slice().borrow_mut();
+                    unsafe {
+                        crate::sys::batch_fri_instr_to_row_babybear(&(&(*(*instruction))).into(), cols, i);
+                    }
+                });
+                cpu_rows.extend(row_add);
+        });
+        values = cpu_rows.into_iter().flatten().collect::<Vec<BabyBear>>();
+        
+
+        // Pad the trace to a power of two.
+        if program.fixed_log2_rows(self).is_some() || values.len() > 0 {
+            let current_num_rows = values.len() / NUM_BATCH_FRI_PREPROCESSED_COLS;
+            let padded_num_rows = next_power_of_two(current_num_rows, program.fixed_log2_rows(self));
+            let target_total_elements = padded_num_rows * NUM_BATCH_FRI_PREPROCESSED_COLS;
+            values.resize(target_total_elements, BabyBear::ZERO);
+        }
+
+        let trace = RowMajorMatrix::new(
+            unsafe {
+                std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values)
+            },
+            NUM_BATCH_FRI_PREPROCESSED_COLS,
+        );
+        Some(trace)
+    }
+
+    fn num_rows(&self, input: &Self::Record) -> Option<usize> {
+        let events = &input.batch_fri_events;
+        Some(next_power_of_two(events.len(), input.fixed_log2_rows(self)))
+    }
+
+    #[instrument(name = "generate batch fri trace", level = "debug", skip_all, fields(rows = input.batch_fri_events.len()))]
+    fn generate_trace(
+        &self,
+        input: &ExecutionRecord<F>,
+        _: &mut ExecutionRecord<F>,
+    ) -> RowMajorMatrix<F> {
+        assert_eq!(
+            std::any::TypeId::of::<F>(),
+            std::any::TypeId::of::<BabyBear>(),
+            "generate_trace only supports BabyBear field"
+        );
+        
+        let events  = unsafe {
+                std::mem::transmute::<&Vec<BatchFRIEvent<F>>, &Vec<BatchFRIEvent<BabyBear>>>(
+                    &input.batch_fri_events,
+            )
+        };
+
+        let mut values: Vec<BabyBear>;
+
+        
+        let mut cpu_rows = Vec::new();
+        events
+            .iter()
+            .for_each(|bb_event| {
+                    let mut row = [BabyBear::ZERO; NUM_BATCH_FRI_COLS];
+                    let cols: &mut BatchFRICols<BabyBear> = row.as_mut_slice().borrow_mut();
+                    cols.acc = bb_event.ext_single.acc;
+                    cols.alpha_pow = bb_event.ext_vec.alpha_pow;
+                    cols.p_at_z = bb_event.ext_vec.p_at_z;
+                    cols.p_at_x = bb_event.base_vec.p_at_x;
+                    cpu_rows.push(row); 
+                });
+        values = cpu_rows.into_iter().flatten().collect::<Vec<BabyBear>>();
+        
+
+        // Pad the trace to a power of two.
+        let padded_num_rows = self.num_rows(input).unwrap();
+        let target_total_elements = padded_num_rows * NUM_BATCH_FRI_COLS;
+        values.resize(target_total_elements, BabyBear::ZERO);
+
+
+        // Convert the trace to a row major matrix.
+        let trace = RowMajorMatrix::new(
+            unsafe {
+                std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values)
+            },
+            NUM_BATCH_FRI_COLS,
+        );
+        
+        #[cfg(debug_assertions)]
+        eprintln!(
+            "batch fri trace dims is width: {:?}, height: {:?}",
+            trace.width(),
+            trace.height()
+        );
+
+        trace
+    }
+
+    fn included(&self, _record: &Self::Record) -> bool {
+        true
+    }
+
+    /*
+    fn generate_trace_gpu(&self, input: &Self::Record, _: &mut Self::Record) -> GpuMatrix<F> {
+        let events  = unsafe {
+                std::mem::transmute::<&Vec<BatchFRIEvent<F>>, &Vec<BatchFRIEvent<BabyBear>>>(
+                    &input.batch_fri_events,
+            )
+        };
+        let padded_nb_rows = self.num_rows(input).unwrap();
+        let num_cols = <Self as BaseAir<F>>::width(self);
+
+        // 1. Allocate the matrix directly on the GPU.
+        let mut gpu_matrix = GpuMatrix::<F>::new(padded_nb_rows, num_cols);
+        
+        if !events.is_empty() {
+            unsafe {
+                crate::sys::process_batch_fri_events_gpu(
+                    events.as_ptr(),
+                    events.len(),
+                    gpu_matrix.as_mut_ptr() as *mut BabyBear, // Pass the device pointer
+                    gpu_matrix.height * gpu_matrix.width, // Pass total elements
+                    NUM_BATCH_FRI_COLS,
+                );
+            }
+        }
+        
+        // 3. Return the GpuMatrix handle.
+        gpu_matrix
+    }
+
+    fn generate_preprocessed_trace_gpu(
+        &self,
+        program: &Self::Program,
+    ) -> Option<GpuMatrix<F>> {
+        let instrs: Vec<&BatchFRIInstr<BabyBear>> = program
+            .inner
+            .iter()
+            .filter_map(|instruction| match instruction {
+                Instruction::BatchFRI(x) => Some(unsafe {
+                    // Transmute Box<BatchFRIInstr<F>> to Box<BatchFRIInstr<BabyBear>>
+                    // Then get reference from Box to FriFoldInstr
+                    std::mem::transmute::<&BatchFRIInstr<F>, &BatchFRIInstr<BabyBear>>(x.as_ref())
+                }),
+                _ => None,
+            })
+            .collect_vec();
+        //let mut values: Vec<BabyBear>;
+        if !instrs.is_empty() {
             let mut all_base_p_at_x: Vec<Address<BabyBear>> = Vec::new();
             let mut all_ext_p_at_z: Vec<Address<BabyBear>> = Vec::new();
             let mut all_ext_alpha_pow: Vec<Address<BabyBear>> = Vec::new();
@@ -135,10 +297,14 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for BatchFRIChip<DEGREE
                 current_ext_p_at_z_offset += instr_data.ext_vec_addrs.p_at_z.len();
                 current_ext_alpha_pow_offset += instr_data.ext_vec_addrs.alpha_pow.len();
             }
-
-            let initial_len = num_total_output_rows * NUM_BATCH_FRI_PREPROCESSED_COLS;
-            values = vec![BabyBear::ZERO; initial_len];
             
+            let padded_num_rows = next_power_of_two(num_total_output_rows, program.fixed_log2_rows(self));
+        
+            let num_cols = NUM_BATCH_FRI_PREPROCESSED_COLS;
+        
+            // 1. Allocate the matrix directly on the GPU.
+            let mut gpu_matrix = GpuMatrix::<F>::new(padded_num_rows, num_cols);
+
             unsafe {
                 crate::sys::process_batch_fri_instructions_gpu(
                     instrs_values.as_ptr(),
@@ -150,135 +316,21 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for BatchFRIChip<DEGREE
                     all_ext_p_at_z.as_ptr(),
                     all_ext_p_at_z.len(),
                     all_ext_alpha_pow.as_ptr(),
-                    all_ext_alpha_pow.len(),
-                    values.as_mut_ptr(),
-                    values.len(),
+                    all_ext_alpha_pow.len(),                  
                     instrs.len(),          //=instrucctions before extending 
                     num_total_output_rows, //= instrucctions after extending 
-                    NUM_BATCH_FRI_PREPROCESSED_COLS,
+                    gpu_matrix.as_mut_ptr() as *mut BabyBear, 
+                    gpu_matrix.height * gpu_matrix.width, 
+                    num_cols,
                 );
             } 
             
+            Some(gpu_matrix)      
         } else {
-            let mut cpu_rows: Vec<[BabyBear; NUM_BATCH_FRI_PREPROCESSED_COLS]> = Vec::new();
-            instrs.iter().for_each(|instruction| {
-                let BatchFRIInstr { base_vec_addrs: _, ext_single_addrs: _, ext_vec_addrs, acc_mult } =
-                    *instruction;
-                let len: usize = ext_vec_addrs.p_at_z.len();
-                let mut row_add = vec![[BabyBear::ZERO; NUM_BATCH_FRI_PREPROCESSED_COLS]; len];
-                debug_assert_eq!(*acc_mult, BabyBear::ONE);
-
-                row_add.iter_mut().enumerate().for_each(|(i, row)| {
-                    let cols: &mut BatchFRIPreprocessedCols<BabyBear> = row.as_mut_slice().borrow_mut();
-                    unsafe {
-                        crate::sys::batch_fri_instr_to_row_babybear(&(&(*(*instruction))).into(), cols, i);
-                    }
-                });
-                cpu_rows.extend(row_add);
-            });
-            values = cpu_rows.into_iter().flatten().collect::<Vec<BabyBear>>();
-        }
-
-        // Pad the trace to a power of two.
-        if program.fixed_log2_rows(self).is_some() || values.len() > 0 {
-            let current_num_rows = values.len() / NUM_BATCH_FRI_PREPROCESSED_COLS;
-            let padded_num_rows = next_power_of_two(current_num_rows, program.fixed_log2_rows(self));
-            let target_total_elements = padded_num_rows * NUM_BATCH_FRI_PREPROCESSED_COLS;
-            values.resize(target_total_elements, BabyBear::ZERO);
-        }
-
-
-        let trace = RowMajorMatrix::new(
-            unsafe {
-                std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values)
-            },
-            NUM_BATCH_FRI_PREPROCESSED_COLS,
-        );
-        Some(trace)
-    }
-
-    fn num_rows(&self, input: &Self::Record) -> Option<usize> {
-        let events = &input.batch_fri_events;
-        Some(next_power_of_two(events.len(), input.fixed_log2_rows(self)))
-    }
-
-    #[instrument(name = "generate batch fri trace", level = "debug", skip_all, fields(rows = input.batch_fri_events.len()))]
-    fn generate_trace(
-        &self,
-        input: &ExecutionRecord<F>,
-        _: &mut ExecutionRecord<F>,
-    ) -> RowMajorMatrix<F> {
-        assert_eq!(
-            std::any::TypeId::of::<F>(),
-            std::any::TypeId::of::<BabyBear>(),
-            "generate_trace only supports BabyBear field"
-        );
-        //let start = std::time::Instant::now();
-
-        let events  = unsafe {
-                std::mem::transmute::<&Vec<BatchFRIEvent<F>>, &Vec<BatchFRIEvent<BabyBear>>>(
-                    &input.batch_fri_events,
-            )
-        };
-
-        let mut values: Vec<BabyBear>;
-
-        if cfg!(feature = "recursion_cuda") {
-            values = Vec::new(); 
-            values.resize(events.len() * NUM_BATCH_FRI_COLS, BabyBear::from_u32(0));
-            //println!("-- batch_fri-events, GPU, events.len:{}", events.len());
-            unsafe {
-                crate::sys::process_batch_fri_events_gpu(
-                    events.as_ptr(),
-                    events.len(),
-                    values.as_mut_ptr(),
-                    values.len(),
-                    NUM_BATCH_FRI_COLS,
-                );
-            }
-        } else {
-            let mut cpu_rows = Vec::new();
-            events
-                .iter()
-                .for_each(|bb_event| {
-                    let mut row = [BabyBear::ZERO; NUM_BATCH_FRI_COLS];
-                    let cols: &mut BatchFRICols<BabyBear> = row.as_mut_slice().borrow_mut();
-                    cols.acc = bb_event.ext_single.acc;
-                    cols.alpha_pow = bb_event.ext_vec.alpha_pow;
-                    cols.p_at_z = bb_event.ext_vec.p_at_z;
-                    cols.p_at_x = bb_event.base_vec.p_at_x;
-                    cpu_rows.push(row); 
-                });
-            values = cpu_rows.into_iter().flatten().collect::<Vec<BabyBear>>();
-        }
-
-        // Pad the trace to a power of two.
-        let padded_num_rows = self.num_rows(input).unwrap();
-        let target_total_elements = padded_num_rows * NUM_BATCH_FRI_COLS;
-        values.resize(target_total_elements, BabyBear::ZERO);
-
-
-        // Convert the trace to a row major matrix.
-        let trace = RowMajorMatrix::new(
-            unsafe {
-                std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values)
-            },
-            NUM_BATCH_FRI_COLS,
-        );
-        
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "batch fri trace dims is width: {:?}, height: {:?}",
-            trace.width(),
-            trace.height()
-        );
-
-        trace
-    }
-
-    fn included(&self, _record: &Self::Record) -> bool {
-        true
-    }
+            None
+        }     
+    
+    } */
 }
 
 impl<const DEGREE: usize> BatchFRIChip<DEGREE> {

@@ -119,7 +119,7 @@ impl Default for StarkConfigGpu {
         Self::new()
     }
 }
-// NOTE: You need to implement ZeroCommitment for GpuPcs
+
 impl ZeroCommitment<StarkConfigGpu> for GpuPcs {
     fn zero_commitment(&self) -> Com<StarkConfigGpu> {
         DigestHash::from([Val::ZERO; DIGEST_SIZE])

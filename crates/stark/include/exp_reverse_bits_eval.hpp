@@ -3,9 +3,11 @@
 #include "gpu_types.hpp"
 #include "virtual_pair_col.hpp"
 
-#include "permutation_eval.hpp"
+#include "permutation.hpp"
 
 #define EXP_REVERSE_BITS_DEGREE 3
+
+// --- UNPACKED EVAL FUNCTION ---
 __device__ void eval_exp_reverse_bits_chip(
     ProverConstraintFolder<Challenge>& folder,
     const Val* main_local_row,
@@ -42,7 +44,7 @@ __device__ void eval_exp_reverse_bits_chip(
     // Ensure that the value at the x memory access is unchanged when not `is_last`.
     folder_assert_zero(folder, (main_local->x - main_next->x) * is_transition * prep_next->is_real * 
                                             (prep_local->is_last - Val::one()));
-    
+
     // The accumulator needs to start with the multiplier for every `is_first` row.
     folder_assert_zero(folder, (main_local->accum -  main_local->multiplier) * prep_local->is_first);
 
@@ -67,50 +69,8 @@ __device__ void eval_exp_reverse_bits_chip(
 
 // 3. Memory Interactions (Permutation Argument)
     Interaction interaction_buffer[3];
-    int interaction_count = 0;
+    int interaction_count = get_exp_reverse_fri_interactions(interaction_buffer);
     
-    // a) builder.send_single(local_prepr.x_mem.addr, local.x, local_prepr.x_mem.mult);
-    //Send x (base) value. Multiplicity is -1 on the first row, 0 otherwise.
-    interaction_buffer[interaction_count++] = {
-        .values = {
-            VirtualPairCol::single_preprocessed(offsetof(ExpReverseBitsLenPreprocessedCols<Val>, x_mem.addr) / sizeof(Val)),
-            VirtualPairCol::single_main(offsetof(ExpReverseBitsLenCols<Val>, x) / sizeof(Val))
-            
-        }, 
-        .num_values = 2,
-        .multiplicity = VirtualPairCol::single_preprocessed(offsetof(ExpReverseBitsLenPreprocessedCols<Val>, x_mem.mult) / sizeof(Val)),
-        .kind = InteractionKind::Memory, 
-        .scope = InteractionScope::Local, 
-        .is_send = true
-    };
-    
-    // b) Send current_bit (from exponent). Multiplicity is -1 for all real rows.
-    interaction_buffer[interaction_count++] = {
-        .values = {
-            VirtualPairCol::single_preprocessed(offsetof(ExpReverseBitsLenPreprocessedCols<Val>, exponent_mem.addr) / sizeof(Val)),
-            VirtualPairCol::single_main(offsetof(ExpReverseBitsLenCols<Val>, current_bit) / sizeof(Val))
-            
-        }, 
-        .num_values = 2,
-        .multiplicity = VirtualPairCol::single_preprocessed(offsetof(ExpReverseBitsLenPreprocessedCols<Val>, exponent_mem.mult) / sizeof(Val)),
-        .kind = InteractionKind::Memory, 
-        .scope = InteractionScope::Local, 
-        .is_send = true
-    };
-    
-    // c) Send accum (result). Multiplicity is `mult` on the last row, 0 otherwise.
-    interaction_buffer[interaction_count++] = {
-        .values = {
-            VirtualPairCol::single_preprocessed(offsetof(ExpReverseBitsLenPreprocessedCols<Val>, result_mem.addr) / sizeof(Val)),
-            VirtualPairCol::single_main(offsetof(ExpReverseBitsLenCols<Val>, accum) / sizeof(Val))
-            
-        }, 
-        .num_values = 2,
-        .multiplicity = VirtualPairCol::single_preprocessed(offsetof(ExpReverseBitsLenPreprocessedCols<Val>, result_mem.mult) / sizeof(Val)),
-        .kind = InteractionKind::Memory, 
-        .scope = InteractionScope::Local, 
-        .is_send = true
-    };
     
     //const int perm_width_ef = perm_width / 4;
     const Challenge* perm_local = reinterpret_cast<const Challenge*>(perm_local_flat);

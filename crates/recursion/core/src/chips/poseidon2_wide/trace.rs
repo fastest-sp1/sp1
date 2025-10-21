@@ -13,10 +13,9 @@ use tracing::instrument;
 use itertools::Itertools;
 use super::{columns::preprocessed::Poseidon2PreprocessedColsWide, Poseidon2WideChip};
 
-//GPU
-//use crate::gpu::poseidon2_wide_trace::{process_p2_wide_events_gpu, process_p2_wide_instructions_gpu};
+use sp1_stark::GpuMatrix;
 
-const PREPROCESSED_POSEIDON2_WIDTH: usize = size_of::<Poseidon2PreprocessedColsWide<u8>>();
+pub const PREPROCESSED_POSEIDON2_WIDTH: usize = size_of::<Poseidon2PreprocessedColsWide<u8>>();
 
 impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for Poseidon2WideChip<DEGREE> {
     type Record = ExecutionRecord<F>;
@@ -50,7 +49,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for Poseidon2WideChip<D
             std::any::TypeId::of::<BabyBear>(),
             "generate_trace only supports BabyBear field"
         );
-        //let start = std::time::Instant::now();
+        
         let events = unsafe {
             std::mem::transmute::<&Vec<Poseidon2Io<F>>, &Vec<Poseidon2Io<BabyBear>>>(
                 &input.poseidon2_events,
@@ -63,32 +62,16 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for Poseidon2WideChip<D
         let populate_len = input.poseidon2_events.len() * num_columns;
         let (values_pop, values_dummy) = values.split_at_mut(populate_len);
 
-        //
-        if cfg!(feature = "recursion_cuda") {
-             //println!("poseidon2_wide GPU,  events.len :{}, total_len:{}", events.len(), padded_nb_rows);
-            unsafe {
-                crate::sys::process_poseidon2_wide_events_gpu(
-                    events.as_ptr(),
-                    events.len(),
-                    values.as_mut_ptr(),
-                    values.len(),
-                    padded_nb_rows,
-                    num_columns,
-                    DEGREE == 3,
-                    WIDTH,
-                );
-            }
-        } else {
-            // CPU
-            let populate_perm_ffi = |input: &[BabyBear; WIDTH], input_row: &mut [BabyBear]| unsafe {
+        
+        let populate_perm_ffi = |input: &[BabyBear; WIDTH], input_row: &mut [BabyBear]| unsafe {
                 crate::sys::poseidon2_wide_event_to_row_babybear(
                     input.as_ptr(),
                     input_row.as_mut_ptr(),
                     DEGREE == 3,
                 )
-            };
+        };
 
-            join(
+        join(
                 || {
                     values_pop
                         .par_chunks_mut(num_columns) 
@@ -104,16 +87,12 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for Poseidon2WideChip<D
                         .par_chunks_mut(num_columns)
                         .for_each(|row| row.copy_from_slice(&dummy_row))
                 },
-            );
-        }
+        );
 
         let trace = RowMajorMatrix::new(
             unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
             num_columns,
         );
-        //let duration = start.elapsed();
-        //println!("--poseidon2_wide_events, duration:{:?}", duration);
-        //println!("--p2-wide-events, trace_heigth:{}", trace.height());
         trace
     }
 
@@ -142,7 +121,6 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for Poseidon2WideChip<D
             std::any::TypeId::of::<BabyBear>(),
             "generate_preprocessed_trace only supports BabyBear field"
         );
-        //let start = std::time::Instant::now();
         // Allocating an intermediate `Vec` is faster.
         let instrs: Vec<&Poseidon2SkinnyInstr<BabyBear>> =
             program
@@ -168,46 +146,105 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for Poseidon2WideChip<D
             ));
         }
     
-        // Using GPU (via the new alu_trace module)
-        if cfg!(feature = "recursion_cuda") {
-            let instrs_for_gpu: Vec<Poseidon2SkinnyInstr<BabyBear>> = instrs
-                .iter()
-                .map(|&instr_ref| *instr_ref)
-                .collect_vec();
-            //println!("--poseidon2 wide instr GPU, instrs.len:{}, total_len:{}", instrs_for_gpu.len(), padded_nb_rows);
-            unsafe {
-                crate::sys::process_poseidon2_wide_instructions_gpu(
-                    instrs_for_gpu.as_ptr(), 
-                    instrs_for_gpu.len(),
-                    values.as_mut_ptr(),
-                    values.len(),
-                    PREPROCESSED_POSEIDON2_WIDTH,
-                );
-            }
-        } else {
-            // CPU 
-            //println!("---cpu p2_wide _instructions---");
-            let populate_len = instrs.len() * PREPROCESSED_POSEIDON2_WIDTH;
-            values[..populate_len]
-                .par_chunks_mut(PREPROCESSED_POSEIDON2_WIDTH)
-                .zip_eq(instrs)
-                .for_each(|(row, instr)| {
+         
+        let populate_len = instrs.len() * PREPROCESSED_POSEIDON2_WIDTH;
+        values[..populate_len]
+            .par_chunks_mut(PREPROCESSED_POSEIDON2_WIDTH)
+            .zip_eq(instrs)
+            .for_each(|(row, instr)| {
                     let cols: &mut Poseidon2PreprocessedColsWide<_> = row.borrow_mut();
                     unsafe {
                         crate::sys::poseidon2_wide_instr_to_row_babybear(instr, cols);
                     }
-                });
-        }
+            });
+        
 
         let trace = RowMajorMatrix::new(
             unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
             PREPROCESSED_POSEIDON2_WIDTH,
         );
-        //let duration = start.elapsed();
-        //println!("-- p2-wide-instrs , duration:{:?}", duration);
-        //println!("--p2-wide-instrs, trace_heigth:{}", trace.height());
+        
         Some(trace)
     }
+
+    /*
+    fn generate_trace_gpu(&self, input: &Self::Record, _: &mut Self::Record) -> GpuMatrix<F> {
+        let events = unsafe {
+            std::mem::transmute::<&Vec<Poseidon2Io<F>>, &Vec<Poseidon2Io<BabyBear>>>(
+                &input.poseidon2_events,
+            )
+        };
+        
+        // Pad the trace 
+        let padded_nb_rows = self.num_rows(input).unwrap();
+        let num_cols = <Self as BaseAir<F>>::width(self);
+
+        // 1. Allocate the matrix directly on the GPU.
+        let mut gpu_matrix = GpuMatrix::<F>::new(padded_nb_rows, num_cols);
+               
+        if !events.is_empty() {
+            unsafe {
+                crate::sys::process_poseidon2_wide_events_gpu(
+                    events.as_ptr(),
+                    events.len(),
+                    gpu_matrix.as_mut_ptr() as *mut BabyBear, // Pass the device pointer
+                    gpu_matrix.height * gpu_matrix.width, // Pass total elements
+                    padded_nb_rows,
+                    num_cols,
+                    DEGREE == 3,
+                    WIDTH,
+                );
+            }
+        }
+        
+        // 3. Return the GpuMatrix handle.
+        gpu_matrix
+    }
+
+    fn generate_preprocessed_trace_gpu(
+        &self,
+        program: &Self::Program,
+    ) -> Option<GpuMatrix<F>> {
+        let instrs: Vec<&Poseidon2SkinnyInstr<BabyBear>> =
+            program
+                .inner
+                .iter() // Faster than using `rayon` for some reason. Maybe vectorization?
+                .filter_map(|instruction| match instruction {
+                    Poseidon2(instr) => Some(unsafe {
+                        std::mem::transmute::<
+                            &Poseidon2SkinnyInstr<F>,
+                            &Poseidon2SkinnyInstr<BabyBear>,
+                        >(instr.as_ref())
+                    }),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+
+        if !instrs.is_empty()  {
+            let padded_nb_rows = self.preprocessed_num_rows(program, instrs.len()).unwrap();
+            let num_cols = PREPROCESSED_POSEIDON2_WIDTH;
+
+            // 1. Allocate the matrix directly on the GPU.
+            let mut gpu_matrix = GpuMatrix::<F>::new(padded_nb_rows, num_cols);
+            
+            let instrs_for_gpu: Vec<Poseidon2SkinnyInstr<BabyBear>> = instrs
+                .iter()
+                .map(|&instr_ref| *instr_ref)
+                .collect_vec();
+            unsafe {
+                crate::sys::process_poseidon2_wide_instructions_gpu(
+                    instrs_for_gpu.as_ptr(), 
+                    instrs_for_gpu.len(),
+                    gpu_matrix.as_mut_ptr() as *mut BabyBear, // Pass the device pointer
+                    gpu_matrix.height * gpu_matrix.width, // Pass total elements
+                    PREPROCESSED_POSEIDON2_WIDTH,
+                );
+            }
+            Some(gpu_matrix)
+        } else {
+            None
+        }         
+    } */
 }
 
 #[cfg(test)]
@@ -303,6 +340,21 @@ mod tests {
         let trace = chip.generate_trace(&shard, &mut execution_record);
         assert!(trace.height() >= test_fixtures::MIN_TEST_CASES);
 
+        assert_eq!(trace, generate_trace_reference::<DEGREE_3>(&shard, &mut execution_record));
+    }
+
+    #[test]
+    fn generate_trace_gpu() {     
+        let shard = test_fixtures::shard();
+        let mut execution_record = test_fixtures::default_execution_record();
+        let chip = Poseidon2WideChip::<DEGREE_3>;
+
+        let trace_gpu_ptr = chip.generate_trace_gpu(&shard, &mut execution_record);
+        
+        let trace_values = trace_gpu_ptr.to_host();
+        let num_columns = <Poseidon2WideChip<DEGREE_3> as BaseAir<BabyBear>>::width(&chip);
+        let trace = RowMajorMatrix::new(trace_values, num_columns);
+        
         assert_eq!(trace, generate_trace_reference::<DEGREE_3>(&shard, &mut execution_record));
     }
 

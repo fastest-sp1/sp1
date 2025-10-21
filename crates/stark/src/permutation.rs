@@ -395,3 +395,53 @@ pub fn count_permutation_constraints<F: Field>(
 
     count
 }
+
+
+//debug
+use p3_air::VirtualPairCol;
+use p3_air::PairCol;
+use std::ops::Mul;
+// A trait with a logging version of `apply`
+trait LoggableVirtualPairCol<F: Field> {
+    fn log_apply<Expr, Var>(&self, preprocessed: &[Var], main: &[Var]) -> Expr
+    where
+        F: Into<Expr>,
+        Expr: PrimeCharacteristicRing + Mul<F, Output = Expr>,
+        Var: Into<Expr> + Copy;
+}
+
+// Implement this trait for the real VirtualPairCol
+impl<F: Field> LoggableVirtualPairCol<F> for VirtualPairCol<F> {
+    fn log_apply<Expr, Var>(&self, preprocessed: &[Var], main: &[Var]) -> Expr
+    where
+        F: Into<Expr>,
+        Expr: PrimeCharacteristicRing + Mul<F, Output = Expr>,
+        Var: Into<Expr> + Copy,
+    {
+        let mut acc: Expr = self.constant.into();
+        
+        println!("CPU APPLY: Start. Constant = {:?}, Num_weights = {}", 
+                 self.constant, self.column_weights.len());
+
+        for (i, (col, w)) in self.column_weights.iter().enumerate() {
+            let col_val: Expr = col.get(preprocessed, main).into();
+            
+            match col {
+                PairCol::Preprocessed(idx) => {
+                    print!("CPU APPLY: i={}, Type=PREP, Index={}, Weight={:?}, ColVal={:?}, ",
+                           i, idx, w, col_val); // Printing Expr might be verbose
+                }
+                PairCol::Main(idx) => {
+                    print!("CPU APPLY: i={}, Type=MAIN, Index={}, Weight={:?}, ColVal={:?}, ",
+                           i, idx, w, col_val);
+                }
+            }
+
+            acc = acc + col_val * (*w).into(); // Perform addition and multiplication on `Expr` type
+            println!("NewResult={:?}", acc);
+        }
+        println!("CPU APPLY: Final Result = {:?}", acc);
+        acc
+    }
+}
+

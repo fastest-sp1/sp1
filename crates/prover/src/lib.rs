@@ -84,15 +84,25 @@ use sp1_recursion_gnark_ffi::{groth16_bn254::Groth16Bn254Prover, plonk_bn254::Pl
 use sp1_stark::{
     baby_bear_poseidon2::BabyBearPoseidon2,
     shape::{OrderedShape, Shape},
-    Challenge, MachineProver, MachineProvingKey, SP1ProverOpts, ShardProof, SplitOpts,
-    StarkGenericConfig, StarkVerifyingKey, Val, Word, DIGEST_SIZE,
+    Challenge, MachineProver,  MachineProvingKey, SP1ProverOpts, ShardProof, SplitOpts,
+    StarkGenericConfig, StarkVerifyingKey, Val, Word, DIGEST_SIZE, GpuMatrix, AbstractMatrix,
+     GpuMachineProver, GpuMemBlkPool, GpuMemBlkLease, 
 };
 use tracing::instrument;
 
 pub use types::*;
 use utils::{sp1_committed_values_digest_bn254, sp1_vkey_digest_bn254, words_to_bytes};
 
-use components::{CpuProverComponents, SP1ProverComponents};
+use components::{CpuProverComponents, SP1ProverComponents,};
+
+//Gpu
+pub struct GpuTraceBundle {
+    pub traces: Vec<(String, GpuMatrix<BabyBear>)>,
+    // The lease for the arena where `traces` were allocated.
+    _lease: GpuMemBlkLease,
+}
+
+
 
 /// The global version for all components of SP1.
 ///
@@ -163,15 +173,17 @@ pub struct SP1Prover<C: SP1ProverComponents = CpuProverComponents> {
     pub wrap_vk: OnceLock<StarkVerifyingKey<OuterSC>>,
     /// Whether to verify verification keys.
     pub vk_verification: bool,
+
+    #[cfg(feature = "recursion_cuda")]
+    pub trace_pool: Arc<GpuMemBlkPool>,
+    #[cfg(feature = "recursion_cuda")]
+    pub proof_pool: Arc<GpuMemBlkPool>,
 }
 
 impl<C: SP1ProverComponents> SP1Prover<C> {
     /// Initializes a new [SP1Prover].
     #[instrument(name = "initialize prover", level = "debug", skip_all)]
     pub fn new() -> Self {
-        //if cfg!(feature = "recursion_cuda") {
-          //  init_gpu_context();
-       // }
         Self::uninitialized()
     }
 
@@ -249,6 +261,34 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
             }
         }
 
+        //GPU
+        #[cfg(feature = "recursion_cuda")]
+        let (trace_pool, proof_pool) = {
+            //Notice: please assign the pool's size according your GPU total Memory!
+            //Requirements: 
+            //1. each trace_gen_thread has at least one memblk 
+            //2. each proof_gen_thread has one memblk
+            // compress_prover: blowup=1--->lde_h = 2 * main_h
+            let trace_gpu_memblk_size =  232 * 1024 * 1024; //232M  
+            let proof_gpu_memblk_size = 1750 * 1024 * 1024; //1750M 
+            let trace_gen_thread = 2; // opts.recursion_opts.trace_gen_workers
+            let proof_gen_thread = 1; //opts.recursion_opts.shard_batch_size
+            let trace_pool = GpuMemBlkPool::new(trace_gen_thread*2, trace_gpu_memblk_size);
+            let proof_pool = GpuMemBlkPool::new(proof_gen_thread*1, proof_gpu_memblk_size);
+            
+            
+            //shrink_prover:blowup=2---> lde_h= 2^2 *main_h, so it needs more GPU mem.
+            /*let trace_gpu_memblk_size =  432 * 1024 * 1024;
+            let proof_gpu_memblk_size = (1750 ) * 1024 * 1024; 
+            let trace_pool = GpuMemBlkPool::new(4, trace_gpu_memblk_size);
+            let proof_pool = GpuMemBlkPool::new(2, proof_gpu_memblk_size);*/
+
+            ( 
+                Arc::new(trace_pool),
+                Arc::new(proof_pool)
+            )
+        };
+
         Self {
             core_prover,
             compress_prover,
@@ -266,6 +306,10 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
             vk_verification,
             wrap_program: OnceLock::new(),
             wrap_vk: OnceLock::new(),
+            #[cfg(feature = "recursion_cuda")]
+            trace_pool,
+            #[cfg(feature = "recursion_cuda")]
+            proof_pool,
         }
     }
 
@@ -474,7 +518,9 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
     }
 
     /// Reduce shards proofs to a single shard proof using the recursion prover.
+    //CPU compress
     #[instrument(name = "compress", level = "info", skip_all)]
+    #[cfg(not(feature = "recursion_cuda"))]
     pub fn compress(
         &self,
         vk: &SP1VerifyingKey,
@@ -872,8 +918,418 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
         Ok(SP1ReduceProof { vk, proof })
     }
 
+    //GPU compress
+    #[instrument(name = "compress", level = "info", skip_all)]
+    #[cfg(feature = "recursion_cuda")]
+    pub fn compress(
+        &self,
+        vk: &SP1VerifyingKey,
+        proof: SP1CoreProof,
+        deferred_proofs: Vec<SP1ReduceProof<InnerSC>>,
+        opts: SP1ProverOpts,
+    ) -> Result<SP1ReduceProof<InnerSC>, SP1RecursionProverError> {
+        #[allow(clippy::type_complexity)]
+        enum TracesOrInput {
+            ProgramRecordTraces(
+                Box<(
+                    Arc<RecursionProgram<BabyBear>>,
+                    ExecutionRecord<BabyBear>,
+                    GpuTraceBundle,
+                )>
+            ),
+            CircuitWitness(Box<SP1CircuitWitness>),
+        }
+
+        // The batch size for reducing two layers of recursion.
+        let batch_size = REDUCE_BATCH_SIZE;
+        // The batch size for reducing the first layer of recursion.
+        let first_layer_batch_size = 1;
+
+        let shard_proofs = &proof.proof.0;
+
+        // Generate the first layer inputs.
+        let first_layer_inputs =
+            self.get_first_layer_inputs(vk, shard_proofs, &deferred_proofs, first_layer_batch_size);
+
+        // Calculate the expected height of the tree.
+        let mut expected_height = if first_layer_inputs.len() == 1 { 0 } else { 1 };
+        let num_first_layer_inputs = first_layer_inputs.len();
+        let mut num_layer_inputs = num_first_layer_inputs;
+        while num_layer_inputs > batch_size {
+            num_layer_inputs = num_layer_inputs.div_ceil(2);
+            expected_height += 1;
+        }
+
+        // Generate the proofs.
+        let span = tracing::Span::current().clone();
+        let (vk, proof) = thread::scope(|s| {
+            let _span = span.enter();
+
+            // Spawn a worker that sends the first layer inputs to a bounded channel.
+            let input_sync = Arc::new(TurnBasedSync::new());
+            let (input_tx, input_rx) = sync_channel::<(usize, usize, SP1CircuitWitness, bool)>(
+                opts.recursion_opts.checkpoints_channel_capacity,
+            );
+            let input_tx = Arc::new(Mutex::new(input_tx));
+            {
+                let input_tx = Arc::clone(&input_tx);
+                let input_sync = Arc::clone(&input_sync);
+                s.spawn(move || {
+                    for (index, input) in first_layer_inputs.into_iter().enumerate() {
+                        input_sync.wait_for_turn(index);
+                        input_tx.lock().unwrap().send((index, 0, input, false)).unwrap();
+                        input_sync.advance_turn();
+                    }
+                });
+            }
+
+            // Spawn workers who generate the records and traces.
+            let record_and_trace_sync = Arc::new(TurnBasedSync::new());
+            let (record_and_trace_tx, record_and_trace_rx) =
+                sync_channel::<(usize, usize, TracesOrInput)>(
+                    opts.recursion_opts.records_and_traces_channel_capacity,
+                );
+            let record_and_trace_tx = Arc::new(Mutex::new(record_and_trace_tx));
+            let record_and_trace_rx = Arc::new(Mutex::new(record_and_trace_rx));
+            let input_rx = Arc::new(Mutex::new(input_rx));
+            for _ in 0..opts.recursion_opts.trace_gen_workers {
+                let record_and_trace_sync = Arc::clone(&record_and_trace_sync);
+                let record_and_trace_tx = Arc::clone(&record_and_trace_tx);
+                let input_rx = Arc::clone(&input_rx);
+                let trace_pool = Arc::clone(&self.trace_pool);
+                let span = tracing::debug_span!("generate records and traces");
+                s.spawn(move || {
+                    let _span = span.enter();
+                    loop {
+                        let mut gpu_mem_blk = trace_pool.lease();
+                        gpu_mem_blk.reset();
+
+                        let received = { input_rx.lock().unwrap().recv() };
+                        if let Ok((index, height, input, false)) = received {
+                            // Get the program and witness stream.
+                            let (program, witness_stream) = tracing::debug_span!(
+                                "get program and witness stream"
+                            )
+                            .in_scope(|| match input {
+                                SP1CircuitWitness::Core(input) => {
+                                    let mut witness_stream = Vec::new();
+                                    Witnessable::<InnerConfig>::write(&input, &mut witness_stream);
+                                    (self.recursion_program(&input), witness_stream)
+                                }
+                                SP1CircuitWitness::Deferred(input) => {
+                                    let mut witness_stream = Vec::new();
+                                    Witnessable::<InnerConfig>::write(&input, &mut witness_stream);
+                                    (self.deferred_program(&input), witness_stream)
+                                }
+                                SP1CircuitWitness::Compress(input) => {
+                                    let mut witness_stream = Vec::new();
+
+                                    let input_with_merkle = self.make_merkle_proofs(input);
+
+                                    Witnessable::<InnerConfig>::write(
+                                        &input_with_merkle,
+                                        &mut witness_stream,
+                                    );
+
+                                    (self.compress_program(&input_with_merkle), witness_stream)
+                                }
+                            });
+
+                            // Execute the runtime.
+                            let record = tracing::debug_span!("execute runtime").in_scope(|| {
+                                let mut runtime =
+                                    RecursionRuntime::<Val<InnerSC>, Challenge<InnerSC>>::new(
+                                        program.clone(),
+                                        self.compress_prover.config().perm.clone(),
+                                    );
+                                runtime.witness_stream = witness_stream.into();
+                                runtime
+                                    .run()
+                                    .map_err(|e| {
+                                        SP1RecursionProverError::RuntimeError(e.to_string())
+                                    })
+                                    .unwrap();
+                                runtime.record
+                            });
+
+                            // Generate the dependencies.
+                            let mut records = vec![record];
+                            tracing::debug_span!("generate dependencies").in_scope(|| {
+                                self.compress_prover.machine().generate_dependencies(
+                                    &mut records,
+                                    &opts.recursion_opts,
+                                    None,
+                                )
+                            });
+
+                            // Generate the traces.
+                            let record = records.into_iter().next().unwrap();
+                            let traces = tracing::debug_span!("generate traces")
+                                .in_scope(|| self.compress_prover.generate_traces(&record, &gpu_mem_blk));
+
+                            // Wait for our turn to update the state.
+                            record_and_trace_sync.wait_for_turn(index);
+
+                            // Send the record and traces to the worker.
+                            let bundle = GpuTraceBundle { traces, _lease: gpu_mem_blk };
+                            record_and_trace_tx
+                                .lock()
+                                .unwrap()
+                                .send((
+                                    index,
+                                    height,
+                                    TracesOrInput::ProgramRecordTraces(Box::new((
+                                        program, record, bundle,
+                                    ))),
+                                ))
+                                .unwrap();
+
+                            // Advance the turn.
+                            record_and_trace_sync.advance_turn();
+                        } else if let Ok((index, height, input, true)) = received {
+                            record_and_trace_sync.wait_for_turn(index);
+
+                            // Send the record and traces to the worker.
+                            record_and_trace_tx
+                                .lock()
+                                .unwrap()
+                                .send((
+                                    index,
+                                    height,
+                                    TracesOrInput::CircuitWitness(Box::new(input)),
+                                ))
+                                .unwrap();
+
+                            // Advance the turn.
+                            record_and_trace_sync.advance_turn();
+                        } else {
+                            break;
+                        }
+                    }
+                });
+            }
+
+            // Spawn workers who generate the compress proofs.
+            let proofs_sync = Arc::new(TurnBasedSync::new());
+            let (proofs_tx, proofs_rx) =
+                sync_channel::<(usize, usize, StarkVerifyingKey<InnerSC>, ShardProof<InnerSC>)>(
+                    num_first_layer_inputs * 2,
+                );
+            let proofs_tx = Arc::new(Mutex::new(proofs_tx));
+            let proofs_rx = Arc::new(Mutex::new(proofs_rx));
+            let mut prover_handles = Vec::new();
+            for _ in 0..opts.recursion_opts.shard_batch_size {
+            //for _ in 0..1 {//debug
+                let prover_sync = Arc::clone(&proofs_sync);
+                let record_and_trace_rx = Arc::clone(&record_and_trace_rx);
+                let proofs_tx = Arc::clone(&proofs_tx);
+                let proof_pool = Arc::clone(&self.proof_pool);
+                let span = tracing::debug_span!("prove");
+                let handle = s.spawn(move || {
+                    let _span = span.enter();
+                    loop {
+                        let received = { record_and_trace_rx.lock().unwrap().recv() };
+                        if let Ok((index, height, TracesOrInput::ProgramRecordTraces(boxed_prt))) =
+                            received
+                        {
+                            //debug
+                            let start = std::time::Instant::now();
+                            let mut prove_gpu_mem_blk = proof_pool.lease();
+                            prove_gpu_mem_blk.reset();
+
+                            let (program, record, bundle) = *boxed_prt;
+                            tracing::debug_span!("batch").in_scope(|| {
+                                // Get the keys.
+                                let (pk, vk) = tracing::debug_span!("Setup compress program")
+                                    .in_scope(|| self.compress_prover.setup(&program, &prove_gpu_mem_blk));
+
+                                // Observe the proving key.
+                                let mut challenger = self.compress_prover.config().initialise_challenger();
+                                tracing::debug_span!("observe proving key").in_scope(|| {
+                                    pk.observe_into(&mut challenger);
+                                });
+                                //debug
+                                 let duration = start.elapsed();
+                                println!("-- compress_prover.setup , duration:{:?}", duration);
+
+                                #[cfg(feature = "debug")]
+                                self.compress_prover.debug_constraints(
+                                    &self.compress_prover.pk_to_host(&pk),
+                                    vec![record.clone()],
+                                    &mut challenger.clone(),
+                                );
+
+                                // Commit to the record and traces.
+                                let data = tracing::debug_span!("commit")
+                                    .in_scope(|| self.compress_prover.commit(&record, bundle.traces, &prove_gpu_mem_blk));
+
+                                //debug
+                                 let duration = start.elapsed();
+                                println!("-- compress_prover.commit , duration:{:?}", duration);
+
+                                // Generate the proof.
+                                let proof = tracing::debug_span!("open").in_scope(|| {
+                                    self.compress_prover.open(&pk, data, &mut challenger, &prove_gpu_mem_blk).unwrap()
+                                });
+                                //debug
+                                 let duration = start.elapsed();
+                                println!("-- compress_prover.open , duration:{:?}", duration);
+
+                                // Verify the proof.
+                                #[cfg(feature = "debug")]
+                                self.compress_prover
+                                    .machine()
+                                    .verify(
+                                        &vk,
+                                        &sp1_stark::MachineProof {
+                                            shard_proofs: vec![proof.clone()],
+                                        },
+                                        &mut self.compress_prover.config().challenger(),
+                                    )
+                                    .unwrap();
+
+                                // Wait for our turn to update the state.
+                                prover_sync.wait_for_turn(index);
+
+                                // Send the proof.
+                                proofs_tx.lock().unwrap().send((index, height, vk, proof)).unwrap();
+
+                                // Advance the turn.
+                                prover_sync.advance_turn();
+                            });
+                        } else if let Ok((
+                            index,
+                            height,
+                            TracesOrInput::CircuitWitness(witness_box),
+                        )) = received
+                        {
+                            let witness = *witness_box;
+                            if let SP1CircuitWitness::Compress(inner_witness) = witness {
+                                let SP1CompressWitnessValues { vks_and_proofs, is_complete: _ } =
+                                    inner_witness;
+                                assert!(vks_and_proofs.len() == 1);
+                                let (vk, proof) = vks_and_proofs.last().unwrap();
+                                // Wait for our turn to update the state.
+                                prover_sync.wait_for_turn(index);
+
+                                // Send the proof.
+                                proofs_tx
+                                    .lock()
+                                    .unwrap()
+                                    .send((index, height, vk.clone(), proof.clone()))
+                                    .unwrap();
+
+                                // Advance the turn.
+                                prover_sync.advance_turn();
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                });
+                prover_handles.push(handle);
+            }
+
+            // Spawn a worker that generates inputs for the next layer.
+            let handle = {
+                let input_tx = Arc::clone(&input_tx);
+                let proofs_rx = Arc::clone(&proofs_rx);
+                let span = tracing::debug_span!("generate next layer inputs");
+                s.spawn(move || {
+                    let _span = span.enter();
+                    let mut count = num_first_layer_inputs;
+                    let mut batch: Vec<(
+                        usize,
+                        usize,
+                        StarkVerifyingKey<InnerSC>,
+                        ShardProof<InnerSC>,
+                    )> = Vec::new();
+                    loop {
+                        if expected_height == 0 {
+                            break;
+                        }
+                        let received = { proofs_rx.lock().unwrap().recv() };
+                        if let Ok((index, height, vk, proof)) = received {
+                            batch.push((index, height, vk, proof));
+
+                            // If we haven't reached the batch size, continue.
+                            if batch.len() < batch_size {
+                                continue;
+                            }
+
+                            // Compute whether we're at the last input of a layer.
+                            let mut is_last = false;
+                            if let Some(first) = batch.first() {
+                                is_last = first.1 != height;
+                            }
+
+                            // If we're at the last input of a layer, we need to only include the
+                            // first input, otherwise we include all inputs.
+                            let inputs =
+                                if is_last { vec![batch[0].clone()] } else { batch.clone() };
+
+                            let next_input_height = inputs[0].1 + 1;
+
+                            let is_complete = next_input_height == expected_height;
+
+                            let vks_and_proofs = inputs
+                                .into_iter()
+                                .map(|(_, _, vk, proof)| (vk, proof))
+                                .collect::<Vec<_>>();
+                            let input = SP1CircuitWitness::Compress(SP1CompressWitnessValues {
+                                vks_and_proofs,
+                                is_complete,
+                            });
+
+                            input_sync.wait_for_turn(count);
+                            input_tx
+                                .lock()
+                                .unwrap()
+                                .send((count, next_input_height, input, is_last))
+                                .unwrap();
+                            input_sync.advance_turn();
+                            count += 1;
+
+                            // If we're at the root of the tree, stop generating inputs.
+                            if is_complete {
+                                break;
+                            }
+
+                            // If we were at the last input of a layer, we keep everything but the
+                            // first input. Otherwise, we empty the batch.
+                            if is_last {
+                                batch = vec![batch[1].clone()];
+                            } else {
+                                batch = Vec::new();
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                })
+            };
+
+            // Wait for all the provers to finish.
+            drop(input_tx);
+            drop(record_and_trace_tx);
+            drop(proofs_tx);
+
+            for handle in prover_handles {
+                handle.join().unwrap();
+            }
+            handle.join().unwrap();
+            tracing::debug!("joined handles");
+
+            let (_, _, vk, proof) = proofs_rx.lock().unwrap().recv().unwrap();
+            (vk, proof)
+        });
+
+        Ok(SP1ReduceProof { vk, proof })
+    }
+
     /// Wrap a reduce proof into a STARK proven over a SNARK-friendly field.
     #[instrument(name = "shrink", level = "info", skip_all)]
+    #[cfg(not(feature = "recursion_cuda"))]
     pub fn shrink(
         &self,
         reduced_proof: SP1ReduceProof<InnerSC>,
@@ -917,6 +1373,60 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
             .prove(&shrink_pk, vec![runtime.record], &mut compress_challenger, opts.recursion_opts)
             .unwrap();
 
+        Ok(SP1ReduceProof { vk: shrink_vk, proof: compress_proof.shard_proofs.pop().unwrap() })
+    }
+
+    #[instrument(name = "shrink", level = "info", skip_all)]
+    #[cfg(feature = "recursion_cuda")]
+    pub fn shrink(
+        &self,
+        reduced_proof: SP1ReduceProof<InnerSC>,
+        opts: SP1ProverOpts,
+    ) -> Result<SP1ReduceProof<InnerSC>, SP1RecursionProverError> {
+        // Make the compress proof.
+        let SP1ReduceProof { vk: compressed_vk, proof: compressed_proof } = reduced_proof;
+        
+        let input = SP1CompressWitnessValues {
+            vks_and_proofs: vec![(compressed_vk.clone(), compressed_proof)],
+            is_complete: true,
+        };
+
+        let input_with_merkle = self.make_merkle_proofs(input);
+        
+        let program =
+            self.shrink_program(ShrinkAir::<BabyBear>::shrink_shape(), &input_with_merkle);
+                
+        // Run the compress program.
+        let mut runtime = RecursionRuntime::<Val<InnerSC>, Challenge<InnerSC>>::new(
+            program.clone(),
+            self.shrink_prover.config().perm.clone(),
+        );
+
+        let mut witness_stream = Vec::new();
+        Witnessable::<InnerConfig>::write(&input_with_merkle, &mut witness_stream);
+
+        runtime.witness_stream = witness_stream.into();
+
+        runtime.run().map_err(|e| SP1RecursionProverError::RuntimeError(e.to_string()))?;
+
+        runtime.print_stats();
+        tracing::debug!("Shrink program executed successfully");
+
+        let mut trace_gpu_mem_blk = self.trace_pool.lease();
+        trace_gpu_mem_blk.reset();
+
+        let (shrink_pk, shrink_vk) =
+            tracing::debug_span!("setup shrink").in_scope(|| self.shrink_prover.setup(&program, &trace_gpu_mem_blk));
+   
+        // Prove the compress program.
+        let mut prove_gpu_mem_blk = self.proof_pool.lease();
+        prove_gpu_mem_blk.reset();
+        let mut compress_challenger = self.shrink_prover.config().initialise_challenger();
+        let mut compress_proof = self
+            .shrink_prover
+            .prove(&shrink_pk, vec![runtime.record], &mut compress_challenger, opts.recursion_opts, &prove_gpu_mem_blk)
+            .unwrap();
+        
         Ok(SP1ReduceProof { vk: shrink_vk, proof: compress_proof.shard_proofs.pop().unwrap() })
     }
 

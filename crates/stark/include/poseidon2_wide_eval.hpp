@@ -2,7 +2,7 @@
 #include "air_folder.hpp"
 #include "gpu_types.hpp"
 #include "virtual_pair_col.hpp"
-#include "permutation_eval.hpp"
+#include "permutation.hpp"
 #include "poseidon_common.hpp"
 
 #include "poseidon2.hpp"
@@ -11,47 +11,6 @@
 
 #define POSEIDON2_WIDE_DEGREE 3 // Or 9, passed as a template parameter
 
-__device__ inline int get_p2_wide_interactions(Interaction* interaction_buffer) {
-    int interaction_count = 0;
-
-    // a) Input memory interactions
-    for (int i = 0; i < POSEIDON2_STATE_WIDTH; ++i) {
-        interaction_buffer[interaction_count++] = {
-            .values = {
-                VirtualPairCol::single_preprocessed(offsetof(Poseidon2PreprocessedColsWide<Val>, input[i]) / sizeof(Val)),
-                VirtualPairCol::single_main(offsetof(Poseidon2Degree3Cols<Val>, state.external_rounds_state) / sizeof(Val) + i) // input is the first 16 columns
-
-            }, 
-            .num_values = 2,
-            .multiplicity = VirtualPairCol::single_preprocessed(offsetof(Poseidon2PreprocessedColsWide<Val>, is_real_neg) / sizeof(Val)),
-            .kind = InteractionKind::Memory, 
-            .scope = InteractionScope::Local, 
-            .is_send = true
-        };
-    }
-
-    // b) Output memory interactions
-    for (int i = 0; i < POSEIDON2_STATE_WIDTH; ++i) {
-        interaction_buffer[interaction_count++] = {
-            .values = {
-                VirtualPairCol::single_preprocessed(offsetof(Poseidon2PreprocessedColsWide<Val>, output[i].addr) / sizeof(Val)),
-                VirtualPairCol::single_main(offsetof(Poseidon2Degree3Cols<Val>, state.output_state) / sizeof(Val) + i) // Need correct offset for output
-               
-            }, 
-            .num_values = 2,
-            .multiplicity = VirtualPairCol::single_preprocessed(offsetof(Poseidon2PreprocessedColsWide<Val>, output[i].mult) / sizeof(Val)),
-            .kind = InteractionKind::Memory, 
-            .scope = InteractionScope::Local, 
-            .is_send = true
-        };
-    }
-
-    return interaction_count;
-}
-
-
-
-// --- UNPACKED EVAL FUNCTION ---
 __device__ void eval_poseidon2_wide_chip(
     ProverConstraintFolder<Challenge>& folder,
     const Val* main_local_row,
@@ -69,9 +28,6 @@ __device__ void eval_poseidon2_wide_chip(
     Val is_transition
 ) {
  
-    const auto* prep_local = reinterpret_cast<const Poseidon2PreprocessedColsWide<Val>*>(prep_local_row);
-    //Val is_real = prep_local->is_real_neg * Val::neg_one(); // is_real_neg is -1, so is_real is 1
-
     // 2. Dummy constraint
     Val dummy_lhs = main_local_row[0];
     for (int i = 1; i < POSEIDON2_WIDE_DEGREE; ++i) {
@@ -83,7 +39,7 @@ __device__ void eval_poseidon2_wide_chip(
     const Val* external_rounds_state = main_local_row;
     const Val* internal_rounds_state = external_rounds_state + POSEIDON2_STATE_WIDTH * NUM_EXTERNAL_ROUNDS;
     const Val* internal_rounds_s0 = internal_rounds_state + POSEIDON2_STATE_WIDTH;
-    const Val* perm_output = internal_rounds_s0 + (NUM_INTERNAL_ROUNDS - 1);
+   // const Val* perm_output = internal_rounds_s0 + (NUM_INTERNAL_ROUNDS - 1);
     
     // a) external round
     for (int r = 0; r < NUM_EXTERNAL_ROUNDS; ++r) {

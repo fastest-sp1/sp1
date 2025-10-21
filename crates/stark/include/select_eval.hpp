@@ -2,81 +2,8 @@
 #include "air_folder.hpp"
 #include "gpu_types.hpp"
 #include "virtual_pair_col.hpp"
-#include "permutation_eval.hpp"
+#include "permutation.hpp"
 
-__device__ inline int get_select_interactions(Interaction* interaction_buffer) {
-    int interaction_count = 0;
-
-    //first count the send.
-    // builder.send_single(prep_local.addrs.out1, local.vals.out1, prep_local.mult1);
-    interaction_buffer[interaction_count++] = {
-        .values = { 
-            VirtualPairCol::single_preprocessed(offsetof(SelectPreprocessedCols<Val>, addrs.out1) / sizeof(Val)), 
-            VirtualPairCol::single_main(offsetof(SelectCols<Val>, vals.out1) / sizeof(Val))
-            
-        },
-        .num_values = 2, 
-        .multiplicity = VirtualPairCol::single_preprocessed(offsetof(SelectPreprocessedCols<Val>, mult1) / sizeof(Val)), 
-        .kind = InteractionKind::Memory,
-        .scope = InteractionScope::Local,
-        .is_send = true // send
-    };
-    // builder.send_single(prep_local.addrs.out2, local.vals.out2, prep_local.mult2);
-    interaction_buffer[interaction_count++] = {
-        .values = { 
-            VirtualPairCol::single_preprocessed(offsetof(SelectPreprocessedCols<Val>, addrs.out2) / sizeof(Val)), 
-            VirtualPairCol::single_main(offsetof(SelectCols<Val>, vals.out2)/ sizeof(Val))
-            
-        },
-        .num_values = 2, 
-        .multiplicity = VirtualPairCol::single_preprocessed(offsetof(SelectPreprocessedCols<Val>, mult2) / sizeof(Val)),
-        .kind = InteractionKind::Memory,
-        .scope = InteractionScope::Local,
-        .is_send = true // send
-    };
-
-    interaction_buffer[interaction_count++] = {
-        .values = { 
-            VirtualPairCol::single_preprocessed(offsetof(SelectPreprocessedCols<Val>, addrs.bit) / sizeof(Val)), 
-            VirtualPairCol::single_main(offsetof(SelectCols<Val>, vals.bit) / sizeof(Val))
-           
-        },
-        .num_values = 2, 
-        .multiplicity = VirtualPairCol::single_preprocessed(offsetof(SelectPreprocessedCols<Val>, is_real) / sizeof(Val)), 
-        .kind = InteractionKind::Memory,
-        .scope = InteractionScope::Local,
-        .is_send = false 
-    };
-    // builder.receive_single(prep_local.addrs.in1, local.vals.in1, prep_local.is_real);
-    interaction_buffer[interaction_count++] = {
-        .values = { 
-            VirtualPairCol::single_preprocessed(offsetof(SelectPreprocessedCols<Val>, addrs.in1) / sizeof(Val)), 
-            VirtualPairCol::single_main(offsetof(SelectCols<Val>, vals.in1) / sizeof(Val))
-            
-        },
-        .num_values = 2, 
-        .multiplicity = VirtualPairCol::single_preprocessed(offsetof(SelectPreprocessedCols<Val>, is_real) / sizeof(Val)), 
-        .kind = InteractionKind::Memory,
-        .scope = InteractionScope::Local,
-        .is_send = false // receive
-    };
-    // builder.receive_single(prep_local.addrs.in2, local.vals.in2, prep_local.is_real);
-    interaction_buffer[interaction_count++] = {
-        .values = { 
-            VirtualPairCol::single_preprocessed(offsetof(SelectPreprocessedCols<Val>, addrs.in2) / sizeof(Val)), 
-            VirtualPairCol::single_main(offsetof(SelectCols<Val>, vals.in2) / sizeof(Val)) 
-            
-        },
-        .num_values = 2, 
-        .multiplicity = VirtualPairCol::single_preprocessed(offsetof(SelectPreprocessedCols<Val>, is_real) / sizeof(Val)), 
-        .kind = InteractionKind::Memory,
-        .scope = InteractionScope::Local,
-        .is_send = false // receive
-    };
-    
-    return interaction_count;
-}
-// --- UNPACKED EVAL FUNCTION ---
 __device__ void eval_select_chip(
     ProverConstraintFolder<Challenge>& folder,
     const Val* main_local_row,
@@ -95,7 +22,7 @@ __device__ void eval_select_chip(
 ) {
     // Cast raw pointers to structured views
     const auto* local = reinterpret_cast<const SelectCols<Val>*>(main_local_row);
-    const auto* prep_local = reinterpret_cast<const SelectPreprocessedCols<Val>*>(prep_local_row);
+   // const auto* prep_local = reinterpret_cast<const SelectPreprocessedCols<Val>*>(prep_local_row);
 
     // 1. Core constraint logic (only applied when is_real is true)
     Val expected_out1 = local->vals.bit * local->vals.in2 + (Val::one() - local->vals.bit) * local->vals.in1;

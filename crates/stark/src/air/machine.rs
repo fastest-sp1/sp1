@@ -1,12 +1,14 @@
 use p3_air::BaseAir;
 use p3_field::Field;
 use p3_matrix::dense::RowMajorMatrix;
-
+use p3_matrix::Matrix;
 use crate::{septic_digest::SepticDigest, MachineRecord};
 
 pub use sp1_derive::MachineAir;
 
 use super::InteractionScope;
+
+use crate::gpu::matrix::GpuMatrix;
 
 // TODO: add Id type and also fn id()
 
@@ -72,6 +74,28 @@ pub trait MachineAir<F: Field>: BaseAir<F> + 'static + Send + Sync {
     /// Specifies whether the air only uses the local row, and not the next row.
     fn local_only(&self) -> bool {
         false
+    }
+
+    /// This method should only be implemented for chips with a CUDA-accelerated trace generator.
+    fn generate_trace_gpu(&self, input: &Self::Record, output: &mut Self::Record) -> RowMajorMatrix<F> {   
+        /*panic!(
+            "generate_trace_gpu is not implemented for chip: {}",
+            self.name()
+        );*/
+        //println!("---machine-air--gen-tr-gpu--,chi_name={:?}", self.name());
+        self.generate_trace(input, output)
+
+    }
+
+    /// This method should only be implemented for chips with a CUDA-accelerated trace generator.
+    /// The default implementation returns None.
+    fn generate_preprocessed_trace_gpu(
+        &self,
+        program: &Self::Program,
+    ) -> Option<RowMajorMatrix<F>> {
+        // Default to no GPU preprocessed trace.
+        //let cpu_prep_trace = self.generate_preprocessed_trace(input, output);
+        self.generate_preprocessed_trace(program) 
     }
 }
 

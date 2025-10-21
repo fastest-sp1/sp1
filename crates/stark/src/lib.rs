@@ -31,7 +31,7 @@ pub mod machine;
 mod opts;
 mod permutation;
 mod prover;
-mod quotient;
+mod quotient;  
 mod record;
 pub mod packed_septic_extension;
 pub mod septic_curve;
@@ -43,7 +43,9 @@ mod util;
 mod verifier;
 mod word;
 pub mod gpu;
+mod gpu_prover;
 
+pub use gpu_prover::*;
 pub use gpu::*;
 pub use bb31_poseidon2::*;
 pub use chip::*;

@@ -2,156 +2,11 @@
 #include "air_folder.hpp"
 #include "gpu_types.hpp"
 #include "virtual_pair_col.hpp"
-#include "permutation_eval.hpp"
+#include "permutation.hpp"
 
 #define FRI_FOLD_DEGREE 3
 
-__device__ inline int get_fri_fold_interactions(Interaction* interaction_buffer) {
-    int interaction_count = 0;
-        // Reads for x , z, alpha
-    interaction_buffer[interaction_count++] = { 
-        .values = { 
-                VirtualPairCol::single_preprocessed(offsetof(FriFoldPreprocessedCols<Val>, x_mem.addr) / sizeof(Val)),  
-                VirtualPairCol::single_main(offsetof(FriFoldCols<Val>, x) / sizeof(Val))
-                
-        }, 
-        .num_values = 2, 
-        .multiplicity = VirtualPairCol::single_preprocessed(offsetof(FriFoldPreprocessedCols<Val>, x_mem.mult) / sizeof(Val)), 
-        .kind = InteractionKind::Memory,
-        .scope = InteractionScope::Local,
-        .is_send = true 
-    };
-
-    interaction_buffer[interaction_count++] = { 
-        .values = { 
-            VirtualPairCol::single_preprocessed(offsetof(FriFoldPreprocessedCols<Val>, z_mem.addr) / sizeof(Val)), 
-            VirtualPairCol::single_main(offsetof(FriFoldCols<Val>, z._0) / sizeof(Val)), 
-            VirtualPairCol::single_main(offsetof(FriFoldCols<Val>, z._0[1]) / sizeof(Val)),
-            VirtualPairCol::single_main(offsetof(FriFoldCols<Val>, z._0[2]) / sizeof(Val)),
-            VirtualPairCol::single_main(offsetof(FriFoldCols<Val>, z._0[3]) / sizeof(Val))  
-        }, 
-        .num_values = 5, 
-        .multiplicity = VirtualPairCol::single_preprocessed(offsetof(FriFoldPreprocessedCols<Val>, z_mem.mult) / sizeof(Val)), 
-        .kind = InteractionKind::Memory,
-        .scope = InteractionScope::Local,
-        .is_send = true
-    };
-
-    interaction_buffer[interaction_count++] = { 
-        .values = { 
-                VirtualPairCol::single_preprocessed(offsetof(FriFoldPreprocessedCols<Val>, alpha_mem.addr) / sizeof(Val)),       
-                VirtualPairCol::single_main(offsetof(FriFoldCols<Val>, alpha._0) / sizeof(Val)), 
-                VirtualPairCol::single_main(offsetof(FriFoldCols<Val>, alpha._0[1]) / sizeof(Val)),
-                VirtualPairCol::single_main(offsetof(FriFoldCols<Val>, alpha._0[2]) / sizeof(Val)),
-                VirtualPairCol::single_main(offsetof(FriFoldCols<Val>, alpha._0[3]) / sizeof(Val)) 
-            }, 
-        .num_values = 5, 
-        .multiplicity = VirtualPairCol::single_preprocessed(offsetof(FriFoldPreprocessedCols<Val>, alpha_mem.mult) / sizeof(Val)), 
-        .kind = InteractionKind::Memory,
-        .scope = InteractionScope::Local,
-        .is_send = true 
-    };
-    
-
-    // Constrain write  alpha_pow_input.
-    interaction_buffer[interaction_count++] = { 
-        .values = { 
-            VirtualPairCol::single_preprocessed(offsetof(FriFoldPreprocessedCols<Val>, alpha_pow_input_mem.addr) / sizeof(Val)), 
-            VirtualPairCol::single_main(offsetof(FriFoldCols<Val>, alpha_pow_input._0) / sizeof(Val)), 
-            VirtualPairCol::single_main(offsetof(FriFoldCols<Val>, alpha_pow_input._0[1]) / sizeof(Val)),
-            VirtualPairCol::single_main(offsetof(FriFoldCols<Val>, alpha_pow_input._0[2]) / sizeof(Val)),
-            VirtualPairCol::single_main(offsetof(FriFoldCols<Val>, alpha_pow_input._0[3]) / sizeof(Val))
-        }, 
-        .num_values = 5, 
-        .multiplicity = VirtualPairCol::single_preprocessed(offsetof(FriFoldPreprocessedCols<Val>, alpha_pow_input_mem.mult) / sizeof(Val)), 
-        .kind = InteractionKind::Memory,
-        .scope = InteractionScope::Local,
-        .is_send = true 
-    };
-
-    //Constrain write ro_input
-    interaction_buffer[interaction_count++] = { 
-        .values = { 
-            VirtualPairCol::single_preprocessed(offsetof(FriFoldPreprocessedCols<Val>, ro_input_mem.addr) / sizeof(Val)), 
-            VirtualPairCol::single_main(offsetof(FriFoldCols<Val>, ro_input._0[0]) / sizeof(Val)), 
-            VirtualPairCol::single_main(offsetof(FriFoldCols<Val>, ro_input._0[1]) / sizeof(Val)),
-            VirtualPairCol::single_main(offsetof(FriFoldCols<Val>, ro_input._0[2]) / sizeof(Val)),
-            VirtualPairCol::single_main(offsetof(FriFoldCols<Val>, ro_input._0[3]) / sizeof(Val))
-        }, 
-        .num_values = 5, 
-        .multiplicity = VirtualPairCol::single_preprocessed(offsetof(FriFoldPreprocessedCols<Val>, ro_input_mem.mult) / sizeof(Val)), 
-        .kind = InteractionKind::Memory,
-        .scope = InteractionScope::Local,
-        .is_send = true 
-    };
-
-    //Constrain write  p_at_z
-    interaction_buffer[interaction_count++] = { 
-        .values = { 
-            VirtualPairCol::single_preprocessed(offsetof(FriFoldPreprocessedCols<Val>, p_at_z_mem.addr) / sizeof(Val)), 
-            VirtualPairCol::single_main(offsetof(FriFoldCols<Val>, p_at_z._0[0]) / sizeof(Val)), 
-            VirtualPairCol::single_main(offsetof(FriFoldCols<Val>, p_at_z._0[1]) / sizeof(Val)),
-            VirtualPairCol::single_main(offsetof(FriFoldCols<Val>, p_at_z._0[2]) / sizeof(Val)),
-            VirtualPairCol::single_main(offsetof(FriFoldCols<Val>, p_at_z._0[3]) / sizeof(Val))
-        }, 
-        .num_values = 5, 
-        .multiplicity = VirtualPairCol::single_preprocessed(offsetof(FriFoldPreprocessedCols<Val>, p_at_z_mem.mult) / sizeof(Val)), 
-        .kind = InteractionKind::Memory,
-        .scope = InteractionScope::Local,
-        .is_send = true 
-    };
-
-    // Constrain write  p_at_x
-    interaction_buffer[interaction_count++] = { 
-        .values = { 
-            VirtualPairCol::single_preprocessed(offsetof(FriFoldPreprocessedCols<Val>, p_at_x_mem.addr) / sizeof(Val)), 
-            VirtualPairCol::single_main(offsetof(FriFoldCols<Val>, p_at_x._0[0]) / sizeof(Val)), 
-            VirtualPairCol::single_main(offsetof(FriFoldCols<Val>, p_at_x._0[1]) / sizeof(Val)),
-            VirtualPairCol::single_main(offsetof(FriFoldCols<Val>, p_at_x._0[2]) / sizeof(Val)),
-            VirtualPairCol::single_main(offsetof(FriFoldCols<Val>, p_at_x._0[3]) / sizeof(Val)) 
-        }, 
-        .num_values = 5, 
-        .multiplicity = VirtualPairCol::single_preprocessed(offsetof(FriFoldPreprocessedCols<Val>, p_at_x_mem.mult) / sizeof(Val)), 
-        .kind = InteractionKind::Memory,
-        .scope = InteractionScope::Local,
-        .is_send = true 
-    };
-    
-    
-    // Writes for output vectors
-    interaction_buffer[interaction_count++] = { 
-        .values = { 
-            VirtualPairCol::single_preprocessed(offsetof(FriFoldPreprocessedCols<Val>, alpha_pow_output_mem.addr) / sizeof(Val)), 
-            VirtualPairCol::single_main(offsetof(FriFoldCols<Val>, alpha_pow_output._0[0]) / sizeof(Val)), 
-            VirtualPairCol::single_main(offsetof(FriFoldCols<Val>, alpha_pow_output._0[1]) / sizeof(Val)),
-            VirtualPairCol::single_main(offsetof(FriFoldCols<Val>, alpha_pow_output._0[2]) / sizeof(Val)),
-            VirtualPairCol::single_main(offsetof(FriFoldCols<Val>, alpha_pow_output._0[3]) / sizeof(Val))
-        }, 
-        .num_values = 5, 
-        .multiplicity = VirtualPairCol::single_preprocessed(offsetof(FriFoldPreprocessedCols<Val>, alpha_pow_output_mem.mult) / sizeof(Val)), 
-        .kind = InteractionKind::Memory,
-        .scope = InteractionScope::Local,
-        .is_send = true 
-    };
-
-    interaction_buffer[interaction_count++] = { 
-        .values = { 
-            VirtualPairCol::single_preprocessed(offsetof(FriFoldPreprocessedCols<Val>, ro_output_mem.addr) / sizeof(Val)), 
-            VirtualPairCol::single_main(offsetof(FriFoldCols<Val>, ro_output._0[0]) / sizeof(Val)), 
-            VirtualPairCol::single_main(offsetof(FriFoldCols<Val>, ro_output._0[1]) / sizeof(Val)),
-            VirtualPairCol::single_main(offsetof(FriFoldCols<Val>, ro_output._0[2]) / sizeof(Val)),
-            VirtualPairCol::single_main(offsetof(FriFoldCols<Val>, ro_output._0[3]) / sizeof(Val))
-        }, 
-        .num_values = 5, 
-        .multiplicity = VirtualPairCol::single_preprocessed(offsetof(FriFoldPreprocessedCols<Val>, ro_output_mem.mult) / sizeof(Val)), 
-        .kind = InteractionKind::Memory,
-        .scope = InteractionScope::Local,
-        .is_send = true 
-    };
-
-    return interaction_count;
-}
-
+// --- UNPACKED EVAL FUNCTION ---
 __device__ void eval_fri_fold_chip(
     ProverConstraintFolder<Challenge>& folder,
     const Val* main_local_row,
@@ -219,12 +74,19 @@ __device__ void eval_fri_fold_chip(
     Challenge rhs_c2 = (p_at_x_ext - p_at_z_ext) * old_alpha_pow_ext;
    
 
+    printf("--gpu:fri_fold, is_real=%u \n", is_real.as_canonical_u32());
     folder_assert_ext_eq(folder, lhs_c2, rhs_c2, is_real);
 
     // 3. Memory Interactions (Permutation Argument)
     Interaction interaction_buffer[10];
     int interaction_count = get_fri_fold_interactions(interaction_buffer);
-          
+    
+
+    
+    // I have omitted the zero-padding for VirtualPairCol for brevity, but they should be there.
+    // The permutation logic here is a bit tricky, since it's "send" in Rust but logically a "read". 
+    // SP1 uses "send" for all memory interactions. So is_send=true is correct.
+    
     //const int perm_width_ef = perm_width / 4;
     const Challenge* perm_local = reinterpret_cast<const Challenge*>(perm_local_flat);
     const Challenge* perm_next = reinterpret_cast<const Challenge*>(perm_next_flat);

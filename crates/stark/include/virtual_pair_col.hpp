@@ -49,6 +49,35 @@ class VirtualPairCol {
             result += col_val * pair.second;
         }
         return result;
+
+        //debug
+       /* Val result = this->constant;
+
+        // Add detailed printf for debugging.
+        printf("GPU APPLY: Start. Constant = %u, Num_weights = %d\n", 
+               result.as_canonical_u32(), this->num_weights);
+
+        for (int i = 0; i < this->num_weights; ++i) {
+            const auto& pair = this->column_weights[i];
+            const PairCol& col = pair.first;
+            const Val& weight = pair.second;
+            
+            Val col_val;
+            if (col.type == PairColType::Preprocessed) {
+                col_val = prep_row[col.index];
+                printf("GPU APPLY: i=%d, Type=PREP, Index=%d, Weight=%u, ColVal=%u, \n",
+                       i, col.index, weight.as_canonical_u32(), col_val.as_canonical_u32());
+            } else { // Main
+                col_val = main_row[col.index];
+                printf("GPU APPLY: i=%d, Type=MAIN, Index=%d, Weight=%u, ColVal=%u, \n",
+                      i, col.index, weight.as_canonical_u32(), col_val.as_canonical_u32());
+            }
+
+            result += col_val * weight;
+            printf("GPU APPLY: i=%d, NewResult=%u\n", i, result.as_canonical_u32());
+        }
+        printf("GPU APPLY: Final Result = %u\n", result.as_canonical_u32());
+        return result;*/
     }
     
     // --- `operator+` ---
