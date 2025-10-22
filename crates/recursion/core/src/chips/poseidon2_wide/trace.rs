@@ -1,19 +1,19 @@
 use crate::{
-    instruction::Instruction::Poseidon2, ExecutionRecord, Poseidon2Io, Poseidon2SkinnyInstr,
+    ExecutionRecord, Poseidon2Io, Poseidon2SkinnyInstr, instruction::Instruction::Poseidon2,
 };
 use p3_air::BaseAir;
 use p3_baby_bear::BabyBear;
 use p3_field::{PrimeCharacteristicRing, PrimeField32};
-use p3_matrix::{dense::RowMajorMatrix, };
+use p3_matrix::dense::RowMajorMatrix;
 use p3_maybe_rayon::prelude::*;
 use sp1_core_machine::{operations::poseidon2::WIDTH, utils::next_power_of_two};
 use sp1_stark::air::MachineAir;
 use std::{borrow::BorrowMut, mem::size_of};
 use tracing::instrument;
-use itertools::Itertools;
-use super::{columns::preprocessed::Poseidon2PreprocessedColsWide, Poseidon2WideChip};
+//use itertools::Itertools;
+use super::{Poseidon2WideChip, columns::preprocessed::Poseidon2PreprocessedColsWide};
 
-use sp1_stark::GpuMatrix;
+//use sp1_stark::GpuMatrix;
 
 pub const PREPROCESSED_POSEIDON2_WIDTH: usize = size_of::<Poseidon2PreprocessedColsWide<u8>>();
 
@@ -49,7 +49,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for Poseidon2WideChip<D
             std::any::TypeId::of::<BabyBear>(),
             "generate_trace only supports BabyBear field"
         );
-        
+
         let events = unsafe {
             std::mem::transmute::<&Vec<Poseidon2Io<F>>, &Vec<Poseidon2Io<BabyBear>>>(
                 &input.poseidon2_events,
@@ -58,35 +58,34 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for Poseidon2WideChip<D
         let padded_nb_rows = self.num_rows(input).unwrap();
         let num_columns = <Self as BaseAir<F>>::width(self);
         let mut values = vec![BabyBear::ZERO; padded_nb_rows * num_columns];
-        
+
         let populate_len = input.poseidon2_events.len() * num_columns;
         let (values_pop, values_dummy) = values.split_at_mut(populate_len);
 
-        
         let populate_perm_ffi = |input: &[BabyBear; WIDTH], input_row: &mut [BabyBear]| unsafe {
-                crate::sys::poseidon2_wide_event_to_row_babybear(
-                    input.as_ptr(),
-                    input_row.as_mut_ptr(),
-                    DEGREE == 3,
-                )
+            crate::sys::poseidon2_wide_event_to_row_babybear(
+                input.as_ptr(),
+                input_row.as_mut_ptr(),
+                DEGREE == 3,
+            )
         };
 
         join(
-                || {
-                    values_pop
-                        .par_chunks_mut(num_columns) 
-                        //.chunks_mut(num_columns) //test
-                        .zip_eq(events)  
-                        //.zip(events)
-                        .for_each(|(row, event)| populate_perm_ffi(&event.input, row))
-                },
-                || {
-                    let mut dummy_row = vec![BabyBear::ZERO; num_columns];
-                    populate_perm_ffi(&[BabyBear::ZERO; WIDTH], &mut dummy_row);
-                    values_dummy
-                        .par_chunks_mut(num_columns)
-                        .for_each(|row| row.copy_from_slice(&dummy_row))
-                },
+            || {
+                values_pop
+                    .par_chunks_mut(num_columns)
+                    //.chunks_mut(num_columns) //test
+                    .zip_eq(events)
+                    //.zip(events)
+                    .for_each(|(row, event)| populate_perm_ffi(&event.input, row))
+            },
+            || {
+                let mut dummy_row = vec![BabyBear::ZERO; num_columns];
+                populate_perm_ffi(&[BabyBear::ZERO; WIDTH], &mut dummy_row);
+                values_dummy
+                    .par_chunks_mut(num_columns)
+                    .for_each(|row| row.copy_from_slice(&dummy_row))
+            },
         );
 
         let trace = RowMajorMatrix::new(
@@ -140,30 +139,28 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for Poseidon2WideChip<D
         let mut values = vec![BabyBear::ZERO; padded_nb_rows * PREPROCESSED_POSEIDON2_WIDTH];
 
         if instrs.is_empty() {
-             return Some(RowMajorMatrix::new(
-                 unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
-                 PREPROCESSED_POSEIDON2_WIDTH,
+            return Some(RowMajorMatrix::new(
+                unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
+                PREPROCESSED_POSEIDON2_WIDTH,
             ));
         }
-    
-         
+
         let populate_len = instrs.len() * PREPROCESSED_POSEIDON2_WIDTH;
         values[..populate_len]
             .par_chunks_mut(PREPROCESSED_POSEIDON2_WIDTH)
             .zip_eq(instrs)
             .for_each(|(row, instr)| {
-                    let cols: &mut Poseidon2PreprocessedColsWide<_> = row.borrow_mut();
-                    unsafe {
-                        crate::sys::poseidon2_wide_instr_to_row_babybear(instr, cols);
-                    }
+                let cols: &mut Poseidon2PreprocessedColsWide<_> = row.borrow_mut();
+                unsafe {
+                    crate::sys::poseidon2_wide_instr_to_row_babybear(instr, cols);
+                }
             });
-        
 
         let trace = RowMajorMatrix::new(
             unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
             PREPROCESSED_POSEIDON2_WIDTH,
         );
-        
+
         Some(trace)
     }
 
@@ -174,14 +171,14 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for Poseidon2WideChip<D
                 &input.poseidon2_events,
             )
         };
-        
-        // Pad the trace 
+
+        // Pad the trace
         let padded_nb_rows = self.num_rows(input).unwrap();
         let num_cols = <Self as BaseAir<F>>::width(self);
 
         // 1. Allocate the matrix directly on the GPU.
         let mut gpu_matrix = GpuMatrix::<F>::new(padded_nb_rows, num_cols);
-               
+
         if !events.is_empty() {
             unsafe {
                 crate::sys::process_poseidon2_wide_events_gpu(
@@ -196,7 +193,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for Poseidon2WideChip<D
                 );
             }
         }
-        
+
         // 3. Return the GpuMatrix handle.
         gpu_matrix
     }
@@ -226,14 +223,14 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for Poseidon2WideChip<D
 
             // 1. Allocate the matrix directly on the GPU.
             let mut gpu_matrix = GpuMatrix::<F>::new(padded_nb_rows, num_cols);
-            
+
             let instrs_for_gpu: Vec<Poseidon2SkinnyInstr<BabyBear>> = instrs
                 .iter()
                 .map(|&instr_ref| *instr_ref)
                 .collect_vec();
             unsafe {
                 crate::sys::process_poseidon2_wide_instructions_gpu(
-                    instrs_for_gpu.as_ptr(), 
+                    instrs_for_gpu.as_ptr(),
                     instrs_for_gpu.len(),
                     gpu_matrix.as_mut_ptr() as *mut BabyBear, // Pass the device pointer
                     gpu_matrix.height * gpu_matrix.width, // Pass total elements
@@ -243,20 +240,20 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for Poseidon2WideChip<D
             Some(gpu_matrix)
         } else {
             None
-        }         
+        }
     } */
 }
 
 #[cfg(test)]
 mod tests {
     use crate::{
-        chips::{mem::MemoryAccessCols, poseidon2_wide::Poseidon2WideChip, test_fixtures},
         ExecutionRecord, RecursionProgram,
+        chips::{mem::MemoryAccessCols, poseidon2_wide::Poseidon2WideChip, test_fixtures},
     };
     use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
-    use p3_matrix::{dense::RowMajorMatrix, Matrix};
-    use sp1_core_machine::operations::poseidon2::{trace::populate_perm, WIDTH};
+    use p3_matrix::{Matrix, dense::RowMajorMatrix};
+    use sp1_core_machine::operations::poseidon2::{WIDTH, trace::populate_perm};
     use sp1_stark::air::MachineAir;
 
     use super::*;
@@ -300,7 +297,7 @@ mod tests {
     }
 
     use p3_symmetric::Permutation;
-    use rand::{prelude::SliceRandom, rngs::StdRng, Rng, SeedableRng};
+    use rand::{Rng, SeedableRng, prelude::SliceRandom, rngs::StdRng};
     use sp1_stark::inner_perm;
     use std::array;
     #[test]
@@ -328,10 +325,10 @@ mod tests {
         //assert_eq!(values, output);
     }
 
-    //use crate::gpu::init_gpu_context;  
+    //use crate::gpu::init_gpu_context;
     #[test]
     fn test_generate_trace_deg_3() {
-       // init_gpu_context();
+        // init_gpu_context();
         let shard = test_fixtures::shard();
         let mut execution_record = test_fixtures::default_execution_record();
         let chip = Poseidon2WideChip::<DEGREE_3>;
@@ -344,17 +341,17 @@ mod tests {
     }
 
     #[test]
-    fn generate_trace_gpu() {     
+    fn generate_trace_gpu() {
         let shard = test_fixtures::shard();
         let mut execution_record = test_fixtures::default_execution_record();
         let chip = Poseidon2WideChip::<DEGREE_3>;
 
         let trace_gpu_ptr = chip.generate_trace_gpu(&shard, &mut execution_record);
-        
+
         let trace_values = trace_gpu_ptr.to_host();
         let num_columns = <Poseidon2WideChip<DEGREE_3> as BaseAir<BabyBear>>::width(&chip);
         let trace = RowMajorMatrix::new(trace_values, num_columns);
-        
+
         assert_eq!(trace, generate_trace_reference::<DEGREE_3>(&shard, &mut execution_record));
     }
 

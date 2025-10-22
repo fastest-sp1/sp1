@@ -1,27 +1,27 @@
 use crate::{
-    septic_curve::SepticCurve, septic_digest::SepticDigest, septic_extension::SepticExtension,
-    PROOF_MAX_NUM_PVS,
+    PROOF_MAX_NUM_PVS, septic_curve::SepticCurve, septic_digest::SepticDigest,
+    septic_extension::SepticExtension,
 };
 use hashbrown::HashMap;
 use itertools::Itertools;
 use p3_air::Air;
 use p3_challenger::{CanObserve, FieldChallenger};
 use p3_commit::Pcs;
-use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, Field, PrimeField32};
-use p3_matrix::{dense::RowMajorMatrix, Dimensions, Matrix};
+use p3_field::{BasedVectorSpace, Field, PrimeCharacteristicRing, PrimeField32};
+use p3_matrix::{Dimensions, Matrix, dense::RowMajorMatrix};
 use p3_maybe_rayon::prelude::*;
-use p3_uni_stark::{get_symbolic_constraints, SymbolicAirBuilder};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use p3_uni_stark::{SymbolicAirBuilder, get_symbolic_constraints};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{cmp::Reverse, env, fmt::Debug, iter::once, time::Instant};
 use tracing::instrument;
 
-use super::{debug_constraints, Dom};
+use super::{Dom, debug_constraints};
 use crate::{
+    DebugConstraintBuilder, ShardProof, VerifierConstraintFolder,
     air::{InteractionScope, MachineAir, MachineProgram},
     count_permutation_constraints,
-    lookup::{debug_interactions_with_all_chips, InteractionKind},
+    lookup::{InteractionKind, debug_interactions_with_all_chips},
     record::MachineRecord,
-    DebugConstraintBuilder, ShardProof, VerifierConstraintFolder,
 };
 
 use super::{
@@ -225,8 +225,12 @@ impl<SC: StarkGenericConfig, A: MachineAir<Val<SC>>> StarkMachine<SC, A> {
                             let last_row =
                                 &main_trace.values[main_trace_size - 14..main_trace_size];
                             SepticDigest(SepticCurve {
-                                x: SepticExtension::<Val<SC>>::from_basis_coefficients_fn(|i| last_row[i]),
-                                y: SepticExtension::<Val<SC>>::from_basis_coefficients_fn(|i| last_row[i + 7]),
+                                x: SepticExtension::<Val<SC>>::from_basis_coefficients_fn(|i| {
+                                    last_row[i]
+                                }),
+                                y: SepticExtension::<Val<SC>>::from_basis_coefficients_fn(|i| {
+                                    last_row[i + 7]
+                                }),
                             })
                         };
                         (trace, (global_sum, local_sum))
@@ -259,8 +263,8 @@ impl<SC: StarkGenericConfig, A: MachineAir<Val<SC>>> StarkMachine<SC, A> {
             for i in 0..chips.len() {
                 let trace_width = traces[i].0.width();
                 let pre_width = traces[i].1.map_or(0, p3_matrix::Matrix::width);
-                let permutation_width = permutation_traces[i].width() *
-                    <SC::Challenge as BasedVectorSpace<SC::Val>>::DIMENSION;
+                let permutation_width = permutation_traces[i].width()
+                    * <SC::Challenge as BasedVectorSpace<SC::Val>>::DIMENSION;
                 let total_width = trace_width + pre_width + permutation_width;
                 tracing::debug!(
                     "{:<11} | Main Cols = {:<5} | Pre Cols = {:<5} | Perm Cols = {:<5} | Rows = {:<10} | Cells = {:<10}",
@@ -359,7 +363,7 @@ impl<SC: StarkGenericConfig, A: MachineAir<Val<SC>> + Air<SymbolicAirBuilder<Val
                             "generated preprocessed trace for chip {} in {:?}",
                             chip_name,
                             begin.elapsed()
-                        );  //println!("---set_core, chip:{}, prep_trace.width:{}", chip_name, chip.preprocessed_width());
+                        ); //println!("---set_core, chip:{}, prep_trace.width:{}", chip_name, chip.preprocessed_width());
                         // Assert that the chip width data is correct.
                         let expected_width =
                             prep_trace.as_ref().map_or(0, p3_matrix::Matrix::width);
@@ -665,8 +669,7 @@ impl<SC: StarkGenericConfig> MachineVerificationError<SC> {
 
 //test
 use std::sync::Mutex;
-pub fn parallel_matrix_sum<SC: StarkGenericConfig>(matrix: &RowMajorMatrix<Val<SC>>) 
-{
+pub fn parallel_matrix_sum<SC: StarkGenericConfig>(matrix: &RowMajorMatrix<Val<SC>>) {
     let num_rows = matrix.height();
     let num_cols = matrix.width();
     let values = &matrix.values;
@@ -686,5 +689,10 @@ pub fn parallel_matrix_sum<SC: StarkGenericConfig>(matrix: &RowMajorMatrix<Val<S
         *global += local_sum;
     });
 
-    tracing::debug!("Height:{}, Width:{}, trace_sum:{:?}", num_rows, num_cols, global_sum.into_inner().unwrap());
+    tracing::debug!(
+        "Height:{}, Width:{}, trace_sum:{:?}",
+        num_rows,
+        num_cols,
+        global_sum.into_inner().unwrap()
+    );
 }

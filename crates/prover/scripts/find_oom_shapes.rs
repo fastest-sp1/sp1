@@ -3,7 +3,7 @@
 use std::{collections::BTreeMap, path::PathBuf};
 
 use clap::Parser;
-use sp1_core_executor::{rv32im_costs, RiscvAirId};
+use sp1_core_executor::{RiscvAirId, rv32im_costs};
 use sp1_core_machine::utils::setup_logger;
 use sp1_stark::shape::Shape;
 

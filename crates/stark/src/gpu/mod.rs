@@ -1,19 +1,19 @@
 pub mod dft;
 pub mod ffi;
-pub mod merkle;
-pub mod pcs;
 pub mod gpu_config;
+pub mod gpu_mem;
 pub mod gpu_prove;
 pub mod matrix;
+pub mod merkle;
+pub mod pcs;
 pub mod permutation;
-pub mod gpu_mem;
 
 pub use dft::*;
 pub use ffi::*;
-pub use merkle::*;
-pub use pcs::*;
 pub use gpu_config::*;
+pub use gpu_mem::*;
 pub use gpu_prove::*;
 pub use matrix::*;
+pub use merkle::*;
+pub use pcs::*;
 pub use permutation::*;
-pub use gpu_mem::*;

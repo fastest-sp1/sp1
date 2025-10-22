@@ -5,19 +5,20 @@ use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_challenger::DuplexChallenger;
 use p3_commit::{BatchOpening, ExtensionMmcs};
 use p3_dft::Radix2DitParallel;
-use p3_field::{extension::BinomialExtensionField, PrimeCharacteristicRing, Field};
-use p3_fri::{
-    CommitPhaseProofStep, FriConfig, FriProof, QueryProof, TwoAdicFriPcs,
-    TwoAdicFriPcsProof,
-};
+use p3_field::{Field, PrimeCharacteristicRing, extension::BinomialExtensionField};
+use p3_fri::{CommitPhaseProofStep, FriConfig, FriProof, QueryProof, TwoAdicFriPcsProof};
+#[cfg(not(feature = "recursion_cuda"))]
 use p3_merkle_tree::MerkleTreeMmcs;
-//use p3_poseidon2::Poseidon2;
+
+#[cfg(not(feature = "recursion_cuda"))]
+use p3_fri::TwoAdicFriPcs;
+
 use p3_symmetric::{Hash, PaddingFreeSponge, TruncatedPermutation};
 use serde::{Deserialize, Serialize};
 use sp1_primitives::poseidon2_init;
 
-#[cfg(feature = "recursion_cuda")]
-use crate::gpu::dft::GpuDft; 
+//#[cfg(feature = "recursion_cuda")]
+//use crate::gpu::dft::GpuDft;
 
 pub const DIGEST_SIZE: usize = 8;
 
@@ -39,7 +40,7 @@ pub type InnerValMmcs = MerkleTreeMmcs<
     8,
 >;
 #[cfg(feature = "recursion_cuda")]
-pub type InnerValMmcs =  crate::gpu::merkle::GpuMerkleTreeMmcs<
+pub type InnerValMmcs = crate::gpu::merkle::GpuMerkleTreeMmcs<
     <InnerVal as Field>::Packing,
     <InnerVal as Field>::Packing,
     InnerHash,
@@ -53,13 +54,14 @@ pub type InnerChallenger = DuplexChallenger<InnerVal, InnerPerm, 16, 8>;
 #[cfg(not(feature = "recursion_cuda"))]
 pub type InnerDft = Radix2DitParallel<InnerVal>;
 #[cfg(feature = "recursion_cuda")]
-pub type InnerDft = Radix2DitParallel<InnerVal>;//GpuDft; // GpuDft's performace is not good , if the matrix height is <262144
+pub type InnerDft = Radix2DitParallel<InnerVal>; //GpuDft; // GpuDft's performace is not good , if the matrix height is <262144
 
 //pub type InnerPcs = TwoAdicFriPcs<InnerVal, InnerDft, InnerValMmcs, InnerChallengeMmcs>;
 #[cfg(not(feature = "recursion_cuda"))]
 pub type InnerPcs = TwoAdicFriPcs<InnerVal, InnerDft, InnerValMmcs, InnerChallengeMmcs>;
 #[cfg(feature = "recursion_cuda")]
-pub type InnerPcs = crate::gpu::pcs::GpuFriPcs<InnerVal, InnerDft, InnerValMmcs, InnerChallengeMmcs>;
+pub type InnerPcs =
+    crate::gpu::pcs::GpuFriPcs<InnerVal, InnerDft, InnerValMmcs, InnerChallengeMmcs>;
 
 pub type InnerQueryProof = QueryProof<InnerChallenge, InnerChallengeMmcs>;
 pub type InnerCommitPhaseStep = CommitPhaseProofStep<InnerChallenge, InnerChallengeMmcs>;
@@ -85,7 +87,13 @@ pub fn sp1_fri_config() -> FriConfig<InnerChallengeMmcs> {
         Ok(value) => value.parse().unwrap(),
         Err(_) => 100,
     };
-    FriConfig { log_blowup: 1, log_final_poly_len:0, num_queries, proof_of_work_bits: 16, mmcs: challenge_mmcs }
+    FriConfig {
+        log_blowup: 1,
+        log_final_poly_len: 0,
+        num_queries,
+        proof_of_work_bits: 16,
+        mmcs: challenge_mmcs,
+    }
 }
 
 /// The FRI config for inner recursion.
@@ -99,7 +107,13 @@ pub fn inner_fri_config() -> FriConfig<InnerChallengeMmcs> {
         Ok(value) => value.parse().unwrap(),
         Err(_) => 100,
     };
-    FriConfig { log_blowup: 1, log_final_poly_len:0, num_queries, proof_of_work_bits: 16, mmcs: challenge_mmcs }
+    FriConfig {
+        log_blowup: 1,
+        log_final_poly_len: 0,
+        num_queries,
+        proof_of_work_bits: 16,
+        mmcs: challenge_mmcs,
+    }
 }
 
 /// The recursion config used for recursive reduce circuit.
@@ -143,7 +157,7 @@ impl BabyBearPoseidon2Inner {
         let fri_config = inner_fri_config();
         let pcs = InnerPcs::new(dft, val_mmcs, fri_config);
         let challenger = InnerChallenger::new(perm.clone());
-        Self {perm, pcs,  challenger}
+        Self { perm, pcs, challenger }
     }
 }
 
@@ -181,7 +195,7 @@ pub mod baby_bear_poseidon2 {
     use p3_challenger::DuplexChallenger;
     use p3_commit::ExtensionMmcs;
     use p3_dft::Radix2DitParallel;
-    use p3_field::{extension::BinomialExtensionField, PrimeCharacteristicRing, Field};
+    use p3_field::{Field, PrimeCharacteristicRing, extension::BinomialExtensionField};
     use p3_fri::{FriConfig, TwoAdicFriPcs};
     use p3_merkle_tree::MerkleTreeMmcs;
     use p3_poseidon2::ExternalLayerConstants;
@@ -189,7 +203,7 @@ pub mod baby_bear_poseidon2 {
     use serde::{Deserialize, Serialize};
     use sp1_primitives::RC_16_30;
 
-    use crate::{Com, StarkGenericConfig, ZeroCommitment, DIGEST_SIZE};
+    use crate::{Com, DIGEST_SIZE, StarkGenericConfig, ZeroCommitment};
 
     pub type Val = BabyBear;
     pub type Challenge = BinomialExtensionField<Val, 4>;
@@ -205,14 +219,8 @@ pub mod baby_bear_poseidon2 {
     #[cfg(feature = "recursion_cuda")]
     pub type BabyBearPoseidon2 = crate::gpu::gpu_config::StarkConfigGpu;
 
-    
-    pub type ValMmcs = MerkleTreeMmcs<
-        <Val as Field>::Packing,
-        <Val as Field>::Packing,
-        MyHash,
-        MyCompress,
-        8,
-    >;
+    pub type ValMmcs =
+        MerkleTreeMmcs<<Val as Field>::Packing, <Val as Field>::Packing, MyHash, MyCompress, 8>;
 
     pub type ChallengeMmcs = ExtensionMmcs<Val, Challenge, ValMmcs>;
     pub type Dft = Radix2DitParallel<Val>;
@@ -233,12 +241,12 @@ pub mod baby_bear_poseidon2 {
             .collect::<Vec<_>>();
         let external_round_constants = round_constants;
         Perm::new(
-                ExternalLayerConstants::new(
-                    external_round_constants[..4].to_vec(),
-                    external_round_constants[4..].to_vec(),
-                ),
-                internal_round_constants.to_vec(),
-            )
+            ExternalLayerConstants::new(
+                external_round_constants[..4].to_vec(),
+                external_round_constants[4..].to_vec(),
+            ),
+            internal_round_constants.to_vec(),
+        )
     }
 
     #[must_use]
@@ -251,7 +259,13 @@ pub mod baby_bear_poseidon2 {
             Ok(value) => value.parse().unwrap(),
             Err(_) => 100,
         };
-        FriConfig { log_blowup: 1, log_final_poly_len:0, num_queries, proof_of_work_bits: 16, mmcs: challenge_mmcs }
+        FriConfig {
+            log_blowup: 1,
+            log_final_poly_len: 0,
+            num_queries,
+            proof_of_work_bits: 16,
+            mmcs: challenge_mmcs,
+        }
     }
 
     #[must_use]
@@ -264,7 +278,13 @@ pub mod baby_bear_poseidon2 {
             Ok(value) => value.parse().unwrap(),
             Err(_) => 50,
         };
-        FriConfig { log_blowup: 2, log_final_poly_len:0, num_queries, proof_of_work_bits: 16, mmcs: challenge_mmcs }
+        FriConfig {
+            log_blowup: 2,
+            log_final_poly_len: 0,
+            num_queries,
+            proof_of_work_bits: 16,
+            mmcs: challenge_mmcs,
+        }
     }
 
     #[must_use]
@@ -277,7 +297,13 @@ pub mod baby_bear_poseidon2 {
             Ok(value) => value.parse().unwrap(),
             Err(_) => 33,
         };
-        FriConfig { log_blowup: 3, log_final_poly_len:0, num_queries, proof_of_work_bits: 16, mmcs: challenge_mmcs }
+        FriConfig {
+            log_blowup: 3,
+            log_final_poly_len: 0,
+            num_queries,
+            proof_of_work_bits: 16,
+            mmcs: challenge_mmcs,
+        }
     }
 
     pub enum BabyBearPoseidon2Type {
@@ -305,7 +331,7 @@ pub mod baby_bear_poseidon2 {
             let fri_config = default_fri_config();
             let pcs = Pcs::new(dft, val_mmcs, fri_config);
             let challenger = Challenger::new(perm.clone());
-            Self {perm, pcs, challenger, config_type: BabyBearPoseidon2Type::Default }
+            Self { perm, pcs, challenger, config_type: BabyBearPoseidon2Type::Default }
         }
 
         #[must_use]
@@ -318,7 +344,7 @@ pub mod baby_bear_poseidon2 {
             let fri_config = compressed_fri_config();
             let pcs = Pcs::new(dft, val_mmcs, fri_config);
             let challenger = Challenger::new(perm.clone());
-            Self {perm, pcs, challenger, config_type: BabyBearPoseidon2Type::Compressed }
+            Self { perm, pcs, challenger, config_type: BabyBearPoseidon2Type::Compressed }
         }
 
         #[must_use]
@@ -331,7 +357,7 @@ pub mod baby_bear_poseidon2 {
             let fri_config = ultra_compressed_fri_config();
             let pcs = Pcs::new(dft, val_mmcs, fri_config);
             let challenger = Challenger::new(perm.clone());
-            Self {perm, pcs, challenger, config_type: BabyBearPoseidon2Type::Compressed }
+            Self { perm, pcs, challenger, config_type: BabyBearPoseidon2Type::Compressed }
         }
     }
 
@@ -389,14 +415,12 @@ pub mod baby_bear_poseidon2 {
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use p3_field::PrimeCharacteristicRing;
+    use p3_challenger::{CanObserve, CanSample, FieldChallenger};
     use p3_field::BasedVectorSpace;
-    use p3_challenger::{CanSample, CanObserve, FieldChallenger};
+    use p3_field::PrimeCharacteristicRing;
     use p3_symmetric::CryptographicHasher;
     use p3_symmetric::PseudoCompressionFunction;
 
@@ -407,7 +431,7 @@ mod tests {
     type SC = baby_bear_poseidon2::StarkConfigCpu;
     type F = <SC as StarkGenericConfig>::Val;
     type EF = <SC as StarkGenericConfig>::Challenge;
-   
+
     #[test]
     fn test_challenger() {
         let config = SC::default();
@@ -419,16 +443,20 @@ mod tests {
         challenger.observe(F::TWO);
         let expect_F: F = BabyBear::from_u32(1573547511);
 
-        let coefficients = vec![BabyBear::from_u32(974685597), BabyBear::from_u32(1115323271),
-                               BabyBear::from_u32(1101470026), BabyBear::from_u32(1992477023)];
+        let coefficients = vec![
+            BabyBear::from_u32(974685597),
+            BabyBear::from_u32(1115323271),
+            BabyBear::from_u32(1101470026),
+            BabyBear::from_u32(1992477023),
+        ];
 
         let expect_EF: EF = EF::from_basis_coefficients_slice(&coefficients).unwrap();
 
         let result: F = challenger.sample();
-        assert_eq!(expect_F, result); 
+        assert_eq!(expect_F, result);
 
         let result_ef: EF = challenger.sample_algebra_element();
-    
+
         assert_eq!(expect_EF, result_ef);
     }
 
@@ -437,20 +465,11 @@ mod tests {
         let perm = inner_perm();
         let hash = InnerHash::new(perm.clone());
         let compress = InnerCompress::new(perm.clone());
-        
+
         let mmcs = InnerValMmcs::new(hash.clone(), compress.clone());
 
         // v = [2, 1, 2, 2, 0, 0, 1, 0]
-        let v = vec![
-            F::TWO,
-            F::ONE,
-            F::TWO,
-            F::TWO,
-            F::ZERO,
-            F::ZERO,
-            F::ONE,
-            F::ZERO,
-        ];
+        let v = vec![F::TWO, F::ONE, F::TWO, F::TWO, F::ZERO, F::ZERO, F::ONE, F::ZERO];
         let (commit, _) = mmcs.commit_vec(v.clone());
 
         let expected_result = compress.compress([
@@ -464,7 +483,10 @@ mod tests {
             ]),
         ]);
 
-        let expected : [BabyBear; 8] = BabyBear::new_array([844319689, 1405767669, 1040991291, 853408487, 340576855, 395735542, 1410456727, 100300798]);
+        let expected: [BabyBear; 8] = BabyBear::new_array([
+            844319689, 1405767669, 1040991291, 853408487, 340576855, 395735542, 1410456727,
+            100300798,
+        ]);
         assert_eq!(expected, expected_result);
         assert_eq!(commit, expected);
     }
@@ -479,41 +501,46 @@ mod tests {
         const CHUNK: usize = 8;
         const WIDTH: usize = 8;
 
-        let input: [[F; CHUNK]; N] = [F::new_array([1, 2, 3, 4,5,6,7,8]), 
-                                    F::new_array([545148404, 1306564358, 637903742, 106526026, 997551990, 1145772050, 25820965, 1036805604
-                                    ])];
+        let input: [[F; CHUNK]; N] = [
+            F::new_array([1, 2, 3, 4, 5, 6, 7, 8]),
+            F::new_array([
+                545148404, 1306564358, 637903742, 106526026, 997551990, 1145772050, 25820965,
+                1036805604,
+            ]),
+        ];
         let output = compress.compress(input);
-        let expected : [BabyBear; 8] = BabyBear::new_array([1000522935, 1359720241, 1095213472, 1777007570, 585380650, 1943112261, 1058326616, 205684059]);
+        let expected: [BabyBear; 8] = BabyBear::new_array([
+            1000522935, 1359720241, 1095213472, 1777007570, 585380650, 1943112261, 1058326616,
+            205684059,
+        ]);
 
         assert_eq!(output, expected);
     }
 
-    
-   /*
-    //test avx2
-    #[test]
-    #[ignore]  
-    fn test_avx2_poseidon2_width_16() {
-        // Our Poseidon2 implementation.
-        let poseidon2 = inner_perm();
+    /*
+        //test avx2
+        #[test]
+        #[ignore]
+        fn test_avx2_poseidon2_width_16() {
+            // Our Poseidon2 implementation.
+            let poseidon2 = inner_perm();
 
-        //let input: [F; 16] = rng.r#gen();
-        let input: [F; 16] = BabyBear::new_array([2, 1, 2, 2, 0, 0, 1, 0,2, 1, 2, 2, 0, 0, 1, 0]);
+            //let input: [F; 16] = rng.r#gen();
+            let input: [F; 16] = BabyBear::new_array([2, 1, 2, 2, 0, 0, 1, 0,2, 1, 2, 2, 0, 0, 1, 0]);
 
-        let mut out_no_avx = input;
-        poseidon2.permute_mut(&mut out_no_avx);
+            let mut out_no_avx = input;
+            poseidon2.permute_mut(&mut out_no_avx);
 
-        let expected : [BabyBear; 16] = BabyBear::new_array([1622298962, 1536623934, 247570392, 689896596, 217611166, 1742770036, 794609491, 430147729, 
-        1723236467, 1367877742, 267378299, 1403615570, 208553167, 427630706, 1702616973, 1631677790]);
+            let expected : [BabyBear; 16] = BabyBear::new_array([1622298962, 1536623934, 247570392, 689896596, 217611166, 1742770036, 794609491, 430147729,
+            1723236467, 1367877742, 267378299, 1403615570, 208553167, 427630706, 1702616973, 1631677790]);
 
-        let mut avx2_input = input.map(Into::<PackedBabyBearAVX2>::into);
-        poseidon2.permute_mut(&mut avx2_input);
+            let mut avx2_input = input.map(Into::<PackedBabyBearAVX2>::into);
+            poseidon2.permute_mut(&mut avx2_input);
 
-        let avx2_output = avx2_input.map(|x| x.0[0]);
+            let avx2_output = avx2_input.map(|x| x.0[0]);
 
-        assert_eq!(out_no_avx, expected);
-        assert_eq!(avx2_output, expected);
-    }
-*/
-
+            assert_eq!(out_no_avx, expected);
+            assert_eq!(avx2_output, expected);
+        }
+    */
 }

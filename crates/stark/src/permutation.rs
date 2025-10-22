@@ -5,8 +5,8 @@ use crate::{
 use hashbrown::HashMap;
 use itertools::Itertools;
 use p3_air::{AirBuilder, ExtensionBuilder, PairBuilder};
-use p3_field::{PrimeCharacteristicRing, ExtensionField, Field, PrimeField};
-use p3_matrix::{dense::RowMajorMatrix, Matrix};
+use p3_field::{ExtensionField, Field, PrimeCharacteristicRing, PrimeField};
+use p3_matrix::{Matrix, dense::RowMajorMatrix};
 use p3_maybe_rayon::prelude::*;
 use rayon_scan::ScanParallelIterator;
 use std::borrow::Borrow;
@@ -50,8 +50,7 @@ pub fn populate_local_permutation_row<F: PrimeField, EF: ExtensionField<F>>(
             .map(|(interaction, is_send)| {
                 let mut denominator = alpha;
                 let mut betas = betas.clone();
-                denominator +=
-                    betas.next().unwrap() * EF::from_usize(interaction.argument_index());
+                denominator += betas.next().unwrap() * EF::from_usize(interaction.argument_index());
                 for (columns, beta) in interaction.values.iter().zip(betas) {
                     denominator += beta * columns.apply::<F, F>(preprocessed_row, main_row);
                 }
@@ -229,7 +228,7 @@ pub fn eval_permutation_constraints<'a, F, AB>(
     let perm = builder.permutation().to_row_major_matrix();
 
     //let preprocessed_local = preprocessed.row_slice(0).unwrap();
-    let binding = unsafe {preprocessed.row_slice_unchecked(0)} ;
+    let binding = unsafe { preprocessed.row_slice_unchecked(0) };
     let preprocessed_local = binding.deref();
 
     let main_local = main.to_row_major_matrix();
@@ -276,9 +275,8 @@ pub fn eval_permutation_constraints<'a, F, AB>(
                 let mut rlc = alpha.clone();
                 let mut betas = beta.powers();
 
-                rlc = rlc.clone() +
-                    betas.next().unwrap() *
-                        AB::ExprEF::from_usize(interaction.argument_index());
+                rlc = rlc.clone()
+                    + betas.next().unwrap() * AB::ExprEF::from_usize(interaction.argument_index());
                 for (field, beta) in interaction.values.iter().zip(betas.clone()) {
                     let elem = field.apply::<AB::Expr, AB::Var>(&preprocessed_local, main_local);
                     rlc = rlc.clone() + beta * elem;
@@ -289,8 +287,9 @@ pub fn eval_permutation_constraints<'a, F, AB>(
                 multiplicities.push(
                     interaction
                         .multiplicity
-                        .apply::<AB::Expr, AB::Var>(&preprocessed_local, main_local) *
-                        send_factor,
+                        .apply::<AB::Expr, AB::Var>(&preprocessed_local, main_local)
+                        * send_factor,
+                    //.log_apply::<AB::Expr, _>(&preprocessed_local, main_local) * send_factor,//debug
                 );
             }
 
@@ -396,10 +395,9 @@ pub fn count_permutation_constraints<F: Field>(
     count
 }
 
-
-//debug
-use p3_air::VirtualPairCol;
+//debug tool
 use p3_air::PairCol;
+use p3_air::VirtualPairCol;
 use std::ops::Mul;
 // A trait with a logging version of `apply`
 trait LoggableVirtualPairCol<F: Field> {
@@ -419,21 +417,28 @@ impl<F: Field> LoggableVirtualPairCol<F> for VirtualPairCol<F> {
         Var: Into<Expr> + Copy,
     {
         let mut acc: Expr = self.constant.into();
-        
-        println!("CPU APPLY: Start. Constant = {:?}, Num_weights = {}", 
-                 self.constant, self.column_weights.len());
+
+        println!(
+            "CPU APPLY: Start. Constant = {:?}, Num_weights = {}",
+            self.constant,
+            self.column_weights.len()
+        );
 
         for (i, (col, w)) in self.column_weights.iter().enumerate() {
             let col_val: Expr = col.get(preprocessed, main).into();
-            
+
             match col {
                 PairCol::Preprocessed(idx) => {
-                    print!("CPU APPLY: i={}, Type=PREP, Index={}, Weight={:?}, ColVal={:?}, ",
-                           i, idx, w, col_val); // Printing Expr might be verbose
+                    print!(
+                        "CPU APPLY: i={}, Type=PREP, Index={}, Weight={:?}, ColVal={:?}, ",
+                        i, idx, w, col_val
+                    ); // Printing Expr might be verbose
                 }
                 PairCol::Main(idx) => {
-                    print!("CPU APPLY: i={}, Type=MAIN, Index={}, Weight={:?}, ColVal={:?}, ",
-                           i, idx, w, col_val);
+                    print!(
+                        "CPU APPLY: i={}, Type=MAIN, Index={}, Weight={:?}, ColVal={:?}, ",
+                        i, idx, w, col_val
+                    );
                 }
             }
 
@@ -444,4 +449,3 @@ impl<F: Field> LoggableVirtualPairCol<F> for VirtualPairCol<F> {
         acc
     }
 }
-

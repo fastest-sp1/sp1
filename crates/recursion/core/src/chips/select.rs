@@ -1,18 +1,18 @@
 use core::borrow::Borrow;
 use p3_air::{Air, BaseAir, PairBuilder};
 use p3_baby_bear::BabyBear;
-use p3_field::{PrimeCharacteristicRing, Field, PrimeField32};
-use p3_matrix::{dense::RowMajorMatrix, Matrix};
+use p3_field::{Field, PrimeCharacteristicRing, PrimeField32};
+use p3_matrix::{Matrix, dense::RowMajorMatrix};
 use p3_maybe_rayon::prelude::*;
 use sp1_core_machine::utils::next_power_of_two;
 use sp1_derive::AlignedBorrow;
 use sp1_stark::air::MachineAir;
 use std::borrow::BorrowMut;
-use itertools::Itertools;
+//use itertools::Itertools;
 
 use crate::{builder::SP1RecursionAirBuilder, *};
 
-use sp1_stark::GpuMatrix;
+//use sp1_stark::GpuMatrix;
 
 #[derive(Default)]
 pub struct SelectChip;
@@ -69,7 +69,7 @@ impl<F: PrimeField32> MachineAir<F> for SelectChip {
             std::any::TypeId::of::<BabyBear>(),
             "generate_preprocessed_trace only supports BabyBear field"
         );
-        
+
         let instrs = unsafe {
             std::mem::transmute::<Vec<&SelectInstr<F>>, Vec<&SelectInstr<BabyBear>>>(
                 program
@@ -87,29 +87,28 @@ impl<F: PrimeField32> MachineAir<F> for SelectChip {
 
         // Generate the trace rows & corresponding records for each chunk of events in parallel.
         if instrs.is_empty() {
-             return Some(RowMajorMatrix::new(
-                 unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
-                 SELECT_PREPROCESSED_COLS,
+            return Some(RowMajorMatrix::new(
+                unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
+                SELECT_PREPROCESSED_COLS,
             ));
         }
-    
-        
+
         let populate_len = instrs.len() * SELECT_PREPROCESSED_COLS;
         values[..populate_len].par_chunks_mut(SELECT_PREPROCESSED_COLS).zip_eq(instrs).for_each(
             |(row, instr)| {
                 let cols: &mut SelectPreprocessedCols<_> = row.borrow_mut();
                 unsafe {
-                        crate::sys::select_instr_to_row_babybear(instr, cols);
+                    crate::sys::select_instr_to_row_babybear(instr, cols);
                 }
             },
         );
-        
+
         // Convert the trace to a row major matrix.
         let trace = RowMajorMatrix::new(
             unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
             SELECT_PREPROCESSED_COLS,
         );
-        
+
         Some(trace)
     }
 
@@ -128,7 +127,7 @@ impl<F: PrimeField32> MachineAir<F> for SelectChip {
             std::any::TypeId::of::<BabyBear>(),
             "generate_trace only supports BabyBear field"
         );
-        
+
         let events = unsafe {
             std::mem::transmute::<&Vec<SelectIo<F>>, &Vec<SelectIo<BabyBear>>>(&input.select_events)
         };
@@ -142,37 +141,24 @@ impl<F: PrimeField32> MachineAir<F> for SelectChip {
                 SELECT_COLS,
             );
         }
-    
-        // using GPU (via the new alu_trace module)
-        if cfg!(feature = "recursion_cuda2") {
-           unsafe {
-                crate::sys::process_select_events_gpu(
-                    events.as_ptr(),
-                    events.len(),
-                    values.as_mut_ptr(),
-                    values.len(),
-                    SELECT_COLS,
-                );
-            }
-        } else {
-            //CPU
-            let populate_len = events.len() * SELECT_COLS;
-            values[..populate_len].par_chunks_mut(SELECT_COLS).zip_eq(events).for_each(
-                |(row, &vals)| {
-                    let cols: &mut SelectCols<_> = row.borrow_mut();
-                    unsafe {
-                        crate::sys::select_event_to_row_babybear(&vals, cols);
-                    }
-                },
-            );
-        }
+
+        //CPU
+        let populate_len = events.len() * SELECT_COLS;
+        values[..populate_len].par_chunks_mut(SELECT_COLS).zip_eq(events).for_each(
+            |(row, &vals)| {
+                let cols: &mut SelectCols<_> = row.borrow_mut();
+                unsafe {
+                    crate::sys::select_event_to_row_babybear(&vals, cols);
+                }
+            },
+        );
 
         // Convert the trace to a row major matrix.
         let trace = RowMajorMatrix::new(
             unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<_>>(values) },
             SELECT_COLS,
         );
-        
+
         trace
     }
 
@@ -188,13 +174,13 @@ impl<F: PrimeField32> MachineAir<F> for SelectChip {
         let events = unsafe {
             std::mem::transmute::<&Vec<SelectIo<F>>, &Vec<SelectIo<BabyBear>>>(&input.select_events)
         };
-        // Pad the trace 
+        // Pad the trace
         let padded_nb_rows = self.num_rows(input).unwrap();
         let num_cols = <Self as BaseAir<F>>::width(self);
 
         // 1. Allocate the matrix directly on the GPU.
         let mut gpu_matrix = GpuMatrix::<F>::new(padded_nb_rows, num_cols);
-       
+
         if !events.is_empty() {
            unsafe {
                 crate::sys::process_select_events_gpu(
@@ -206,7 +192,7 @@ impl<F: PrimeField32> MachineAir<F> for SelectChip {
                 );
             }
         }
-        
+
         // 3. Return the GpuMatrix handle.
         gpu_matrix
     }
@@ -227,14 +213,14 @@ impl<F: PrimeField32> MachineAir<F> for SelectChip {
                     .collect::<Vec<_>>(),
             )
         };
-        
+
         if !instrs.is_empty()  {
             let padded_nb_rows = self.preprocessed_num_rows(program, instrs.len()).unwrap();
             let num_cols = SELECT_PREPROCESSED_COLS;
-        
+
             // 1. Allocate the matrix directly on the GPU.
             let mut gpu_matrix = GpuMatrix::<F>::new(padded_nb_rows, num_cols);
-           
+
 
             let instrs_for_gpu: Vec<SelectInstr<BabyBear>> = instrs
                 .iter()
@@ -242,7 +228,7 @@ impl<F: PrimeField32> MachineAir<F> for SelectChip {
                 .collect_vec();
             unsafe {
                 crate::sys::process_select_instructions_gpu(
-                    instrs_for_gpu.as_ptr(), 
+                    instrs_for_gpu.as_ptr(),
                     instrs_for_gpu.len(),
                     gpu_matrix.as_mut_ptr() as *mut BabyBear, // Pass the device pointer
                     gpu_matrix.height * gpu_matrix.width, // Pass total elements
@@ -253,7 +239,7 @@ impl<F: PrimeField32> MachineAir<F> for SelectChip {
         } else {
             None
         }
-            
+
     } */
 }
 
@@ -292,8 +278,8 @@ mod tests {
     use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
     use p3_matrix::dense::RowMajorMatrix;
-    use rand::{rngs::StdRng, Rng, SeedableRng};
-    use sp1_stark::{baby_bear_poseidon2::BabyBearPoseidon2, StarkGenericConfig};
+    use rand::{Rng, SeedableRng, rngs::StdRng};
+    use sp1_stark::{StarkGenericConfig, baby_bear_poseidon2::BabyBearPoseidon2};
 
     use super::*;
 
@@ -364,15 +350,15 @@ mod tests {
     }
 
     #[test]
-    fn generate_trace_gpu() {     
+    fn generate_trace_gpu() {
         let shard = test_fixtures::shard();
         let mut execution_record = test_fixtures::default_execution_record();
         //let chip = FriFoldChip::<DEGREE>::default();
         let trace_gpu_ptr = SelectChip.generate_trace_gpu(&shard, &mut execution_record);
-        
+
         let trace_values = trace_gpu_ptr.to_host();
         let trace = RowMajorMatrix::new(trace_values, SELECT_COLS);
-        
+
         assert_eq!(trace, generate_trace_reference(&shard, &mut execution_record));
     }
 

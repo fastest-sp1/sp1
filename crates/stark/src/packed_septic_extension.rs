@@ -1,7 +1,9 @@
 //! A packed septic extension field based on p3_field PackedBinomialExtensionField.
+use p3_field::{
+    Algebra, BasedVectorSpace, Field, PackedField, PackedFieldExtension, PackedValue, Powers,
+    PrimeCharacteristicRing, PrimeField, field_to_array,
+};
 use p3_util::{flatten_to_base, reconstitute_from_base};
-use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, Field, Algebra, field_to_array,
-                 PrimeField, PackedField, PackedFieldExtension, Powers, PackedValue};
 use serde::{Deserialize, Serialize};
 use std::array;
 use std::iter::{Product, Sum};
@@ -10,7 +12,7 @@ use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 use crate::septic_extension::{SepticExtension, septic_mul, vector_add, vector_sub};
 use itertools::Itertools;
 
- const D: usize = 7;
+const D: usize = 7;
 /// A septic extension with an irreducible polynomial `z^7 - 2z - 5`.
 ///
 /// The field can be constructed as `F_{p^7} = F_p[z]/(z^7 - 2z - 5)`.
@@ -18,16 +20,13 @@ use itertools::Itertools;
 #[repr(C)]
 pub struct PackedSepticExtension<F: Field, PF: PackedField<Scalar = F>>(pub [PF; D]);
 
-
 impl<F: Field, PF: PackedField<Scalar = F>> PackedSepticExtension<F, PF> {
     const fn new(value: [PF; D]) -> Self {
-        Self(value )  //?
+        Self(value) //?
     }
 }
 
-impl<F: Field, PF: PackedField<Scalar = F>> Default
-    for PackedSepticExtension<F, PF>
-{
+impl<F: Field, PF: PackedField<Scalar = F>> Default for PackedSepticExtension<F, PF> {
     #[inline]
     fn default() -> Self {
         Self(array::from_fn(|_| PF::ZERO))
@@ -39,29 +38,24 @@ impl<F: Field, PF: PackedField<Scalar = F>> From<SepticExtension<F>>
 {
     #[inline]
     fn from(x: SepticExtension<F>) -> Self {
-        Self (x.0.map(Into::<PF>::into))
+        Self(x.0.map(Into::<PF>::into))
     }
 }
 
-impl<F: Field, PF: PackedField<Scalar = F>> From<PF>
-    for PackedSepticExtension<F, PF>
-{
+impl<F: Field, PF: PackedField<Scalar = F>> From<PF> for PackedSepticExtension<F, PF> {
     #[inline]
     fn from(x: PF) -> Self {
-        Self (field_to_array::<PF, D>(x))
+        Self(field_to_array::<PF, D>(x))
     }
 }
 
 //The following two are ok? G
-impl<F: Field, PF: PackedField<Scalar = F>>
-    Algebra<SepticExtension<F>> for PackedSepticExtension<F, PF>
-{
-}
-
-impl<F: Field, PF: PackedField<Scalar = F>> Algebra<PF>
+impl<F: Field, PF: PackedField<Scalar = F>> Algebra<SepticExtension<F>>
     for PackedSepticExtension<F, PF>
 {
 }
+
+impl<F: Field, PF: PackedField<Scalar = F>> Algebra<PF> for PackedSepticExtension<F, PF> {}
 
 impl<F, PF> PrimeCharacteristicRing for PackedSepticExtension<F, PF>
 where
@@ -73,11 +67,11 @@ where
 
     const ZERO: Self = Self([PF::ZERO; D]);
 
-    const ONE: Self = Self (field_to_array::<PF, D>(PF::ONE));
+    const ONE: Self = Self(field_to_array::<PF, D>(PF::ONE));
 
-    const TWO: Self = Self (field_to_array::<PF, D>(PF::TWO));
+    const TWO: Self = Self(field_to_array::<PF, D>(PF::TWO));
 
-    const NEG_ONE: Self = Self (field_to_array::<PF, D>(PF::NEG_ONE));
+    const NEG_ONE: Self = Self(field_to_array::<PF, D>(PF::NEG_ONE));
 
     #[inline]
     fn from_prime_subfield(val: Self::PrimeSubfield) -> Self {
@@ -88,26 +82,26 @@ where
     fn from_bool(b: bool) -> Self {
         PF::from_bool(b).into()
     }
-/*
-    #[inline(always)]
-    fn square(&self) -> Self {
-        match D {
-            2 => {
-                let a = self.value;
-                let mut res = Self::default();
-                res.value[0] = a[0].square() + a[1].square() * F::W;
-                res.value[1] = a[0] * a[1].double();
-                res
+    /*
+        #[inline(always)]
+        fn square(&self) -> Self {
+            match D {
+                2 => {
+                    let a = self.value;
+                    let mut res = Self::default();
+                    res.value[0] = a[0].square() + a[1].square() * F::W;
+                    res.value[1] = a[0] * a[1].double();
+                    res
+                }
+                3 => {
+                    let mut res = Self::default();
+                    cubic_square(&self.value, &mut res.value);
+                    res
+                }
+                _ => <Self as Mul<Self>>::mul(*self, *self),
             }
-            3 => {
-                let mut res = Self::default();
-                cubic_square(&self.value, &mut res.value);
-                res
-            }
-            _ => <Self as Mul<Self>>::mul(*self, *self),
         }
-    }
-*/
+    */
     #[inline]
     fn zero_vec(len: usize) -> Vec<Self> {
         // SAFETY: this is a repr(transparent) wrapper around an array.
@@ -129,7 +123,7 @@ where
 
     #[inline]
     fn from_basis_coefficients_fn<Fn: FnMut(usize) -> PF>(f: Fn) -> Self {
-        Self (array::from_fn(f))
+        Self(array::from_fn(f))
     }
 
     #[inline]
@@ -156,7 +150,8 @@ where
     }
 }
 
-impl<F: PrimeField> PackedFieldExtension<F, SepticExtension<F>> for PackedSepticExtension<F, F::Packing>
+impl<F: PrimeField> PackedFieldExtension<F, SepticExtension<F>>
+    for PackedSepticExtension<F, F::Packing>
 //where
 //    F: Field<D>,
 {
@@ -183,7 +178,7 @@ impl<F: PrimeField> PackedFieldExtension<F, SepticExtension<F>> for PackedSeptic
     }
 
     #[inline]
-    fn packed_ext_powers(base: SepticExtension<F>) ->Powers<Self> {
+    fn packed_ext_powers(base: SepticExtension<F>) -> Powers<Self> {
         let width = F::Packing::WIDTH;
         let powers = base.powers().take(width + 1).collect_vec();
         // Transpose first WIDTH powers
@@ -192,10 +187,7 @@ impl<F: PrimeField> PackedFieldExtension<F, SepticExtension<F>> for PackedSeptic
         // Broadcast self^WIDTH
         let multiplier = powers[width].into();
 
-        Powers {
-            base: multiplier,
-            current,
-        }
+        Powers { base: multiplier, current }
     }
 }
 
@@ -223,7 +215,7 @@ where
     #[inline]
     fn add(self, rhs: Self) -> Self {
         let value = vector_add(&self.0, &rhs.0);
-        Self (value)  
+        Self(value)
     }
 }
 
@@ -238,7 +230,7 @@ where
     fn add(self, rhs: SepticExtension<F>) -> Self {
         let value = vector_add(&self.0, &rhs.0);
         //Self { value }
-        Self (value)  
+        Self(value)
     }
 }
 
@@ -269,8 +261,7 @@ where
     }
 }
 
-impl<F, PF> AddAssign<SepticExtension<F>>
-    for PackedSepticExtension<F, PF>
+impl<F, PF> AddAssign<SepticExtension<F>> for PackedSepticExtension<F, PF>
 where
     F: Field,
     PF: PackedField<Scalar = F>,
@@ -315,12 +306,11 @@ where
     #[inline]
     fn sub(self, rhs: Self) -> Self {
         let value = vector_sub(&self.0, &rhs.0);
-        Self (value)
+        Self(value)
     }
 }
 
-impl<F, PF> Sub<SepticExtension<F>>
-    for PackedSepticExtension<F, PF>
+impl<F, PF> Sub<SepticExtension<F>> for PackedSepticExtension<F, PF>
 where
     F: Field,
     PF: PackedField<Scalar = F>,
@@ -330,7 +320,7 @@ where
     #[inline]
     fn sub(self, rhs: SepticExtension<F>) -> Self {
         let value = vector_sub(&self.0, &rhs.0);
-        Self (value)
+        Self(value)
     }
 }
 
@@ -345,7 +335,7 @@ where
     fn sub(self, rhs: PF) -> Self {
         let mut res = self.0;
         res[0] -= rhs;
-        Self (res)
+        Self(res)
     }
 }
 
@@ -360,8 +350,7 @@ where
     }
 }
 
-impl<F, PF> SubAssign<SepticExtension<F>>
-    for PackedSepticExtension<F, PF>
+impl<F, PF> SubAssign<SepticExtension<F>> for PackedSepticExtension<F, PF>
 where
     F: Field,
     PF: PackedField<Scalar = F>,
@@ -395,8 +384,8 @@ where
         let a = self.0;
         let b = rhs.0;
         let mut res = Self::default();
-        
-        septic_mul(&a, &b, &mut res.0);  //?
+
+        septic_mul(&a, &b, &mut res.0); //?
         res
     }
 }
@@ -413,9 +402,9 @@ where
         let a = self.0;
         let b = rhs.0;
         let mut res = Self::default();
-        
-        septic_mul(&a, &b, &mut res.0);  //?
-        res 
+
+        septic_mul(&a, &b, &mut res.0); //?
+        res
     }
 }
 
@@ -428,7 +417,7 @@ where
 
     #[inline]
     fn mul(self, rhs: PF) -> Self {
-        Self (self.0.map(|x| x * rhs))
+        Self(self.0.map(|x| x * rhs))
     }
 }
 
@@ -454,8 +443,7 @@ where
     }
 }
 
-impl<F, PF> MulAssign<SepticExtension<F>>
-    for PackedSepticExtension<F, PF>
+impl<F, PF> MulAssign<SepticExtension<F>> for PackedSepticExtension<F, PF>
 where
     F: Field,
     PF: PackedField<Scalar = F>,

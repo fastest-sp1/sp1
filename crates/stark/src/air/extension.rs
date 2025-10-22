@@ -1,8 +1,8 @@
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
 use p3_field::{
+    BasedVectorSpace, Field, PrimeCharacteristicRing,
     extension::{BinomialExtensionField, BinomiallyExtendable},
-    BasedVectorSpace, PrimeCharacteristicRing, Field,
 };
 use sp1_derive::AlignedBorrow;
 
@@ -62,8 +62,8 @@ impl<T: Add<Output = T> + Mul<Output = T> + PrimeCharacteristicRing> Mul for Bin
         for i in 0..D {
             for j in 0..D {
                 if i + j >= D {
-                    result[i + j - D] = result[i + j - D].clone() +
-                        w.clone() * self.0[i].clone() * rhs.0[j].clone();
+                    result[i + j - D] = result[i + j - D].clone()
+                        + w.clone() * self.0[i].clone() * rhs.0[j].clone();
                 } else {
                     result[i + j] = result[i + j].clone() + self.0[i].clone() * rhs.0[j].clone();
                 }
@@ -117,8 +117,7 @@ impl<T: PrimeCharacteristicRing + Copy> Neg for BinomialExtension<T> {
     }
 }
 
-impl<AF: BinomiallyExtendable<D>> From<BinomialExtensionField<AF, D>> for BinomialExtension<AF>
-{
+impl<AF: BinomiallyExtendable<D>> From<BinomialExtensionField<AF, D>> for BinomialExtension<AF> {
     fn from(value: BinomialExtensionField<AF, D>) -> Self {
         let arr: [AF; D] = value.as_basis_coefficients_slice().try_into().unwrap();
         Self(arr)
@@ -133,7 +132,6 @@ where
     fn from(value: BinomialExtension<F>) -> Self {
         BinomialExtensionField::new(value.0)
     }
-    
 }
 
 impl<T> IntoIterator for BinomialExtension<T> {

@@ -2,7 +2,7 @@
 //! field.
 use crate::{baby_bear_poseidon2::my_perm, septic_extension::SepticExtension};
 use p3_baby_bear::BabyBear;
-use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, Field, PrimeField32};
+use p3_field::{BasedVectorSpace, Field, PrimeCharacteristicRing, PrimeField32};
 use p3_symmetric::Permutation;
 use serde::{Deserialize, Serialize};
 use std::ops::Add;
@@ -97,9 +97,9 @@ impl<F: Field> SepticCurve<F> {
 impl<F: PrimeCharacteristicRing> SepticCurve<F> {
     /// Evaluates the curve formula x^3 + 2x + 26z^5
     pub fn curve_formula(x: SepticExtension<F>) -> SepticExtension<F> {
-        x.cube() +
-            x * F::TWO +
-            SepticExtension::from_basis_coefficients_slice(&[
+        x.cube()
+            + x * F::TWO
+            + SepticExtension::from_basis_coefficients_slice(&[
                 F::ZERO,
                 F::ZERO,
                 F::ZERO,
@@ -107,7 +107,8 @@ impl<F: PrimeCharacteristicRing> SepticCurve<F> {
                 F::ZERO,
                 F::from_u32(26),
                 F::ZERO,
-            ]).unwrap()
+            ])
+            .unwrap()
     }
 }
 
@@ -167,8 +168,8 @@ impl<F: PrimeCharacteristicRing> SepticCurve<F> {
         p2: SepticCurve<F>,
         p3: SepticCurve<F>,
     ) -> SepticExtension<F> {
-        (p1.x.clone() + p2.x.clone() + p3.x) * (p2.x.clone() - p1.x.clone()).square() -
-            (p2.y - p1.y).square()
+        (p1.x.clone() + p2.x.clone() + p3.x) * (p2.x.clone() - p1.x.clone()).square()
+            - (p2.y - p1.y).square()
     }
 
     /// Given three points p1, p2, p3, the function is zero if and only if p3.y == (p1 + p2).y
@@ -178,8 +179,8 @@ impl<F: PrimeCharacteristicRing> SepticCurve<F> {
         p2: SepticCurve<F>,
         p3: SepticCurve<F>,
     ) -> SepticExtension<F> {
-        (p1.y.clone() + p3.y.clone()) * (p2.x.clone() - p1.x.clone()) -
-            (p2.y - p1.y.clone()) * (p1.x - p3.x)
+        (p1.y.clone() + p3.y.clone()) * (p2.x.clone() - p1.x.clone())
+            - (p2.y - p1.y.clone()) * (p1.x - p3.x)
     }
 }
 
@@ -266,7 +267,8 @@ mod tests {
             BabyBear::from_u32(0x2024),
             BabyBear::from_u32(0x2016),
             BabyBear::from_u32(0x2017),
-        ]).unwrap();
+        ])
+        .unwrap();
         let (curve_point, _, _, _) = SepticCurve::<BabyBear>::lift_x(x);
         assert!(curve_point.check_on_point());
         assert!(!curve_point.x.is_receive());
@@ -282,7 +284,8 @@ mod tests {
             BabyBear::from_u32(0x2024),
             BabyBear::from_u32(0x2016),
             BabyBear::from_u32(0x2017),
-        ]).unwrap();
+        ])
+        .unwrap();
         let (curve_point, _, _, _) = SepticCurve::<BabyBear>::lift_x(x);
         let double_point = curve_point.double();
         assert!(double_point.check_on_point());
@@ -304,7 +307,8 @@ mod tests {
                 BabyBear::from_u32(16 * i + 542),
                 BabyBear::from_u32(32 * i + 196),
                 BabyBear::from_u32(64 * i + 667),
-            ]).unwrap();
+            ])
+            .unwrap();
             let (curve_point, _, _, _) = SepticCurve::<BabyBear>::lift_x(x);
             vec.push(curve_point);
         }
@@ -344,23 +348,22 @@ mod tests {
                 BabyBear::from_int((16 * i + 542) as u32),
                 BabyBear::from_int((32 * i + 196) as u32),
                 BabyBear::from_int((64 * i + 667) as u32),*/
-
-                BabyBear::from_u32(i + 25) ,      //best :Time elapsed: 10.8891ms
-                BabyBear::from_u32(2 * i + 376) ,   // the old version sp1: Time elapsed: 10.5744ms
-                BabyBear::from_u32(4 * i + 23) ,
-                BabyBear::from_u32(8 * i + 531) ,
+                BabyBear::from_u32(i + 25), //best :Time elapsed: 10.8891ms
+                BabyBear::from_u32(2 * i + 376), // the old version sp1: Time elapsed: 10.5744ms
+                BabyBear::from_u32(4 * i + 23),
+                BabyBear::from_u32(8 * i + 531),
                 BabyBear::from_u32(16 * i + 542),
-                BabyBear::from_u32(32 * i + 196) ,
-                BabyBear::from_u32(64 * i + 667) , 
-                
-               /* BabyBear::from_u32(i + 25) ,      //Time elapsed: 11.3719ms
+                BabyBear::from_u32(32 * i + 196),
+                BabyBear::from_u32(64 * i + 667),
+                /* BabyBear::from_u32(i + 25) ,      //Time elapsed: 11.3719ms
                 BabyBear::from_u32(2 * i + 376) ,
                 BabyBear::from_u32(4 * i + 23) ,
                 BabyBear::from_u32(8 * i + 531) ,
                 BabyBear::from_u32(16 * i + 542),
                 BabyBear::from_u32(32 * i + 196) ,
                 BabyBear::from_u32(64 * i + 667) ,*/
-            ]).unwrap();
+            ])
+            .unwrap();
         }
         println!("----Time elapsed: {:?}", start.elapsed());
     }
@@ -380,7 +383,8 @@ mod tests {
                 BabyBear::from_u32(16 * i + 542),
                 BabyBear::from_u32(32 * i + 196),
                 BabyBear::from_u32(64 * i + 667),
-            ]).unwrap();
+            ])
+            .unwrap();
             let (curve_point, _, _, _) = SepticCurve::<BabyBear>::lift_x(x);
             vec.push(SepticCurveComplete::Affine(curve_point));
         }

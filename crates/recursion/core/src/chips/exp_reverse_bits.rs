@@ -1,24 +1,27 @@
 #![allow(clippy::needless_range_loop)]
 
 use crate::{
-    builder::SP1RecursionAirBuilder, runtime::ExecutionRecord, ExpReverseBitsEvent,
-    ExpReverseBitsInstr, Instruction, ExpReverseBitsEventFlatFFI, ExpReverseBitsFlatIdex, 
-    ExpReverseBitsInstrFlatFFI, InstrsFlatIdex, Address, 
+    ExpReverseBitsEvent,
+    ExpReverseBitsInstr,
+    Instruction,
+    //   ExpReverseBitsInstrFlatFFI, InstrsFlatIdex, Address,  ExpReverseBitsFlatIdex, ExpReverseBitsEventFlatFFI
+    builder::SP1RecursionAirBuilder,
+    runtime::ExecutionRecord,
 };
 use core::borrow::Borrow;
 use p3_air::{Air, AirBuilder, BaseAir, PairBuilder};
 use p3_baby_bear::BabyBear;
 use p3_field::{PrimeCharacteristicRing, PrimeField32};
-use p3_matrix::{dense::RowMajorMatrix, Matrix};
-use sp1_core_machine::utils::{next_power_of_two};
+use p3_matrix::{Matrix, dense::RowMajorMatrix};
+use sp1_core_machine::utils::next_power_of_two;
 use sp1_derive::AlignedBorrow;
 use sp1_stark::air::{BaseAirBuilder, ExtensionAirBuilder, MachineAir, SP1AirBuilder};
 use std::borrow::BorrowMut;
 use tracing::instrument;
-use itertools::Itertools;
+//use itertools::Itertools;
 use super::mem::{MemoryAccessCols, MemoryAccessColsChips};
 
-use sp1_stark::GpuMatrix;
+//use sp1_stark::GpuMatrix;
 
 pub const NUM_EXP_REVERSE_BITS_LEN_COLS: usize = core::mem::size_of::<ExpReverseBitsLenCols<u8>>();
 pub const NUM_EXP_REVERSE_BITS_LEN_PREPROCESSED_COLS: usize =
@@ -92,68 +95,61 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for ExpReverseBitsLenCh
             std::any::TypeId::of::<F>() == std::any::TypeId::of::<BabyBear>(),
             "generate_preprocessed_trace only supports BabyBear field"
         );
-        //let start = std::time::Instant::now();
-
 
         //let mut rows: Vec<[BabyBear; NUM_EXP_REVERSE_BITS_LEN_PREPROCESSED_COLS]> = Vec::new();
         let mut values: Vec<BabyBear>;
 
-        
         //CPU
         let mut cpu_rows: Vec<[BabyBear; NUM_EXP_REVERSE_BITS_LEN_PREPROCESSED_COLS]> = Vec::new();
         program
             .inner
             .iter()
             .filter_map(|instruction| match instruction {
-                    Instruction::ExpReverseBitsLen(x) => Some(unsafe {
-                        std::mem::transmute::<&ExpReverseBitsInstr<F>, &ExpReverseBitsInstr<BabyBear>>(
-                            x,
-                        )
-                    }),
-                    _ => None,
+                Instruction::ExpReverseBitsLen(x) => Some(unsafe {
+                    std::mem::transmute::<&ExpReverseBitsInstr<F>, &ExpReverseBitsInstr<BabyBear>>(
+                        x,
+                    )
+                }),
+                _ => None,
             })
             .for_each(|instruction: &ExpReverseBitsInstr<BabyBear>| {
-                    let ExpReverseBitsInstr { addrs, mult } = instruction;
-                    let mut row_add = vec![
-                        [BabyBear::ZERO;
-                            NUM_EXP_REVERSE_BITS_LEN_PREPROCESSED_COLS];
-                        addrs.exp.len()
-                    ];
-                    row_add.iter_mut().enumerate().for_each(|(i, row)| {
-                        let row: &mut ExpReverseBitsLenPreprocessedCols<BabyBear> =
-                            row.as_mut_slice().borrow_mut();
-                        row.iteration_num = BabyBear::from_u32(i as u32);
-                        row.is_first = BabyBear::from_bool(i == 0);
-                        row.is_last = BabyBear::from_bool(i == addrs.exp.len() - 1);
-                        row.is_real = BabyBear::ONE;
-                        row.x_mem =
-                            MemoryAccessCols { addr: addrs.base, mult: -BabyBear::from_bool(i == 0) };
-                        row.exponent_mem =
-                            MemoryAccessCols { addr: addrs.exp[i], mult: BabyBear::NEG_ONE };
-                        row.result_mem = MemoryAccessCols {
-                            addr: addrs.result,
-                            mult: *mult * BabyBear::from_bool(i == addrs.exp.len() - 1),
-                        };
-                    });
-                    cpu_rows.extend(row_add);
+                let ExpReverseBitsInstr { addrs, mult } = instruction;
+                let mut row_add = vec![
+                    [BabyBear::ZERO; NUM_EXP_REVERSE_BITS_LEN_PREPROCESSED_COLS];
+                    addrs.exp.len()
+                ];
+                row_add.iter_mut().enumerate().for_each(|(i, row)| {
+                    let row: &mut ExpReverseBitsLenPreprocessedCols<BabyBear> =
+                        row.as_mut_slice().borrow_mut();
+                    row.iteration_num = BabyBear::from_u32(i as u32);
+                    row.is_first = BabyBear::from_bool(i == 0);
+                    row.is_last = BabyBear::from_bool(i == addrs.exp.len() - 1);
+                    row.is_real = BabyBear::ONE;
+                    row.x_mem =
+                        MemoryAccessCols { addr: addrs.base, mult: -BabyBear::from_bool(i == 0) };
+                    row.exponent_mem =
+                        MemoryAccessCols { addr: addrs.exp[i], mult: BabyBear::NEG_ONE };
+                    row.result_mem = MemoryAccessCols {
+                        addr: addrs.result,
+                        mult: *mult * BabyBear::from_bool(i == addrs.exp.len() - 1),
+                    };
+                });
+                cpu_rows.extend(row_add);
             });
         values = cpu_rows.into_iter().flatten().collect::<Vec<BabyBear>>();
-        
 
         // Pad the trace to a power of two.
         if program.fixed_log2_rows(self).is_some() || values.len() > 0 {
             let current_num_rows = values.len() / NUM_EXP_REVERSE_BITS_LEN_PREPROCESSED_COLS;
-            let padded_num_rows = next_power_of_two(current_num_rows, program.fixed_log2_rows(self));
-            let target_total_elements = padded_num_rows * NUM_EXP_REVERSE_BITS_LEN_PREPROCESSED_COLS;
+            let padded_num_rows =
+                next_power_of_two(current_num_rows, program.fixed_log2_rows(self));
+            let target_total_elements =
+                padded_num_rows * NUM_EXP_REVERSE_BITS_LEN_PREPROCESSED_COLS;
             values.resize(target_total_elements, BabyBear::ZERO);
         }
 
         let trace = RowMajorMatrix::new(
-            unsafe {
-                std::mem::transmute::<Vec<BabyBear>, Vec<F>>(
-                    values
-                )
-            },
+            unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
             NUM_EXP_REVERSE_BITS_LEN_PREPROCESSED_COLS,
         );
         Some(trace)
@@ -174,7 +170,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for ExpReverseBitsLenCh
             std::any::TypeId::of::<F>() == std::any::TypeId::of::<BabyBear>(),
             "generate_trace only supports BabyBear field"
         );
-        
+
         let events = unsafe {
             std::mem::transmute::<&Vec<ExpReverseBitsEvent<F>>, &Vec<ExpReverseBitsEvent<BabyBear>>>(
                 &input.exp_reverse_bits_len_events,
@@ -182,13 +178,12 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for ExpReverseBitsLenCh
         };
 
         let mut values: Vec<BabyBear>;
-        let mut out_rows = 0;
-        
+
         let mut overall_rows = Vec::new();
 
         events.iter().for_each(|event| {
             let mut rows =
-                    vec![vec![BabyBear::ZERO; NUM_EXP_REVERSE_BITS_LEN_COLS]; event.exp.len()];
+                vec![vec![BabyBear::ZERO; NUM_EXP_REVERSE_BITS_LEN_COLS]; event.exp.len()];
             let mut accum = BabyBear::ONE;
 
             rows.iter_mut().enumerate().for_each(|(i, row)| {
@@ -208,22 +203,19 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for ExpReverseBitsLenCh
             });
             overall_rows.extend(rows);
         });
-        out_rows = overall_rows.len();
+
+        let out_rows = overall_rows.len();
         values = overall_rows.into_iter().flatten().collect::<Vec<BabyBear>>();
-        
 
         // Pad the trace to a power of two.
         //let padded_num_rows = self.num_rows(input).unwrap();
-        let padded_num_rows =  next_power_of_two(out_rows, input.fixed_log2_rows(self));
+        let padded_num_rows = next_power_of_two(out_rows, input.fixed_log2_rows(self));
 
         let target_total_elements = padded_num_rows * NUM_EXP_REVERSE_BITS_LEN_COLS;
         values.resize(target_total_elements, BabyBear::ZERO);
 
-
         let trace = RowMajorMatrix::new(
-            unsafe {
-                std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values)
-            },
+            unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
             NUM_EXP_REVERSE_BITS_LEN_COLS,
         );
 
@@ -236,7 +228,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for ExpReverseBitsLenCh
 
         trace
     }
-    
+
     fn included(&self, _record: &Self::Record) -> bool {
         true
     }
@@ -251,24 +243,24 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for ExpReverseBitsLenCh
 
         if !events.is_empty()  {
             let mut ffi_events: Vec<ExpReverseBitsEventFlatFFI<BabyBear>> = Vec::new();
-            let mut all_exp_bits: Vec<BabyBear> = Vec::new(); 
+            let mut all_exp_bits: Vec<BabyBear> = Vec::new();
 
-            let mut current_exp_offset = 0; 
+            let mut current_exp_offset = 0;
             let mut events_index_info: Vec<ExpReverseBitsFlatIdex<BabyBear>> = Vec::new();
 
             for (event_idx, event) in events.iter().enumerate() {
-                //let event = event_ref; 
+                //let event = event_ref;
                 let event_exp_len  = event.exp.len();
-               
+
                 let mut accum = BabyBear::ONE;
-                for j in 0..event_exp_len { 
+                for j in 0..event_exp_len {
                     let current_exp_bit = event.exp[j];
                     let base_val = event.base;
 
-                    let multiplier = if BabyBear::ONE == current_exp_bit { 
-                        base_val 
-                    } else { 
-                        BabyBear::ONE 
+                    let multiplier = if BabyBear::ONE == current_exp_bit {
+                        base_val
+                    } else {
+                        BabyBear::ONE
                     };
                     let prev_accum = accum;
                     events_index_info.push(ExpReverseBitsFlatIdex {
@@ -277,8 +269,8 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for ExpReverseBitsLenCh
                             multiplier: multiplier,
                             prev_accum: prev_accum,
                         });
-                   
-                    
+
+
                     accum = prev_accum * prev_accum * multiplier;
                 }
 
@@ -297,7 +289,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for ExpReverseBitsLenCh
                 //current_output_offset += event_exp_len;
             }
             let total_output_rows = current_exp_offset ;
-            
+
             let padded_num_rows =  next_power_of_two(total_output_rows, input.fixed_log2_rows(self));
             let num_cols = <Self as BaseAir<F>>::width(self);
 
@@ -314,10 +306,10 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for ExpReverseBitsLenCh
                     all_exp_bits.len(),
                     gpu_matrix.as_mut_ptr() as *mut BabyBear, // Pass the device pointer
                     gpu_matrix.height * gpu_matrix.width, // Pass total elements including padding ele
-                    total_output_rows,     //= events after extending 
+                    total_output_rows,     //= events after extending
                     NUM_EXP_REVERSE_BITS_LEN_COLS,
                 );
-            } 
+            }
             gpu_matrix
 
         } else {
@@ -327,10 +319,10 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for ExpReverseBitsLenCh
             // Allocate the matrix directly on the GPU.
             let mut gpu_matrix = GpuMatrix::<F>::new(padded_nb_rows, num_cols);
             gpu_matrix
-        }        
+        }
     }
 
- 
+
     fn generate_preprocessed_trace_gpu(
         &self,
         program: &Self::Program,
@@ -346,30 +338,30 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for ExpReverseBitsLenCh
                     }),
                     _ => None,
                 })
-                .collect_vec(); 
+                .collect_vec();
 
         if !instrs_raw.is_empty() {
             let mut all_exp_bits: Vec<Address<BabyBear>> = Vec::new();
             let mut instrs_values: Vec<ExpReverseBitsInstrFlatFFI<BabyBear>> = Vec::with_capacity(instrs_raw.len());
 
             let mut current_exp_offset = 0;
-            
+
 
             let mut instrs_index_info: Vec<InstrsFlatIdex> = Vec::new();
 
             let mut num_total_output_rows = 0;
             for (instr_idx, &instr_ref) in instrs_raw.iter().enumerate() {
-                let instr_data = instr_ref; 
+                let instr_data = instr_ref;
                 let exp_len = instr_data.addrs.exp.len();
                 num_total_output_rows += exp_len;
-                for j in 0..exp_len { 
+                for j in 0..exp_len {
                      instrs_index_info.push(InstrsFlatIdex {
                             instr_idx: instr_idx,
                             arr_idx: j ,
-                           // last_row: p_at_z_len, 
+                           // last_row: p_at_z_len,
                         });
                 }
- 
+
                 all_exp_bits.extend_from_slice(&instr_data.addrs.exp);
 
                 instrs_values.push(crate::ExpReverseBitsInstrFlatFFI {
@@ -381,14 +373,14 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for ExpReverseBitsLenCh
                 });
 
                 current_exp_offset += exp_len;
-                
+
             }
 
-            let padded_num_rows = next_power_of_two(num_total_output_rows, program.fixed_log2_rows(self));       
+            let padded_num_rows = next_power_of_two(num_total_output_rows, program.fixed_log2_rows(self));
             let num_cols = NUM_EXP_REVERSE_BITS_LEN_PREPROCESSED_COLS;
             //  Allocate the matrix directly on the GPU.
             let mut gpu_matrix = GpuMatrix::<F>::new(padded_num_rows, num_cols);
-            
+
             unsafe {
                 crate::sys::process_exp_reverse_bits_instructions_gpu(
                     instrs_values.as_ptr(),
@@ -397,9 +389,9 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for ExpReverseBitsLenCh
                     instrs_index_info.len(),
                     all_exp_bits.as_ptr(),
                     all_exp_bits.len(),
-                    gpu_matrix.as_mut_ptr() as *mut BabyBear, 
-                    gpu_matrix.height * gpu_matrix.width, 
-                    num_total_output_rows, //= instrucctions after extending 
+                    gpu_matrix.as_mut_ptr() as *mut BabyBear,
+                    gpu_matrix.height * gpu_matrix.width,
+                    num_total_output_rows, //= instrucctions after extending
                     NUM_EXP_REVERSE_BITS_LEN_PREPROCESSED_COLS,
                 );
             }
@@ -407,7 +399,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for ExpReverseBitsLenCh
         } else {
             None
         }
-        
+
     }*/
 }
 
@@ -433,7 +425,7 @@ impl<const DEGREE: usize> ExpReverseBitsLenChip<DEGREE> {
         // others.
         builder.send_single(local_prepr.x_mem.addr, local.x, local_prepr.x_mem.mult);
 
-        //move 
+        //move
         // Constrain mem read for exponent's bits.  The read mult is one for all real rows.
         builder.send_single(
             local_prepr.exponent_mem.addr,
@@ -441,11 +433,11 @@ impl<const DEGREE: usize> ExpReverseBitsLenChip<DEGREE> {
             local_prepr.exponent_mem.mult,
         );
 
-        //move 
+        //move
         builder.send_single(local_prepr.result_mem.addr, local.accum, local_prepr.result_mem.mult);
 
         // Ensure that the value at the x memory access is unchanged when not `is_last`.
-    //println!("---cpu: local.x={:?}, next.x={:?}", local.x.into(), next.x.into());
+        //println!("---cpu: local.x={:?}, next.x={:?}", local.x.into(), next.x.into());
         builder
             .when_transition()
             .when(next_prepr.is_real)
@@ -453,11 +445,11 @@ impl<const DEGREE: usize> ExpReverseBitsLenChip<DEGREE> {
             .assert_eq(local.x, next.x);
 
         // Constrain mem read for exponent's bits.  The read mult is one for all real rows.
-       // builder.send_single(
+        // builder.send_single(
         //    local_prepr.exponent_mem.addr,
-       //     local.current_bit,
+        //     local.current_bit,
         //    local_prepr.exponent_mem.mult,
-       // );
+        // );
 
         // The accumulator needs to start with the multiplier for every `is_first` row.
         builder.when(local_prepr.is_first).assert_eq(local.accum, local.multiplier);
@@ -526,25 +518,25 @@ mod tests {
     #![allow(clippy::print_stdout)]
 
     use crate::{
+        Address, ExpReverseBitsEvent, ExpReverseBitsIo, Instruction, MemAccessKind,
+        RecursionProgram,
         chips::{exp_reverse_bits::ExpReverseBitsLenChip, test_fixtures},
         linear_program,
         machine::tests::test_recursion_linear_program,
-        runtime::{instruction as instr, ExecutionRecord},
+        runtime::{ExecutionRecord, instruction as instr},
         stark::BabyBearPoseidon2Outer,
-        Address, ExpReverseBitsEvent, ExpReverseBitsIo, Instruction, MemAccessKind,
-        RecursionProgram,
     };
     use itertools::Itertools;
     use p3_baby_bear::BabyBear;
     use p3_field::{PrimeCharacteristicRing, PrimeField32};
     use p3_matrix::dense::RowMajorMatrix;
     use p3_util::reverse_bits_len;
-    use rand::{rngs::StdRng, Rng, SeedableRng};
-    use sp1_core_machine::utils::setup_logger;
-    use sp1_stark::{air::MachineAir, StarkGenericConfig};
-    use std::iter::once;
+    use rand::{Rng, SeedableRng, rngs::StdRng};
     use sp1_core_machine::utils::pad_rows_fixed;
-    
+    use sp1_core_machine::utils::setup_logger;
+    use sp1_stark::{StarkGenericConfig, air::MachineAir};
+    use std::iter::once;
+
     use super::*;
 
     const DEGREE: usize = 3;
@@ -590,10 +582,7 @@ mod tests {
                     .chain(once(instr::exp_reverse_bits_len(
                         1,
                         F::from_u32(x_a as u32),
-                        exp_a
-                            .into_iter()
-                            .map(|bit| F::from_u32(bit as u32))
-                            .collect_vec(),
+                        exp_a.into_iter().map(|bit| F::from_u32(bit as u32)).collect_vec(),
                         F::from_u32(result_a as u32),
                     )))
                     .chain(once(instr::mem_single(MemAccessKind::Read, 1, result_a as u32, result)))
@@ -660,9 +649,9 @@ mod tests {
                 let cols: &mut ExpReverseBitsLenCols<F> = row.as_mut_slice().borrow_mut();
 
                 let prev_accum = accum;
-                accum = prev_accum *
-                    prev_accum *
-                    if event.exp[i] == F::ONE { event.base } else { F::ONE };
+                accum = prev_accum
+                    * prev_accum
+                    * if event.exp[i] == F::ONE { event.base } else { F::ONE };
 
                 cols.x = event.base;
                 cols.current_bit = event.exp[i];
@@ -705,14 +694,15 @@ mod tests {
     }
 
     #[test]
-    fn generate_trace_gpu() {     
+    fn generate_trace_gpu() {
         let shard = test_fixtures::shard();
         let mut execution_record = test_fixtures::default_execution_record();
-        let trace_gpu_ptr = ExpReverseBitsLenChip::<DEGREE>.generate_trace_gpu(&shard, &mut execution_record);
-        
+        let trace_gpu_ptr =
+            ExpReverseBitsLenChip::<DEGREE>.generate_trace_gpu(&shard, &mut execution_record);
+
         let trace_values = trace_gpu_ptr.to_host();
         let trace = RowMajorMatrix::new(trace_values, NUM_EXP_REVERSE_BITS_LEN_COLS);
-        
+
         assert_eq!(trace, generate_trace_reference::<DEGREE>(&shard, &mut execution_record));
     }
 

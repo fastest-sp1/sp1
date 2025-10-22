@@ -9,9 +9,9 @@ use enum_map::EnumMap;
 use hashbrown::HashMap;
 use p3_field::PrimeField32;
 
-use sp1_core_executor::{estimator::RecordEstimator, RiscvAirId};
+use sp1_core_executor::{RiscvAirId, estimator::RecordEstimator};
 use sp1_core_machine::shape::{CoreShapeConfig, CoreShapeError, Shapeable, ShardKind};
-use sp1_stark::{shape::Shape, SP1CoreOpts, SplitOpts};
+use sp1_stark::{SP1CoreOpts, SplitOpts, shape::Shape};
 
 pub const GAS_OPTS: SP1CoreOpts = SP1CoreOpts {
     shard_size: 2097152,
@@ -137,8 +137,8 @@ struct CoreShard<'a> {
 impl Shapeable for CoreShard<'_> {
     fn kind(&self) -> ShardKind {
         let contains_cpu = self.record[RiscvAirId::Cpu] > 0;
-        let contains_global_memory = self.record[RiscvAirId::MemoryGlobalInit] > 0 ||
-            self.record[RiscvAirId::MemoryGlobalFinalize] > 0;
+        let contains_global_memory = self.record[RiscvAirId::MemoryGlobalInit] > 0
+            || self.record[RiscvAirId::MemoryGlobalFinalize] > 0;
         match (contains_cpu, contains_global_memory) {
             (true, true) => ShardKind::PackedCore,
             (true, false) => ShardKind::Core,

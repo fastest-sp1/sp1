@@ -4,11 +4,11 @@ use anyhow::Result;
 use num_bigint::BigUint;
 use p3_baby_bear::BabyBear;
 use p3_field::{PrimeCharacteristicRing, PrimeField};
-use sp1_core_executor::{subproof::SubproofVerifier, SP1ReduceProof};
+use sp1_core_executor::{SP1ReduceProof, subproof::SubproofVerifier};
 use sp1_core_machine::cpu::MAX_CPU_LOG_DEGREE;
 use sp1_primitives::{
     consts::WORD_SIZE,
-    io::{blake3_hash, SP1PublicValues},
+    io::{SP1PublicValues, blake3_hash},
 };
 
 use sp1_recursion_circuit::machine::RootPublicValues;
@@ -16,17 +16,19 @@ use sp1_recursion_core::{air::RecursionPublicValues, stark::BabyBearPoseidon2Out
 use sp1_recursion_gnark_ffi::{
     Groth16Bn254Proof, Groth16Bn254Prover, PlonkBn254Proof, PlonkBn254Prover,
 };
+#[cfg(feature = "recursion_cuda")]
+use sp1_stark::GpuMachineProver;
 use sp1_stark::{
-    air::{PublicValues, POSEIDON_NUM_WORDS, PV_DIGEST_NUM_WORDS},
+    MachineProof, MachineProver, MachineVerificationError, StarkGenericConfig, Word,
+    air::{POSEIDON_NUM_WORDS, PV_DIGEST_NUM_WORDS, PublicValues},
     baby_bear_poseidon2::BabyBearPoseidon2,
-    MachineProof, MachineProver, GpuMachineProver, MachineVerificationError, StarkGenericConfig, Word,
 };
 use thiserror::Error;
 
 use crate::{
+    CoreSC, HashableKey, OuterSC, SP1CoreProofData, SP1Prover, SP1VerifyingKey,
     components::SP1ProverComponents,
     utils::{assert_recursion_public_values_valid, assert_root_public_values_valid},
-    CoreSC, HashableKey, OuterSC, SP1CoreProofData, SP1Prover, SP1VerifyingKey,
 };
 
 #[derive(Error, Debug)]
@@ -206,15 +208,15 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
                 return Err(MachineVerificationError::InvalidPublicValues(
                     "last_init_addr_bits != last_finalize_addr_bits_prev",
                 ));
-            } else if !shard_proof.contains_global_memory_init() &&
-                public_values.previous_init_addr_bits != public_values.last_init_addr_bits
+            } else if !shard_proof.contains_global_memory_init()
+                && public_values.previous_init_addr_bits != public_values.last_init_addr_bits
             {
                 return Err(MachineVerificationError::InvalidPublicValues(
                     "previous_init_addr_bits != last_init_addr_bits",
                 ));
-            } else if !shard_proof.contains_global_memory_finalize() &&
-                public_values.previous_finalize_addr_bits !=
-                    public_values.last_finalize_addr_bits
+            } else if !shard_proof.contains_global_memory_finalize()
+                && public_values.previous_finalize_addr_bits
+                    != public_values.last_finalize_addr_bits
             {
                 return Err(MachineVerificationError::InvalidPublicValues(
                     "previous_finalize_addr_bits != last_finalize_addr_bits",
@@ -243,34 +245,33 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
         // - If it's not a shard with "CPU", then `deferred_proofs_digest` should not change from
         //   the
         //  previous shard.
-        let zero_committed_value_digest =
-            [Word([BabyBear::ZERO; WORD_SIZE]); PV_DIGEST_NUM_WORDS];
+        let zero_committed_value_digest = [Word([BabyBear::ZERO; WORD_SIZE]); PV_DIGEST_NUM_WORDS];
         let zero_deferred_proofs_digest = [BabyBear::ZERO; POSEIDON_NUM_WORDS];
         let mut committed_value_digest_prev = zero_committed_value_digest;
         let mut deferred_proofs_digest_prev = zero_deferred_proofs_digest;
         for shard_proof in proof.0.iter() {
             let public_values: &PublicValues<Word<_>, _> =
                 shard_proof.public_values.as_slice().borrow();
-            if committed_value_digest_prev != zero_committed_value_digest &&
-                public_values.committed_value_digest != committed_value_digest_prev
+            if committed_value_digest_prev != zero_committed_value_digest
+                && public_values.committed_value_digest != committed_value_digest_prev
             {
                 return Err(MachineVerificationError::InvalidPublicValues(
                     "committed_value_digest != committed_value_digest_prev",
                 ));
-            } else if deferred_proofs_digest_prev != zero_deferred_proofs_digest &&
-                public_values.deferred_proofs_digest != deferred_proofs_digest_prev
+            } else if deferred_proofs_digest_prev != zero_deferred_proofs_digest
+                && public_values.deferred_proofs_digest != deferred_proofs_digest_prev
             {
                 return Err(MachineVerificationError::InvalidPublicValues(
                     "deferred_proofs_digest != deferred_proofs_digest_prev",
                 ));
-            } else if !shard_proof.contains_cpu() &&
-                public_values.committed_value_digest != committed_value_digest_prev
+            } else if !shard_proof.contains_cpu()
+                && public_values.committed_value_digest != committed_value_digest_prev
             {
                 return Err(MachineVerificationError::InvalidPublicValues(
                     "committed_value_digest != committed_value_digest_prev",
                 ));
-            } else if !shard_proof.contains_cpu() &&
-                public_values.deferred_proofs_digest != deferred_proofs_digest_prev
+            } else if !shard_proof.contains_cpu()
+                && public_values.deferred_proofs_digest != deferred_proofs_digest_prev
             {
                 return Err(MachineVerificationError::InvalidPublicValues(
                     "deferred_proofs_digest != deferred_proofs_digest_prev",

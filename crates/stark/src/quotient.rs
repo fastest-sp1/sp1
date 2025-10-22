@@ -1,15 +1,15 @@
 use p3_air::Air;
 use p3_commit::PolynomialSpace;
-use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, PackedValue};
-use p3_matrix::{dense::RowMajorMatrixView, stack::VerticalPair, Matrix};
+use p3_field::{BasedVectorSpace, PackedValue, PrimeCharacteristicRing};
+use p3_matrix::{Matrix, dense::RowMajorMatrixView, stack::VerticalPair};
 use p3_maybe_rayon::prelude::*;
 use p3_util::log2_strict_usize;
 
 use crate::{air::MachineAir, septic_digest::SepticDigest};
 
 use super::{
-    folder::ProverConstraintFolder, Chip, Domain, PackedChallenge, PackedVal, StarkGenericConfig,
-    Val,
+    Chip, Domain, PackedChallenge, PackedVal, StarkGenericConfig, Val,
+    folder::ProverConstraintFolder,
 };
 
 /// Computes the quotient values.
@@ -72,18 +72,22 @@ where
                     PackedVal::<SC>::from_fn(|offset| {
                         preprocessed_trace_on_quotient_domain
                             .as_ref()
-                            .map_or(Val::<SC>::ZERO, |x| x.get(wrap(i_start + offset), col).expect("get element fail"))
+                            .map_or(Val::<SC>::ZERO, |x| {
+                                x.get(wrap(i_start + offset), col).expect("get element fail")
+                            })
                     })
                 })
                 .collect();
             let prep_next: Vec<_> = (0..prep_width)
                 .map(|col| {
                     PackedVal::<SC>::from_fn(|offset| {
-                        preprocessed_trace_on_quotient_domain
-                            .as_ref()
-                            .map_or(Val::<SC>::ZERO, |x| {
-                                x.get(wrap(i_start + next_step + offset), col).expect("get element fail")
-                            })
+                        preprocessed_trace_on_quotient_domain.as_ref().map_or(
+                            Val::<SC>::ZERO,
+                            |x| {
+                                x.get(wrap(i_start + next_step + offset), col)
+                                    .expect("get element fail")
+                            },
+                        )
                     })
                 })
                 .collect();
@@ -91,14 +95,18 @@ where
             let local: Vec<_> = (0..main_width)
                 .map(|col| {
                     PackedVal::<SC>::from_fn(|offset| {
-                        main_trace_on_quotient_domain.get(wrap(i_start + offset), col).expect("get element fail")
+                        main_trace_on_quotient_domain
+                            .get(wrap(i_start + offset), col)
+                            .expect("get element fail")
                     })
                 })
                 .collect();
             let next: Vec<_> = (0..main_width)
                 .map(|col| {
                     PackedVal::<SC>::from_fn(|offset| {
-                        main_trace_on_quotient_domain.get(wrap(i_start + next_step + offset), col).expect("get element fail")
+                        main_trace_on_quotient_domain
+                            .get(wrap(i_start + next_step + offset), col)
+                            .expect("get element fail")
                     })
                 })
                 .collect();
@@ -109,7 +117,8 @@ where
                     PackedChallenge::<SC>::from_basis_coefficients_fn(|i| {
                         PackedVal::<SC>::from_fn(|offset| {
                             permutation_trace_on_quotient_domain
-                                .get(wrap(i_start + offset), col + i).expect("get element fail")
+                                .get(wrap(i_start + offset), col + i)
+                                .expect("get element fail")
                         })
                     })
                 })
@@ -121,7 +130,8 @@ where
                     PackedChallenge::<SC>::from_basis_coefficients_fn(|i| {
                         PackedVal::<SC>::from_fn(|offset| {
                             permutation_trace_on_quotient_domain
-                                .get(wrap(i_start + next_step + offset), col + i).expect("get element fail")
+                                .get(wrap(i_start + next_step + offset), col + i)
+                                .expect("get element fail")
                         })
                     })
                 })
@@ -163,7 +173,9 @@ where
             // "Transpose" D packed base coefficients into WIDTH scalar extension coefficients.
             (0..PackedVal::<SC>::WIDTH).map(move |idx_in_packing| {
                 let quotient_value = (0..<SC::Challenge as BasedVectorSpace<Val<SC>>>::DIMENSION)
-                    .map(|coeff_idx| quotient.as_basis_coefficients_slice()[coeff_idx].as_slice()[idx_in_packing])
+                    .map(|coeff_idx| {
+                        quotient.as_basis_coefficients_slice()[coeff_idx].as_slice()[idx_in_packing]
+                    })
                     .collect::<Vec<_>>();
                 SC::Challenge::from_basis_coefficients_slice(&quotient_value).unwrap()
             })

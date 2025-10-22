@@ -2,8 +2,8 @@
 use num_bigint::BigUint;
 use num_traits::One;
 use p3_field::{
-    BasedVectorSpace, PrimeCharacteristicRing, ExtensionField, Field, Packable, PrimeField32,
-    Algebra, field_to_array, PrimeField, RawDataSerializable,
+    Algebra, BasedVectorSpace, ExtensionField, Field, Packable, PrimeCharacteristicRing,
+    PrimeField, PrimeField32, RawDataSerializable, field_to_array,
 };
 use p3_util::{flatten_to_base, reconstitute_from_base};
 use serde::{Deserialize, Serialize};
@@ -25,15 +25,13 @@ const D: usize = 7;
 #[repr(C)]
 pub struct SepticExtension<F>(pub [F; 7]);
 
-
 impl<F> SepticExtension<F> {
     pub(crate) const fn new(value: [F; 7]) -> Self {
-        Self (value)
+        Self(value)
     }
 }
 
-impl<F: PrimeCharacteristicRing> PrimeCharacteristicRing for SepticExtension<F>
-{
+impl<F: PrimeCharacteristicRing> PrimeCharacteristicRing for SepticExtension<F> {
     type PrimeSubfield = <F as PrimeCharacteristicRing>::PrimeSubfield;
 
     const ZERO: Self = Self::new([F::ZERO; D]);
@@ -50,28 +48,16 @@ impl<F: PrimeCharacteristicRing> PrimeCharacteristicRing for SepticExtension<F>
         <F as PrimeCharacteristicRing>::from_prime_subfield(f).into()
     }
 
-    
-    #[must_use]
     #[inline(always)]
     fn from_bool(b: bool) -> Self {
-        SepticExtension([
-            F::from_bool(b),
-            F::ZERO,
-            F::ZERO,
-            F::ZERO,
-            F::ZERO,
-            F::ZERO,
-            F::ZERO,
-        ])
+        SepticExtension([F::from_bool(b), F::ZERO, F::ZERO, F::ZERO, F::ZERO, F::ZERO, F::ZERO])
     }
 
-    #[must_use]
     #[inline(always)]
     fn square(&self) -> Self {
         self.clone() * self.clone()
     }
 
-    
     #[inline]
     fn zero_vec(len: usize) -> Vec<Self> {
         // SAFETY: this is a repr(transparent) wrapper around an array.
@@ -80,73 +66,34 @@ impl<F: PrimeCharacteristicRing> PrimeCharacteristicRing for SepticExtension<F>
 
     #[inline]
     fn from_u8(int: u8) -> Self {
-        SepticExtension([
-            F::from_u8(int),
-            F::ZERO,
-            F::ZERO,
-            F::ZERO,
-            F::ZERO,
-            F::ZERO,
-            F::ZERO,
-        ])
+        SepticExtension([F::from_u8(int), F::ZERO, F::ZERO, F::ZERO, F::ZERO, F::ZERO, F::ZERO])
     }
 
     #[inline]
     fn from_u16(int: u16) -> Self {
-        SepticExtension([
-            F::from_u16(int),
-            F::ZERO,
-            F::ZERO,
-            F::ZERO,
-            F::ZERO,
-            F::ZERO,
-            F::ZERO,
-        ])
+        SepticExtension([F::from_u16(int), F::ZERO, F::ZERO, F::ZERO, F::ZERO, F::ZERO, F::ZERO])
     }
 
     #[inline]
     fn from_u32(int: u32) -> Self {
-        SepticExtension([
-            F::from_u32(int),
-            F::ZERO,
-            F::ZERO,
-            F::ZERO,
-            F::ZERO,
-            F::ZERO,
-            F::ZERO,
-        ])
+        SepticExtension([F::from_u32(int), F::ZERO, F::ZERO, F::ZERO, F::ZERO, F::ZERO, F::ZERO])
     }
 
     #[inline]
     fn from_u64(int: u64) -> Self {
-        SepticExtension([
-            F::from_u64(int),
-            F::ZERO,
-            F::ZERO,
-            F::ZERO,
-            F::ZERO,
-            F::ZERO,
-            F::ZERO,
-        ])
+        SepticExtension([F::from_u64(int), F::ZERO, F::ZERO, F::ZERO, F::ZERO, F::ZERO, F::ZERO])
     }
 
     #[inline]
     fn from_usize(int: usize) -> Self {
-        SepticExtension([
-            F::from_usize(int),
-            F::ZERO,
-            F::ZERO,
-            F::ZERO,
-            F::ZERO,
-            F::ZERO,
-            F::ZERO,
-        ])
+        SepticExtension([F::from_usize(int), F::ZERO, F::ZERO, F::ZERO, F::ZERO, F::ZERO, F::ZERO])
     }
 }
 
 impl<F: Field> Field for SepticExtension<F> {
     type Packing = Self;
-    const GENERATOR: Self = SepticExtension([F::TWO, F::ONE, F::ZERO, F::ZERO, F::ZERO, F::ZERO, F::ZERO]);
+    const GENERATOR: Self =
+        SepticExtension([F::TWO, F::ONE, F::ZERO, F::ZERO, F::ZERO, F::ZERO, F::ZERO]);
 
     fn try_inverse(&self) -> Option<Self> {
         if self.is_zero() {
@@ -173,7 +120,6 @@ impl<F: PrimeCharacteristicRing> BasedVectorSpace<F> for SepticExtension<F> {
         &self.0
     }
 
-   #[must_use]
     #[inline]
     fn from_basis_coefficients_slice(slice: &[F]) -> Option<Self> {
         Some(SepticExtension([
@@ -201,7 +147,6 @@ impl<F: PrimeCharacteristicRing> BasedVectorSpace<F> for SepticExtension<F> {
         Some(res)
     }
 
-
     #[inline]
     fn flatten_to_base(vec: Vec<Self>) -> Vec<F> {
         unsafe {
@@ -221,8 +166,7 @@ impl<F: PrimeCharacteristicRing> BasedVectorSpace<F> for SepticExtension<F> {
     }
 }
 
-impl<F: PrimeField + Field> ExtensionField<F> for SepticExtension<F>
-{
+impl<F: PrimeField + Field> ExtensionField<F> for SepticExtension<F> {
     type ExtensionPacking = PackedSepticExtension<F, F::Packing>;
 
     #[inline]
@@ -236,11 +180,9 @@ impl<F: PrimeField + Field> ExtensionField<F> for SepticExtension<F>
     }
 }
 
-
 impl<F: PrimeCharacteristicRing> Algebra<F> for SepticExtension<F> {}
 
-impl<F: Field> RawDataSerializable for SepticExtension<F>
-{
+impl<F: Field> RawDataSerializable for SepticExtension<F> {
     const NUM_BYTES: usize = F::NUM_BYTES * D;
 
     #[inline]
@@ -268,9 +210,7 @@ impl<F: Field> RawDataSerializable for SepticExtension<F>
         input: impl IntoIterator<Item = [Self; N]>,
     ) -> impl IntoIterator<Item = [u8; N]> {
         F::into_parallel_byte_streams(
-            input
-                .into_iter()
-                .flat_map(|x| (0..D).map(move |i| array::from_fn(|j| x[j].0[i]))),
+            input.into_iter().flat_map(|x| (0..D).map(move |i| array::from_fn(|j| x[j].0[i]))),
         )
     }
 
@@ -279,9 +219,7 @@ impl<F: Field> RawDataSerializable for SepticExtension<F>
         input: impl IntoIterator<Item = [Self; N]>,
     ) -> impl IntoIterator<Item = [u32; N]> {
         F::into_parallel_u32_streams(
-            input
-                .into_iter()
-                .flat_map(|x| (0..D).map(move |i| array::from_fn(|j| x[j].0[i]))),
+            input.into_iter().flat_map(|x| (0..D).map(move |i| array::from_fn(|j| x[j].0[i]))),
         )
     }
 
@@ -290,20 +228,17 @@ impl<F: Field> RawDataSerializable for SepticExtension<F>
         input: impl IntoIterator<Item = [Self; N]>,
     ) -> impl IntoIterator<Item = [u64; N]> {
         F::into_parallel_u64_streams(
-            input
-                .into_iter()
-                .flat_map(|x| (0..D).map(move |i| array::from_fn(|j| x[j].0[i]))),
+            input.into_iter().flat_map(|x| (0..D).map(move |i| array::from_fn(|j| x[j].0[i]))),
         )
     }
 }
-
 
 impl<F: Field> Packable for SepticExtension<F> {}
 
 impl<F: PrimeCharacteristicRing> Add for SepticExtension<F> {
     type Output = Self;
 
-   #[inline]
+    #[inline]
     fn add(self, rhs: Self) -> Self::Output {
         let mut res = self.0;
         for (r, rhs_val) in res.iter_mut().zip(rhs.0) {
@@ -329,7 +264,7 @@ impl<F: PrimeCharacteristicRing> AddAssign for SepticExtension<F> {
 impl<F: PrimeCharacteristicRing> Sub for SepticExtension<F> {
     type Output = Self;
 
-   #[inline]
+    #[inline]
     fn sub(self, rhs: Self) -> Self::Output {
         let mut res = self.0;
         for (r, rhs_val) in res.iter_mut().zip(rhs.0) {
@@ -364,7 +299,7 @@ impl<F: PrimeCharacteristicRing> Neg for SepticExtension<F> {
 impl<F: PrimeCharacteristicRing> Mul for SepticExtension<F> {
     type Output = Self;
 
-	#[inline]
+    #[inline]
     fn mul(self, rhs: Self) -> Self::Output {
         let mut res: [F; 13] = core::array::from_fn(|_| F::ZERO);
         for i in 0..7 {
@@ -382,7 +317,7 @@ impl<F: PrimeCharacteristicRing> Mul for SepticExtension<F> {
 }
 
 impl<F: PrimeCharacteristicRing> MulAssign for SepticExtension<F> {
-	#[inline]
+    #[inline]
     fn mul_assign(&mut self, rhs: Self) {
         let res = self.clone() * rhs;
         *self = res;
@@ -411,7 +346,7 @@ impl<F: PrimeCharacteristicRing> From<F> for SepticExtension<F> {
 
 impl<F: PrimeCharacteristicRing> Add<F> for SepticExtension<F> {
     type Output = Self;
-	#[inline]
+    #[inline]
     fn add(self, rhs: F) -> Self::Output {
         SepticExtension([
             self.0[0].clone() + rhs,
@@ -426,7 +361,7 @@ impl<F: PrimeCharacteristicRing> Add<F> for SepticExtension<F> {
 }
 
 impl<F: PrimeCharacteristicRing> AddAssign<F> for SepticExtension<F> {
-	#[inline]
+    #[inline]
     fn add_assign(&mut self, rhs: F) {
         self.0[0] += rhs;
     }
@@ -435,14 +370,14 @@ impl<F: PrimeCharacteristicRing> AddAssign<F> for SepticExtension<F> {
 impl<F: PrimeCharacteristicRing> Sub<F> for SepticExtension<F> {
     type Output = Self;
 
-	#[inline]
+    #[inline]
     fn sub(self, rhs: F) -> Self::Output {
         self + (-rhs)
     }
 }
 
 impl<F: PrimeCharacteristicRing> SubAssign<F> for SepticExtension<F> {
-	#[inline]
+    #[inline]
     fn sub_assign(&mut self, rhs: F) {
         self.0[0] -= rhs;
     }
@@ -450,7 +385,7 @@ impl<F: PrimeCharacteristicRing> SubAssign<F> for SepticExtension<F> {
 
 impl<F: PrimeCharacteristicRing> Mul<F> for SepticExtension<F> {
     type Output = Self;
-	#[inline]
+    #[inline]
     fn mul(self, rhs: F) -> Self::Output {
         SepticExtension([
             self.0[0].clone() * rhs.clone(),
@@ -465,7 +400,7 @@ impl<F: PrimeCharacteristicRing> Mul<F> for SepticExtension<F> {
 }
 
 impl<F: PrimeCharacteristicRing> MulAssign<F> for SepticExtension<F> {
-	#[inline]
+    #[inline]
     fn mul_assign(&mut self, rhs: F) {
         for i in 0..7 {
             self.0[i] *= rhs.clone();
@@ -748,15 +683,15 @@ impl<F: PrimeCharacteristicRing + PrimeField32> SepticExtension<F> {
     /// Returns whether the extension field element viewed as an y-coordinate of a digest represents
     /// a receive interaction.
     pub fn is_receive(&self) -> bool {
-        1 <= self.0[6].as_canonical_u32() &&
-            self.0[6].as_canonical_u32() <= F::ORDER_U32.div_ceil(2)
+        1 <= self.0[6].as_canonical_u32()
+            && self.0[6].as_canonical_u32() <= F::ORDER_U32.div_ceil(2)
     }
 
     /// Returns whether the extension field element viewed as an y-coordinate of a digest represents
     /// a send interaction.
     pub fn is_send(&self) -> bool {
-        F::ORDER_U32.div_ceil(2) <= self.0[6].as_canonical_u32() &&
-            self.0[6].as_canonical_u32() <= (F::ORDER_U32 - 1)
+        F::ORDER_U32.div_ceil(2) <= self.0[6].as_canonical_u32()
+            && self.0[6].as_canonical_u32() <= (F::ORDER_U32 - 1)
     }
 
     /// Returns whether the extension field element viewed as an y-coordinate of a digest cannot
@@ -766,35 +701,32 @@ impl<F: PrimeCharacteristicRing + PrimeField32> SepticExtension<F> {
     }
 }
 
-
 /// Multiply two vectors representing elements in a SepticExtension :z^7 - 2z - 5.
 #[inline]
 pub(super) fn septic_mul<
     F: PrimeCharacteristicRing,
-    R: Algebra<F> + Mul<R2, Output = R> ,
-   R2: Add<Output = R2> + Clone,
+    R: Algebra<F> + Mul<R2, Output = R>,
+    R2: Add<Output = R2> + Clone,
 >(
     a: &[R; 7],
     b: &[R2; 7],
     ret: &mut [R; 7],
-
 ) {
-        let mut res: [R; 13] = core::array::from_fn(|_| R::ZERO);
-        for i in 0..7 {
-            for j in 0..7 {
-                res[i + j] = res[i + j].clone() + a[i].clone() * b[j].clone();
-            }
+    let mut res: [R; 13] = core::array::from_fn(|_| R::ZERO);
+    for i in 0..7 {
+        for j in 0..7 {
+            res[i + j] = res[i + j].clone() + a[i].clone() * b[j].clone();
         }
-        //let mut ret: [F; 7] = core::array::from_fn(|i| res[i].clone());
-        for i in 0..7 {
-            ret[i] = res[i].clone();
-        }
+    }
+    //let mut ret: [F; 7] = core::array::from_fn(|i| res[i].clone());
+    for i in 0..7 {
+        ret[i] = res[i].clone();
+    }
 
-        for i in 7..13 {
-            ret[i - 7] = ret[i - 7].clone() + res[i].clone() * F::from_u32(5);
-            ret[i - 6] = ret[i - 6].clone() + res[i].clone() * F::from_u32(2);
-        }
-
+    for i in 7..13 {
+        ret[i - 7] = ret[i - 7].clone() + res[i].clone() * F::from_u32(5);
+        ret[i - 6] = ret[i - 6].clone() + res[i].clone() * F::from_u32(2);
+    }
 }
 
 /// Extension field for Cipolla's algorithm, taken from <https://github.com/Plonky3/Plonky3/pull/439/files>.
@@ -805,8 +737,7 @@ struct CipollaExtension<F: Field> {
 }
 
 impl<F: Field> CipollaExtension<F> {
-    const ONE: Self = Self{ real: F::ONE, 
-                            imag: F::ZERO};
+    const ONE: Self = Self { real: F::ONE, imag: F::ZERO };
 
     fn new(real: F, imag: F) -> Self {
         Self { real, imag }
@@ -950,8 +881,6 @@ pub(crate) fn vector_sub<
 ) -> [R; L] {
     array::from_fn(|i| a[i].clone() - b[i].clone())
 }
-
-
 
 #[cfg(test)]
 mod tests {

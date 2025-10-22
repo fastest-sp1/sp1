@@ -1,13 +1,13 @@
 //! A module for managing GPU memory with an arena allocator.
 
 use crate::gpu::ffi::*;
-use crate::gpu::matrix::{CudaResultCheck, GpuMatrix, CudaError};
+use crate::gpu::matrix::{CudaError, CudaResultCheck, GpuMatrix};
 
-use crossbeam_channel::{bounded, Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, bounded};
 use std::ffi::c_void;
-use std::marker::PhantomData;
-use std::ops::{Deref, DerefMut};
+//use std::marker::PhantomData;
 use parking_lot::Mutex;
+use std::ops::{Deref, DerefMut};
 
 #[derive(Debug, Default)]
 struct GpuMemBlkState {
@@ -23,7 +23,6 @@ pub struct GpuMemBlk {
     //pos: usize,
     state: Mutex<GpuMemBlkState>,
 }
-
 
 impl GpuMemBlk {
     /// Creates a new gpuMemBlk by allocating a large block of GPU memory.
@@ -56,30 +55,40 @@ impl GpuMemBlk {
 
         let align = std::mem::align_of::<T>().max(1); // Alignment must be at least 1
         let size = height.saturating_mul(width).saturating_mul(std::mem::size_of::<T>());
-        
+
         // Calculate the next memory address that respects the required alignment.
         let aligned_pos = (state.pos + align - 1) & !(align - 1);
-        
+
         if aligned_pos.saturating_add(size) > self.capacity {
             panic!(
                 "GPU Block out of memory. Requested {} bytes (aligned to {}), but only {} bytes remaining of {}.H:{},W:{}",
-                size, aligned_pos, self.capacity - state.pos, self.capacity, height, width
+                size,
+                aligned_pos,
+                self.capacity - state.pos,
+                self.capacity,
+                height,
+                width
             );
         }
 
         let ptr = unsafe { self.base_ptr.add(aligned_pos) };
         //self.pos = aligned_pos + size;
-         state.pos = aligned_pos + size;
+        state.pos = aligned_pos + size;
 
         unsafe { GpuMatrix::from_raw_parts(ptr, width, height) }
     }
 
-    pub fn alloc_matrix_from_vec<T>(&self, host_vec: &Vec<T>, height: usize, width: usize) -> GpuMatrix<T> {
+    pub fn alloc_matrix_from_vec<T>(
+        &self,
+        host_vec: &Vec<T>,
+        height: usize,
+        width: usize,
+    ) -> GpuMatrix<T> {
         let gpu_mat = self.alloc_matrix::<T>(height, width);
         gpu_mat.copy_from_host(host_vec);
         gpu_mat
     }
-    
+
     /// Resets the allocator's position to the beginning of the arena.
     /// This makes all memory in the arena available again for new allocations.
     /// It does not free or reallocate the underlying GPU buffer.
@@ -93,7 +102,7 @@ impl GpuMemBlk {
 impl Drop for GpuMemBlk {
     fn drop(&mut self) {
         if !self.base_ptr.is_null() {
-             println!("[GpuMemBlk] Freeing block pointer {:p}", self.base_ptr);
+            println!("[GpuMemBlk] Freeing block pointer {:p}", self.base_ptr);
             unsafe {
                 let result = cuda_free(self.base_ptr);
                 if result != 0 {
@@ -118,7 +127,7 @@ pub struct GpuMemBlkPool {
 }
 
 impl GpuMemBlkPool {
-   /// Creates a new pool with a specified number of memory blocks, each of a given size.
+    /// Creates a new pool with a specified number of memory blocks, each of a given size.
     ///
     /// # Arguments
     /// * `num_blks` - The number of concurrent jobs this pool can support (e.g., 2 for 2 threads).
@@ -131,17 +140,14 @@ impl GpuMemBlkPool {
         if num_blks == 0 {
             panic!("Cannot create a GpuMemBlkPool with zero memory blocks.");
         }
-        
+
         // A bounded channel of size `num_blks` acts as our pool.
         let (sender, receiver) = bounded(num_blks);
 
         for i in 0..num_blks {
             // Provide informative logging during initialization.
             let size_mb = size_per_blk as f64 / (1024.0 * 1024.0);
-            println!(
-                "[GpuMemBlkPool] Initializing memory block {} with size {:.2} MB",
-                i, size_mb
-            );
+            println!("[GpuMemBlkPool] Initializing memory block {} with size {:.2} MB", i, size_mb);
             let blk = GpuMemBlk::new(size_per_blk)
                 .expect("Failed to create GPU memory block for the pool");
             sender.send(blk).unwrap(); // Should not fail on a new channel
@@ -157,16 +163,17 @@ impl GpuMemBlkPool {
     /// to the pool when it is dropped (goes out of scope).
     pub fn lease(&self) -> GpuMemBlkLease {
         // `recv()` will block if the channel (pool) is empty.
-        let blk = self.receiver.recv().expect("GpuMemBlkPool channel was disconnected. This indicates a catastrophic failure.");
-        
+        let blk = self.receiver.recv().expect(
+            "GpuMemBlkPool channel was disconnected. This indicates a catastrophic failure.",
+        );
+
         GpuMemBlkLease {
             blk: Some(blk),
             sender: self.sender.clone(),
-           // _phantom: PhantomData,
+            // _phantom: PhantomData,
         }
     }
 }
-
 
 /// A smart pointer representing a temporary lease on a `GpuMemBlk` from a `GpuMemBlkPool`.
 ///
@@ -219,13 +226,13 @@ impl DerefMut for GpuMemBlkLease {
 
 #[cfg(test)]
 mod tests {
-    use super::*; 
+    use super::*;
+    use crate::baby_bear_poseidon2::{Challenge, Val};
     use crate::gpu::matrix::GpuMatrix;
-    use crate::baby_bear_poseidon2::{Val, Challenge};
-    use std::thread;
-    use std::sync::Arc;
-    use std::time::Duration;
     use p3_field::PrimeCharacteristicRing;
+    use std::sync::Arc;
+    use std::thread;
+    use std::time::Duration;
 
     #[test]
     fn test_gpuMemBlk_and_pool_lifecycle() {
@@ -240,7 +247,6 @@ mod tests {
             matrix: GpuMatrix<Val>,
             _lease: GpuMemBlkLease, // The lease is part of the bundle
         }
- 
 
         let (sender, receiver) = std::sync::mpsc::channel::<GpuTraceBundle>();
 
@@ -258,13 +264,13 @@ mod tests {
             let host_data: Vec<Val> = (0..128 * 128).map(|i| Val::from_usize(i)).collect();
             matrix.copy_from_host(&host_data);
             println!("[Producer] Generated matrix at ptr {:p}", matrix.ptr);
-            
+
             // Bundle the matrix handle AND the lease together and send them.
             let bundle = GpuTraceBundle {
                 matrix,
                 _lease: lease, // Ownership of the lease is MOVED into the bundle
             };
-            
+
             println!("[Producer] Sending bundle to consumer...");
             sender.send(bundle).unwrap();
             println!("[Producer] Bundle sent. Thread finishing.");
@@ -277,8 +283,11 @@ mod tests {
             println!("[Consumer] Waiting to receive bundle...");
             // This will block until the producer sends the bundle.
             let received_bundle = receiver.recv().unwrap();
-            println!("[Consumer] Received bundle with matrix at ptr {:p}", received_bundle.matrix.ptr);
-            
+            println!(
+                "[Consumer] Received bundle with matrix at ptr {:p}",
+                received_bundle.matrix.ptr
+            );
+
             // At this point, the producer thread might have already finished, but that's okay.
             // The `received_bundle` now owns the `GpuMemBlkLease`, so the GPU memory is still valid.
 
@@ -300,7 +309,7 @@ mod tests {
 
         producer_handle.join().unwrap();
         consumer_handle.join().unwrap();
-        
+
         // After both threads are done, the block should be back in the pool.
         thread::sleep(Duration::from_millis(20)); // Give channel time
         assert_eq!(pool.receiver.len(), 1);

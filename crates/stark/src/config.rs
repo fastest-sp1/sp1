@@ -3,7 +3,7 @@
 use p3_challenger::{CanObserve, CanSample, FieldChallenger};
 use p3_commit::{Pcs, PolynomialSpace};
 use p3_field::{ExtensionField, Field, PrimeField};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 
 pub type PcsError<SC> = <<SC as StarkGenericConfig>::Pcs as Pcs<
     <SC as StarkGenericConfig>::Challenge,
@@ -101,7 +101,7 @@ impl<SC: StarkGenericConfig> p3_uni_stark::StarkGenericConfig for UniConfig<SC> 
         self.0.pcs()
     }
 
-     fn initialise_challenger(&self) -> Self::Challenger {
+    fn initialise_challenger(&self) -> Self::Challenger {
         self.0.initialise_challenger()
     }
 }

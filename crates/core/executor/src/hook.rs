@@ -4,7 +4,7 @@ use std::sync::{Arc, RwLock, RwLockWriteGuard};
 
 use hashbrown::HashMap;
 use sp1_curves::{
-    edwards::ed25519::ed25519_sqrt, params::FieldParameters, BigUint, Integer, One, Zero,
+    BigUint, Integer, One, Zero, edwards::ed25519::ed25519_sqrt, params::FieldParameters,
 };
 
 use crate::Executor;
@@ -64,7 +64,7 @@ impl<'a> HookRegistry<'a> {
     /// Note: This function should not be called in async contexts, unless you know what you are
     /// doing.
     #[must_use]
-    pub fn get(&self, fd: u32) -> Option<RwLockWriteGuard<dyn Hook + Send + Sync + 'a>> {
+    pub fn get(&self, fd: u32) -> Option<RwLockWriteGuard<'_, dyn Hook + Send + Sync + 'a>> {
         // Calling `.unwrap()` panics on a poisoned lock. Should never happen normally.
         self.table.get(&fd).map(|x| x.write().unwrap())
     }
@@ -148,14 +148,22 @@ mod ecrecover {
 
     pub(super) fn handle_secp256k1(r: [u8; 32], alpha: [u8; 32], r_y_is_odd: bool) -> Vec<Vec<u8>> {
         use k256::{
-            elliptic_curve::ff::PrimeField, FieldBytes as K256FieldBytes,
-            FieldElement as K256FieldElement, Scalar as K256Scalar,
+            FieldBytes as K256FieldBytes, FieldElement as K256FieldElement, Scalar as K256Scalar,
+            elliptic_curve::ff::PrimeField,
         };
 
-        let r = K256FieldElement::from_bytes(K256FieldBytes::from_slice(&r)).unwrap();
+        //let r = K256FieldElement::from_bytes(K256FieldBytes::from_slice(&r)).unwrap();
+        let mut r_bytes = K256FieldBytes::default();
+        r_bytes.copy_from_slice(&r);
+        let r = K256FieldElement::from_bytes(&r_bytes).unwrap();
+
         debug_assert!(!bool::from(r.is_zero()), "r should not be zero");
 
-        let alpha = K256FieldElement::from_bytes(K256FieldBytes::from_slice(&alpha)).unwrap();
+        //let alpha = K256FieldElement::from_bytes(K256FieldBytes::from_slice(&alpha)).unwrap();
+        let mut r_bytes = K256FieldBytes::default();
+        r_bytes.copy_from_slice(&alpha);
+        let alpha = K256FieldElement::from_bytes(&r_bytes).unwrap();
+
         assert!(!bool::from(alpha.is_zero()), "alpha should not be zero");
 
         // nomralize the y-coordinate always to be consistent.
@@ -170,7 +178,11 @@ mod ecrecover {
 
             vec![vec![1], y_coord.to_bytes().to_vec(), r_inv.to_bytes().to_vec()]
         } else {
-            let nqr_field = K256FieldElement::from_bytes(K256FieldBytes::from_slice(&NQR)).unwrap();
+            //let nqr_field = K256FieldElement::from_bytes(K256FieldBytes::from_slice(&NQR)).unwrap();
+            let mut r_bytes = K256FieldBytes::default();
+            r_bytes.copy_from_slice(&NQR);
+            let nqr_field = K256FieldElement::from_bytes(&r_bytes).unwrap();
+
             let qr = alpha * nqr_field;
             let root = qr.sqrt().expect("if alpha is not a square, then qr should be a square");
 
@@ -180,14 +192,20 @@ mod ecrecover {
 
     pub(super) fn handle_secp256r1(r: [u8; 32], alpha: [u8; 32], r_y_is_odd: bool) -> Vec<Vec<u8>> {
         use p256::{
-            elliptic_curve::ff::PrimeField, FieldBytes as P256FieldBytes,
-            FieldElement as P256FieldElement, Scalar as P256Scalar,
+            FieldBytes as P256FieldBytes, FieldElement as P256FieldElement, Scalar as P256Scalar,
+            elliptic_curve::ff::PrimeField,
         };
 
-        let r = P256FieldElement::from_bytes(P256FieldBytes::from_slice(&r)).unwrap();
+        //let r = P256FieldElement::from_bytes(P256FieldBytes::from_slice(&r)).unwrap();
+        let mut r_bytes = P256FieldBytes::default();
+        r_bytes.copy_from_slice(r.as_ref());
+        let r = P256FieldElement::from_bytes(&r_bytes).unwrap();
         debug_assert!(!bool::from(r.is_zero()), "r should not be zero");
 
-        let alpha = P256FieldElement::from_bytes(P256FieldBytes::from_slice(&alpha)).unwrap();
+        //let alpha = P256FieldElement::from_bytes(P256FieldBytes::from_slice(&alpha)).unwrap();
+        let mut r_bytes = P256FieldBytes::default();
+        r_bytes.copy_from_slice(alpha.as_ref());
+        let alpha = P256FieldElement::from_bytes(&r_bytes).unwrap();
         debug_assert!(!bool::from(alpha.is_zero()), "alpha should not be zero");
 
         if let Some(mut y_coord) = alpha.sqrt().into_option() {
@@ -200,7 +218,11 @@ mod ecrecover {
 
             vec![vec![1], y_coord.to_bytes().to_vec(), r_inv.to_bytes().to_vec()]
         } else {
-            let nqr_field = P256FieldElement::from_bytes(P256FieldBytes::from_slice(&NQR)).unwrap();
+            //let nqr_field = P256FieldElement::from_bytes(P256FieldBytes::from_slice(&NQR)).unwrap();
+            let mut r_bytes = P256FieldBytes::default();
+            r_bytes.copy_from_slice(NQR.as_ref());
+            let nqr_field = P256FieldElement::from_bytes(&r_bytes).unwrap();
+
             let qr = alpha * nqr_field;
             let root = qr.sqrt().expect("if alpha is not a square, then qr should be a square");
 
@@ -210,7 +232,7 @@ mod ecrecover {
 }
 
 mod fp_ops {
-    use super::{pad_to_be, BigUint, HookEnv, One, Zero};
+    use super::{BigUint, HookEnv, One, Zero, pad_to_be};
 
     /// Compute the inverse of a field element.
     ///
@@ -512,8 +534,8 @@ pub fn hook_ed_decompress(_: HookEnv, buf: &[u8]) -> Vec<Vec<u8>> {
 }
 
 mod bls {
-    use super::{pad_to_be, BigUint, HookEnv};
-    use sp1_curves::{params::FieldParameters, weierstrass::bls12_381::Bls12381BaseField, Zero};
+    use super::{BigUint, HookEnv, pad_to_be};
+    use sp1_curves::{Zero, params::FieldParameters, weierstrass::bls12_381::Bls12381BaseField};
 
     /// A non-quadratic residue for the `12_381` base field in big endian.
     pub const NQR_BLS12_381: [u8; 48] = {

@@ -1,33 +1,33 @@
 use crate::{
-    air::InteractionScope, septic_curve::SepticCurve, septic_digest::SepticDigest,
-    septic_extension::SepticExtension, AirOpenedValues, ChipOpenedValues, ShardOpenedValues,
+    AirOpenedValues, ChipOpenedValues, ShardOpenedValues, air::InteractionScope,
+    septic_curve::SepticCurve, septic_digest::SepticDigest, septic_extension::SepticExtension,
 };
 use core::fmt::Display;
 use itertools::Itertools;
 use p3_air::Air;
 use p3_challenger::{CanObserve, FieldChallenger};
 use p3_commit::{Pcs, PolynomialSpace};
-use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, PrimeField32, TwoAdicField, coset::TwoAdicMultiplicativeCoset};
-use p3_matrix::{dense::RowMajorMatrix, Matrix};
+use p3_field::{
+    BasedVectorSpace, PrimeCharacteristicRing, PrimeField32, TwoAdicField,
+    coset::TwoAdicMultiplicativeCoset,
+};
+use p3_matrix::{Matrix, dense::RowMajorMatrix};
 use p3_maybe_rayon::prelude::*;
 use p3_uni_stark::SymbolicAirBuilder;
 use p3_util::log2_strict_usize;
 
-
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use std::{cmp::Reverse, error::Error, time::Instant};
 
 use super::{
-    quotient_values, Com, OpeningProof, StarkGenericConfig, StarkMachine, StarkProvingKey, Val,
-    VerifierConstraintFolder, InnerDigest, InnerVal, InnerChallenge,
+    Com, InnerChallenge, InnerVal, OpeningProof, StarkGenericConfig, StarkMachine, StarkProvingKey,
+    Val, VerifierConstraintFolder, quotient_values,
 };
 use crate::{
-    air::MachineAir, lookup::InteractionBuilder, opts::SP1CoreOpts, record::MachineRecord,
     Challenger, DebugConstraintBuilder, MachineChip, MachineProof, PackedChallenge, PcsProverData,
-    ProverConstraintFolder, ShardCommitment, ShardMainData, ShardProof, StarkVerifyingKey, 
-    quotient_values_gpu, CudaResultCheck, 
+    ProverConstraintFolder, ShardCommitment, ShardMainData, ShardProof, StarkVerifyingKey,
+    air::MachineAir, lookup::InteractionBuilder, opts::SP1CoreOpts, record::MachineRecord,
 };
-
 
 /// An algorithmic & hardware independent prover implementation for any [`MachineAir`].
 pub trait MachineProver<SC: StarkGenericConfig, A: MachineAir<SC::Val>>:
@@ -208,10 +208,10 @@ where
     PcsProverData<SC>: Send + Sync + Serialize + DeserializeOwned,
     OpeningProof<SC>: Send + Sync,
     SC::Challenger: Clone,
-    //GPU 
+    //GPU
     <SC as StarkGenericConfig>::Domain: Into<TwoAdicMultiplicativeCoset<SC::Val>>,
-    <SC as StarkGenericConfig>::Val: TwoAdicField,  
-    <SC as StarkGenericConfig>::Val: Into<InnerVal>,  
+    <SC as StarkGenericConfig>::Val: TwoAdicField,
+    <SC as StarkGenericConfig>::Val: Into<InnerVal>,
     <SC as StarkGenericConfig>::Challenge: Into<InnerChallenge>,
 {
     type DeviceMatrix = RowMajorMatrix<Val<SC>>;
@@ -219,8 +219,8 @@ where
     type DeviceProvingKey = StarkProvingKey<SC>;
     type Error = CpuProverError;
 
-    fn new(machine: StarkMachine<SC, A>) -> Self 
-   // where 
+    fn new(machine: StarkMachine<SC, A>) -> Self
+// where 
    //     <SC as StarkGenericConfig>::Val: TwoAdicField,
     {
         Self { machine }
@@ -349,8 +349,12 @@ where
                         let main_trace_size = main_trace.height() * main_trace.width();
                         let last_row = &main_trace.values[main_trace_size - 14..main_trace_size];
                         SepticDigest(SepticCurve {
-                            x: SepticExtension::<Val<SC>>::from_basis_coefficients_fn(|i| last_row[i]),
-                            y: SepticExtension::<Val<SC>>::from_basis_coefficients_fn(|i| last_row[i + 7]),
+                            x: SepticExtension::<Val<SC>>::from_basis_coefficients_fn(|i| {
+                                last_row[i]
+                            }),
+                            y: SepticExtension::<Val<SC>>::from_basis_coefficients_fn(|i| {
+                                last_row[i + 7]
+                            }),
                         })
                     };
                     ((perm_trace, preprocessed_trace), (global_sum, local_sum))
@@ -364,9 +368,9 @@ where
             let trace_height = traces[i].height();
             let prep_width = prep_traces[i].map_or(0, |x| x.width());
             let permutation_width = permutation_traces[i].width();
-            let total_width = trace_width +
-                prep_width +
-                permutation_width * <SC::Challenge as BasedVectorSpace<SC::Val>>::DIMENSION;
+            let total_width = trace_width
+                + prep_width
+                + permutation_width * <SC::Challenge as BasedVectorSpace<SC::Val>>::DIMENSION;
             tracing::debug!(
                 "{:<15} | Main Cols = {:<5} | Pre Cols = {:<5}  | Perm Cols = {:<5} | Rows = {:<5} | Cells = {:<10}",
                 chips[i].name(),
@@ -404,7 +408,6 @@ where
             challenger.observe_slice(local_sum.as_basis_coefficients_slice());
             challenger.observe_slice(&global_sum.0.x.0);
             challenger.observe_slice(&global_sum.0.y.0);
-            
         }
 
         // Compute the quotient polynomial for all chips.
@@ -420,9 +423,8 @@ where
         // Compute the quotient values.
         let alpha: SC::Challenge = challenger.sample_algebra_element::<SC::Challenge>();
         let parent_span = tracing::debug_span!("compute quotient values");
-        let quotient_values =
-            parent_span.in_scope(|| {
-                quotient_domains
+        let quotient_values = parent_span.in_scope(|| {
+            quotient_domains
                 .into_par_iter()
                 .enumerate()
                 .map(|(i, quotient_domain)| {
@@ -452,23 +454,22 @@ where
                             powers_of_alpha_rev.reverse();
 
                             quotient_values(
-                                    chips[i],
-                                    &local_cumulative_sums[i],
-                                    &global_cumulative_sums[i],
-                                    trace_domains[i],
-                                    *quotient_domain,
-                                    preprocessed_trace_on_quotient_domains,//
-                                    main_trace_on_quotient_domains,
-                                    permutation_trace_on_quotient_domains,
-                                    &packed_perm_challenges,
-                                    &powers_of_alpha_rev,
-                                    &data.public_values,
-                                )
+                                chips[i],
+                                &local_cumulative_sums[i],
+                                &global_cumulative_sums[i],
+                                trace_domains[i],
+                                *quotient_domain,
+                                preprocessed_trace_on_quotient_domains, //
+                                main_trace_on_quotient_domains,
+                                permutation_trace_on_quotient_domains,
+                                &packed_perm_challenges,
+                                &powers_of_alpha_rev,
+                                &data.public_values,
+                            )
                         })
                 })
                 .collect::<Vec<_>>()
-            });
-        
+        });
 
         // Split the quotient values and commit to them.
         let quotient_domains_and_chunks = quotient_domains

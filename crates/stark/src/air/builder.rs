@@ -2,16 +2,16 @@ use std::{array, iter::once};
 
 use itertools::Itertools;
 use p3_air::{AirBuilder, AirBuilderWithPublicValues, FilteredAirBuilder, PermutationAirBuilder};
-use p3_field::{PrimeCharacteristicRing, Field};
+use p3_field::{Field, PrimeCharacteristicRing};
 use p3_uni_stark::{
     ProverConstraintFolder, StarkGenericConfig, SymbolicAirBuilder, VerifierConstraintFolder,
 };
 use serde::{Deserialize, Serialize};
 use strum_macros::{Display, EnumIter};
 
-use super::{interaction::AirInteraction, BinomialExtension};
+use super::{BinomialExtension, interaction::AirInteraction};
 use crate::{
-    lookup::InteractionKind, septic_digest::SepticDigest, septic_extension::SepticExtension, Word,
+    Word, lookup::InteractionKind, septic_digest::SepticDigest, septic_extension::SepticExtension,
 };
 
 /// The scope of an interaction.
@@ -57,7 +57,7 @@ impl<AB: EmptyMessageBuilder, M> MessageBuilder<M> for AB {
 /// A trait which contains basic methods for building an AIR.
 pub trait BaseAirBuilder: AirBuilder + MessageBuilder<AirInteraction<Self::Expr>> {
     /// Returns a sub-builder whose constraints are enforced only when `condition` is not one.
-    fn when_not<I: Into<Self::Expr>>(&mut self, condition: I) -> FilteredAirBuilder<Self> {
+    fn when_not<I: Into<Self::Expr>>(&mut self, condition: I) -> FilteredAirBuilder<'_, Self> {
         self.when_ne(condition, Self::F::ONE)
     }
 

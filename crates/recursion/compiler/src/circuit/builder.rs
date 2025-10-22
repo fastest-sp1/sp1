@@ -7,7 +7,7 @@ use itertools::Itertools;
 use p3_baby_bear::BabyBear;
 use p3_field::{BasedVectorSpace, PrimeCharacteristicRing};
 use sp1_recursion_core::{
-    air::RecursionPublicValues, chips::poseidon2_skinny::WIDTH, D, DIGEST_SIZE, HASH_RATE,
+    D, DIGEST_SIZE, HASH_RATE, air::RecursionPublicValues, chips::poseidon2_skinny::WIDTH,
 };
 use sp1_stark::{
     septic_curve::SepticCurve, septic_digest::SepticDigest, septic_extension::SepticExtension,
@@ -20,7 +20,7 @@ pub trait CircuitV2Builder<C: Config> {
     ) -> Felt<C::F>;
     fn num2bits_v2_f(&mut self, num: Felt<C::F>, num_bits: usize) -> Vec<Felt<C::F>>;
     fn exp_reverse_bits_v2(&mut self, input: Felt<C::F>, power_bits: Vec<Felt<C::F>>)
-        -> Felt<C::F>;
+    -> Felt<C::F>;
     fn batch_fri_v2(
         &mut self,
         alphas: Vec<Ext<C::F, C::EF>>,
@@ -42,7 +42,7 @@ pub trait CircuitV2Builder<C: Config> {
     ) -> SepticCurve<Felt<C::F>>;
     fn assert_digest_zero_v2(&mut self, is_real: Felt<C::F>, digest: SepticDigest<Felt<C::F>>);
     fn sum_digest_v2(&mut self, digests: Vec<SepticDigest<Felt<C::F>>>)
-        -> SepticDigest<Felt<C::F>>;
+    -> SepticDigest<Felt<C::F>>;
     fn select_global_cumulative_sum(
         &mut self,
         is_first_shard: Felt<C::F>,

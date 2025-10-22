@@ -2,7 +2,7 @@ use core::borrow::Borrow;
 use instruction::{HintAddCurveInstr, HintBitsInstr, HintExt2FeltsInstr, HintInstr};
 use p3_air::{Air, BaseAir, PairBuilder};
 use p3_field::PrimeField32;
-use p3_matrix::{dense::RowMajorMatrix, Matrix};
+use p3_matrix::{Matrix, dense::RowMajorMatrix};
 use p3_maybe_rayon::prelude::*;
 use sp1_core_machine::utils::{next_power_of_two, pad_rows_fixed};
 use sp1_derive::AlignedBorrow;
@@ -62,8 +62,8 @@ impl<F: PrimeField32> MachineAir<F> for MemoryChip<F> {
             .iter()
             // .par_bridge() // Using `rayon` here provides a big speedup. TODO put rayon back
             .flat_map(|instruction| match instruction {
-                Instruction::Hint(HintInstr { output_addrs_mults }) |
-                Instruction::HintBits(HintBitsInstr {
+                Instruction::Hint(HintInstr { output_addrs_mults })
+                | Instruction::HintBits(HintBitsInstr {
                     output_addrs_mults,
                     input_addr: _, // No receive interaction for the hint operation
                 }) => output_addrs_mults.iter().collect(),

@@ -1,17 +1,17 @@
+use crate::{builder::SP1RecursionAirBuilder, *};
 use core::borrow::Borrow;
 use p3_air::{Air, BaseAir, PairBuilder};
 use p3_baby_bear::BabyBear;
-use p3_field::{extension::BinomiallyExtendable, PrimeCharacteristicRing, Field, PrimeField32};
-use p3_matrix::{dense::RowMajorMatrix, Matrix};
+use p3_field::{Field, PrimeCharacteristicRing, PrimeField32, extension::BinomiallyExtendable};
+use p3_matrix::{Matrix, dense::RowMajorMatrix};
 use p3_maybe_rayon::prelude::*;
 use sp1_core_machine::utils::next_power_of_two;
 use sp1_derive::AlignedBorrow;
 use sp1_stark::air::{ExtensionAirBuilder, MachineAir};
 use std::{borrow::BorrowMut, iter::zip};
-use itertools::Itertools;
-use crate::{builder::SP1RecursionAirBuilder, *};
 
-use sp1_stark::GpuMatrix;
+//use itertools::Itertools;
+//use sp1_stark::GpuMatrix;
 
 pub const NUM_EXT_ALU_ENTRIES_PER_ROW: usize = 4;
 
@@ -26,7 +26,7 @@ pub struct ExtAluCols<F: Copy> {
     pub values: [ExtAluValueCols<F>; NUM_EXT_ALU_ENTRIES_PER_ROW],
 }
 
-//one ExtAluValueCols<u8> has 12 comlumns, 
+//one ExtAluValueCols<u8> has 12 comlumns,
 const NUM_EXT_ALU_VALUE_COLS: usize = core::mem::size_of::<ExtAluValueCols<u8>>();
 
 #[derive(AlignedBorrow, Debug, Clone, Copy)]
@@ -90,8 +90,6 @@ impl<F: PrimeField32 + BinomiallyExtendable<D>> MachineAir<F> for ExtAluChip {
             std::any::TypeId::of::<BabyBear>(),
             "generate_preprocessed_trace only supports BabyBear field"
         );
-        //let start = std::time::Instant::now();
-
 
         let instrs = unsafe {
             std::mem::transmute::<Vec<&ExtAluInstr<F>>, Vec<&ExtAluInstr<BabyBear>>>(
@@ -109,28 +107,28 @@ impl<F: PrimeField32 + BinomiallyExtendable<D>> MachineAir<F> for ExtAluChip {
         let mut values = vec![BabyBear::ZERO; padded_nb_rows * NUM_EXT_ALU_PREPROCESSED_COLS];
 
         if instrs.is_empty() {
-             return Some(RowMajorMatrix::new(
-                 unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
-                 NUM_EXT_ALU_PREPROCESSED_COLS,
+            return Some(RowMajorMatrix::new(
+                unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
+                NUM_EXT_ALU_PREPROCESSED_COLS,
             ));
         }
-    
+
         let populate_len = instrs.len() * NUM_EXT_ALU_ACCESS_COLS;
         values[..populate_len].par_chunks_mut(NUM_EXT_ALU_ACCESS_COLS).zip_eq(instrs).for_each(
-                |(row, instr)| {
-                    let access: &mut ExtAluAccessCols<_> = row.borrow_mut();
-                    unsafe {
-                        crate::sys::alu_ext_instr_to_row_babybear(instr, access);
-                    }
-                },
+            |(row, instr)| {
+                let access: &mut ExtAluAccessCols<_> = row.borrow_mut();
+                unsafe {
+                    crate::sys::alu_ext_instr_to_row_babybear(instr, access);
+                }
+            },
         );
-             
+
         // Convert the trace to a row major matrix.
         let trace = RowMajorMatrix::new(
             unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
             NUM_EXT_ALU_PREPROCESSED_COLS,
         );
-        
+
         Some(trace)
     }
 
@@ -154,7 +152,7 @@ impl<F: PrimeField32 + BinomiallyExtendable<D>> MachineAir<F> for ExtAluChip {
             std::any::TypeId::of::<BabyBear>(),
             "generate_trace only supports BabyBear field"
         );
-        
+
         let events = unsafe {
             std::mem::transmute::<&Vec<ExtAluIo<Block<F>>>, &Vec<ExtAluIo<Block<BabyBear>>>>(
                 &input.ext_alu_events,
@@ -169,25 +167,24 @@ impl<F: PrimeField32 + BinomiallyExtendable<D>> MachineAir<F> for ExtAluChip {
                 NUM_EXT_ALU_COLS,
             );
         }
-          
+
         // Generate the trace rows & corresponding records for each chunk of events in parallel.
         let populate_len = events.len() * NUM_EXT_ALU_VALUE_COLS;
         values[..populate_len].par_chunks_mut(NUM_EXT_ALU_VALUE_COLS).zip_eq(events).for_each(
-                |(row, &vals)| {
-                    let cols: &mut ExtAluValueCols<_> = row.borrow_mut();
-                    unsafe {
-                        crate::sys::alu_ext_event_to_row_babybear(&vals, cols);
-                    }
-                },
+            |(row, &vals)| {
+                let cols: &mut ExtAluValueCols<_> = row.borrow_mut();
+                unsafe {
+                    crate::sys::alu_ext_event_to_row_babybear(&vals, cols);
+                }
+            },
         );
-        
 
         // Convert the trace to a row major matrix.
         let trace = RowMajorMatrix::new(
             unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
             NUM_EXT_ALU_COLS,
         );
-  
+
         trace
     }
 
@@ -207,7 +204,7 @@ impl<F: PrimeField32 + BinomiallyExtendable<D>> MachineAir<F> for ExtAluChip {
                 &input.ext_alu_events,
             )
         };
-        
+
         let padded_nb_rows = self.num_rows(input).unwrap();
         //let num_cols = Self::width(self);
         let num_cols = <Self as BaseAir<F>>::width(self);
@@ -227,12 +224,12 @@ impl<F: PrimeField32 + BinomiallyExtendable<D>> MachineAir<F> for ExtAluChip {
                 );
             }
         }
-        
+
         // Return the GpuMatrix handle.
         gpu_matrix
     }
 
- 
+
     fn generate_preprocessed_trace_gpu(
         &self,
         program: &Self::Program,
@@ -252,7 +249,7 @@ impl<F: PrimeField32 + BinomiallyExtendable<D>> MachineAir<F> for ExtAluChip {
         let padded_nb_rows = self.preprocessed_num_rows(program, instrs.len()).unwrap();
         //let num_cols = self.preprocessed_width();
         let num_cols = <Self as MachineAir<F>>::preprocessed_width(self);
-        
+
         // 1. Allocate the matrix directly on the GPU.
         let mut gpu_matrix = GpuMatrix::<F>::new(padded_nb_rows, num_cols);
 
@@ -261,19 +258,19 @@ impl<F: PrimeField32 + BinomiallyExtendable<D>> MachineAir<F> for ExtAluChip {
                 .iter()
                 .map(|&instr_ref| *instr_ref)
                 .collect_vec();
-            
+
             unsafe {
                 crate::sys::process_alu_ext_instructions_gpu(
-                    instrs_for_gpu.as_ptr(), 
+                    instrs_for_gpu.as_ptr(),
                     instrs_for_gpu.len(),
-                    gpu_matrix.as_mut_ptr() as *mut BabyBear, 
-                    gpu_matrix.height * gpu_matrix.width, 
+                    gpu_matrix.as_mut_ptr() as *mut BabyBear,
+                    gpu_matrix.height * gpu_matrix.width,
                     NUM_EXT_ALU_ACCESS_COLS,
                 );
             }
-             
+
         }
-               
+
         Some(gpu_matrix)
     }*/
 }
@@ -324,9 +321,9 @@ mod tests {
     use crate::{chips::test_fixtures, runtime::instruction as instr};
     use machine::tests::test_recursion_linear_program;
     use p3_baby_bear::BabyBear;
-    use p3_field::{extension::BinomialExtensionField, BasedVectorSpace, PrimeCharacteristicRing};
+    use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, extension::BinomialExtensionField};
     use p3_matrix::dense::RowMajorMatrix;
-    use rand::{rngs::StdRng, Rng, SeedableRng};
+    use rand::{Rng, SeedableRng, rngs::StdRng};
     use sp1_stark::StarkGenericConfig;
     use stark::BabyBearPoseidon2Outer;
     //use crate::gpu::init_gpu_context;

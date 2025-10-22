@@ -503,30 +503,5 @@ struct GpuMatrix {
     std::size_t height;
 };
 
-// Flat representation of a single term in a VirtualPairCol
-// Corresponds to (PairCol, Weight)
-struct FfiVpcTerm {
-    int col_type; // 0 for Preprocessed, 1 for Main
-    int col_index;
-    Val weight;
-};
 
-// Flat representation of a VirtualPairCol
-struct FfiVirtualPairCol {
-    FfiVpcTerm* terms_ptr;
-    int num_terms;
-    Val constant;
-};
-
-// Flat representation of an Interaction
-struct FfiInteraction {
-    FfiVirtualPairCol values[8]; // MAX_INTERACTION_VALUES
-    int num_values;
-    FfiVirtualPairCol multiplicity;
-    //int argument_index;
-    int kind;
-    /// The scope of the interaction.
-    int scope;
-    bool is_send;
-};
 

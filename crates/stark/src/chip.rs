@@ -3,7 +3,7 @@ use std::hash::Hash;
 use p3_air::{Air, BaseAir, PairBuilder};
 use p3_field::{ExtensionField, Field, PrimeField, PrimeField32};
 use p3_matrix::dense::RowMajorMatrix;
-use p3_uni_stark::{get_max_constraint_degree, SymbolicAirBuilder};
+use p3_uni_stark::{SymbolicAirBuilder, get_max_constraint_degree};
 use p3_util::log2_ceil_usize;
 
 use crate::{
@@ -13,11 +13,9 @@ use crate::{
 };
 
 use super::{
-    eval_permutation_constraints, generate_permutation_trace, scoped_interactions,
-    PROOF_MAX_NUM_PVS,
+    PROOF_MAX_NUM_PVS, eval_permutation_constraints, generate_permutation_trace,
+    scoped_interactions,
 };
-
-use crate::gpu::matrix::GpuMatrix;
 
 /// An Air that encodes lookups based on interactions.
 pub struct Chip<F: Field, A> {
@@ -242,7 +240,11 @@ where
         self.air.local_only()
     }
 
-    fn generate_trace_gpu(&self, input: &Self::Record, output: &mut Self::Record) -> RowMajorMatrix<F> {
+    fn generate_trace_gpu(
+        &self,
+        input: &Self::Record,
+        output: &mut Self::Record,
+    ) -> RowMajorMatrix<F> {
         // Forward the call to the underlying AIR `A`.
         //println!("---chips--gen-tr-gpu--");
         self.air.generate_trace_gpu(input, output)
@@ -276,7 +278,7 @@ where
             batch_size,
             self.air.commit_scope(),
             builder,
-        ); 
+        );
     }
 }
 

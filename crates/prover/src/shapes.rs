@@ -1,13 +1,16 @@
 use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
-    fs::File,
+    collections::{BTreeMap, BTreeSet},
     hash::{DefaultHasher, Hash, Hasher},
-    panic::{catch_unwind, AssertUnwindSafe},
-    path::PathBuf,
+    panic::{AssertUnwindSafe, catch_unwind},
     sync::{Arc, Mutex},
 };
 
+#[cfg(not(feature = "recursion_cuda"))]
+use std::{collections::HashSet, fs::File, path::PathBuf};
+
+#[cfg(not(feature = "recursion_cuda"))]
 use eyre::Result;
+
 use p3_baby_bear::BabyBear;
 use p3_field::PrimeCharacteristicRing;
 use serde::{Deserialize, Serialize};
@@ -16,17 +19,22 @@ use sp1_recursion_circuit::machine::{
     SP1CompressWithVKeyWitnessValues, SP1DeferredWitnessValues, SP1RecursionWitnessValues,
 };
 use sp1_recursion_core::{
-    shape::{RecursionShape, RecursionShapeConfig},
     RecursionProgram,
+    shape::{RecursionShape, RecursionShapeConfig},
 };
-use sp1_stark::{shape::OrderedShape, MachineProver, DIGEST_SIZE, GpuMachineProver};
+#[cfg(feature = "recursion_cuda")]
+use sp1_stark::GpuMachineProver;
+use sp1_stark::{DIGEST_SIZE, MachineProver, shape::OrderedShape};
 use thiserror::Error;
 
 pub use sp1_recursion_circuit::machine::{
     SP1CompressWithVkeyShape, SP1DeferredShape, SP1RecursionShape,
 };
 
-use crate::{components::SP1ProverComponents, CompressAir, HashableKey, SP1Prover, ShrinkAir};
+#[cfg(not(feature = "recursion_cuda"))]
+use crate::HashableKey;
+
+use crate::{CompressAir, SP1Prover, ShrinkAir, components::SP1ProverComponents};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum SP1ProofShape {

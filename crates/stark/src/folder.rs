@@ -194,7 +194,8 @@ impl<'a, F, EF, PubVar, Var, Expr> AirBuilder
 where
     F: Field,
     EF: ExtensionField<F>,
-    Expr: Algebra<F> + Algebra<Var>
+    Expr: Algebra<F>
+        + Algebra<Var>
         + From<F>
         + Add<Var, Output = Expr>
         + Add<F, Output = Expr>
@@ -255,7 +256,8 @@ impl<F, EF, PubVar, Var, Expr> ExtensionBuilder
 where
     F: Field,
     EF: ExtensionField<F>,
-    Expr: Algebra<F> + Algebra<Var>// + Algebra<EF>
+    Expr: Algebra<F>
+        + Algebra<Var> // + Algebra<EF>
         + From<F>
         + Add<Var, Output = Expr>
         + Add<F, Output = Expr>
@@ -296,7 +298,8 @@ impl<'a, F, EF, PubVar, Var, Expr> PermutationAirBuilder
 where
     F: Field,
     EF: ExtensionField<F>,
-    Expr: Algebra<F> + Algebra<Var> //+ Algebra<EF>
+    Expr: Algebra<F>
+        + Algebra<Var> //+ Algebra<EF>
         + From<F>
         + Add<Var, Output = Expr>
         + Add<F, Output = Expr>
@@ -337,7 +340,8 @@ impl<'a, F, EF, PubVar, Var, Expr> MultiTableAirBuilder<'a>
 where
     F: Field,
     EF: ExtensionField<F>,
-    Expr: Algebra<F> + Algebra<Var> //+ Algebra<EF>
+    Expr: Algebra<F>
+        + Algebra<Var> //+ Algebra<EF>
         + From<F>
         + Add<Var, Output = Expr>
         + Add<F, Output = Expr>
@@ -378,7 +382,8 @@ impl<F, EF, PubVar, Var, Expr> PairBuilder
 where
     F: Field,
     EF: ExtensionField<F>,
-    Expr: Algebra<F> + Algebra<Var>// + Algebra<EF>
+    Expr: Algebra<F>
+        + Algebra<Var> // + Algebra<EF>
         + From<F>
         + Add<Var, Output = Expr>
         + Add<F, Output = Expr>
@@ -412,7 +417,8 @@ impl<F, EF, PubVar, Var, Expr> EmptyMessageBuilder
 where
     F: Field,
     EF: ExtensionField<F>,
-    Expr: Algebra<F> + Algebra<Var> //+ Algebra<EF>
+    Expr: Algebra<F>
+        + Algebra<Var> //+ Algebra<EF>
         + From<F>
         + Add<Var, Output = Expr>
         + Add<F, Output = Expr>
@@ -443,7 +449,8 @@ impl<F, EF, PubVar, Var, Expr> AirBuilderWithPublicValues
 where
     F: Field,
     EF: ExtensionField<F>,
-    Expr: Algebra<F> + Algebra<Var> //+ Algebra<EF>
+    Expr: Algebra<F>
+        + Algebra<Var> //+ Algebra<EF>
         + From<F>
         + Add<Var, Output = Expr>
         + Add<F, Output = Expr>

@@ -1,48 +1,38 @@
-use p3_commit::{Pcs, Mmcs, PolynomialSpace, OpenedValues};
+use p3_commit::{Mmcs, OpenedValues, Pcs};
 
+use p3_baby_bear::BabyBear;
 use p3_field::{
-    batch_multiplicative_inverse, cyclic_subgroup_coset_known_order, 
-    coset::TwoAdicMultiplicativeCoset, ExtensionField, Field,
-     TwoAdicField, PrimeCharacteristicRing,  
+    ExtensionField, Field, PrimeCharacteristicRing, TwoAdicField, batch_multiplicative_inverse,
+    coset::TwoAdicMultiplicativeCoset, cyclic_subgroup_coset_known_order,
 };
-use p3_baby_bear::{BabyBear,  };
-use p3_fri::{TwoAdicFriPcs, FriConfig, TwoAdicFriPcsProof, };
+use p3_fri::{FriConfig, TwoAdicFriPcs, TwoAdicFriPcsProof};
 use p3_interpolation::interpolate_coset_with_precomputation;
 use p3_matrix::{
-    bitrev::{ BitReversedMatrixView},
-    dense::{RowMajorMatrix, RowMajorMatrixView, },
-    Matrix, 
+    Matrix,
+    bitrev::BitReversedMatrixView,
+    dense::{RowMajorMatrix, RowMajorMatrixView},
 };
 
-use p3_challenger::{FieldChallenger, };
-use p3_util::{log2_strict_usize, reverse_slice_index_bits, linear_map::LinearMap};
+use p3_challenger::FieldChallenger;
+use p3_util::{linear_map::LinearMap, log2_strict_usize, reverse_slice_index_bits};
 
-use p3_maybe_rayon::prelude::ParallelIterator;
-use p3_maybe_rayon::prelude::IntoParallelRefIterator;
- use std::os::raw::c_void;
-use itertools::{izip, Itertools};
-use std::collections::BTreeMap;
-use crate::gpu::merkle::{BatchedQueries, BatchedOpenings, 
-                            BatchOpenableMmcs, GpuMerkleProverData};
 use crate::gpu::ffi::*;
 use crate::gpu::gpu_prove::*;
+use crate::gpu::merkle::{BatchOpenableMmcs, BatchedOpenings, BatchedQueries, GpuMerkleProverData};
+use itertools::{Itertools, izip};
+use p3_maybe_rayon::prelude::IntoParallelRefIterator;
+use p3_maybe_rayon::prelude::ParallelIterator;
+use std::collections::BTreeMap;
+use std::os::raw::c_void;
 
 // Import SP1 specific types
-use crate::{InnerChallenge,  GpuChallengeMmcs, GpuValMmcs,GpuPcs, InnerDft, };
-use crate::baby_bear_poseidon2::{Val, Challenge,Challenger, MyCompress, MyHash};
+use crate::baby_bear_poseidon2::{Challenge, Challenger, MyCompress, MyHash, Val};
+use crate::{GpuChallengeMmcs, GpuPcs, GpuValMmcs, InnerChallenge, InnerDft};
 
 //#[cfg(feature = "recursion_cuda")]
-use crate::{GpuDft, GpuMerkleTreeMmcs, GpuMatrixC, GpuMatrix, CudaResultCheck, GpuMemBlk};
+use crate::{CudaResultCheck, GpuDft, GpuMatrix, GpuMatrixC, GpuMemBlk, GpuMerkleTreeMmcs};
 
-use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
-
-//debug
 //use serde::{Deserialize, Serialize};
-use std::fs::File; //debug
-use std::io::Write;
-use serde_json; 
-use std::fs::OpenOptions;
 
 #[repr(C)]
 pub struct OpeningPointInfo {
@@ -51,35 +41,30 @@ pub struct OpeningPointInfo {
     num_points: i32,
 }
 
-struct FfiMatrixData<'a, Val, Challenge> 
+struct FfiMatrixData<'a, Val, Challenge>
 where
     Val: p3_field::Field,
     Challenge: p3_field::Field,
 {
-   // global_index: usize,
+    // global_index: usize,
     mat: RowMajorMatrixView<'a, Val>,
     points_for_mat: &'a Vec<Challenge>,
     openings_for_mat: &'a Vec<Vec<Challenge>>,
 }
 
-struct FfiGpuMatrixData<'a, Val, Challenge> 
+struct FfiGpuMatrixData<'a, Val, Challenge>
 where
     Val: p3_field::Field,
     Challenge: p3_field::Field,
 {
-   // global_index: usize,
+    // global_index: usize,
     mat: &'a GpuMatrix<Val>,
     points_for_mat: &'a Vec<Challenge>,
     openings_for_mat: &'a Vec<Vec<Challenge>>,
 }
 
-pub type GpuMmcs = GpuMerkleTreeMmcs<
-    <Val as Field>::Packing,
-    <Val as Field>::Packing,
-    MyHash,
-    MyCompress,
-    8,
->;
+pub type GpuMmcs =
+    GpuMerkleTreeMmcs<<Val as Field>::Packing, <Val as Field>::Packing, MyHash, MyCompress, 8>;
 
 /// A GPU-accelerated implementation of the Pcs trait, wrapping plonky3's TwoAdicFriPcs.
 /// It delegates most methods to the inner PCS, but provides custom, GPU-accelerated
@@ -88,13 +73,13 @@ pub type GpuMmcs = GpuMerkleTreeMmcs<
 pub struct GpuFriPcs<Val, Dft, InputMmcs, FriMmcs> {
     pub inner_pcs: TwoAdicFriPcs<Val, Dft, InputMmcs, FriMmcs>,
     pub gpu_dft: GpuDft,
-   // pub gpu_mmcs: GpuMmcs,
+    // pub gpu_mmcs: GpuMmcs,
 }
 
 impl<Val, Dft, InputMmcs, FriMmcs> GpuFriPcs<Val, Dft, InputMmcs, FriMmcs> {
     pub fn new(dft: Dft, mmcs: InputMmcs, fri_config: FriConfig<FriMmcs>) -> Self {
         Self {
-            inner_pcs: TwoAdicFriPcs::new(dft, mmcs,fri_config),
+            inner_pcs: TwoAdicFriPcs::new(dft, mmcs, fri_config),
             gpu_dft: GpuDft::default(),
             //gpu_mmcs: GpuMmcs::new(mmcs.hash, mmcs.compress),
         }
@@ -102,14 +87,25 @@ impl<Val, Dft, InputMmcs, FriMmcs> GpuFriPcs<Val, Dft, InputMmcs, FriMmcs> {
 }
 
 impl Pcs<Challenge, Challenger> for GpuPcs {
-    
     // All associated types are defined using concrete types.
     type Domain = TwoAdicMultiplicativeCoset<Val>;
-    type Commitment = <TwoAdicFriPcs<Val, InnerDft, GpuValMmcs, GpuChallengeMmcs> as Pcs<Challenge, Challenger>>::Commitment;
-    type ProverData = <TwoAdicFriPcs<Val, InnerDft, GpuValMmcs, GpuChallengeMmcs> as Pcs<Challenge, Challenger>>::ProverData;
+    type Commitment = <TwoAdicFriPcs<Val, InnerDft, GpuValMmcs, GpuChallengeMmcs> as Pcs<
+        Challenge,
+        Challenger,
+    >>::Commitment;
+    type ProverData = <TwoAdicFriPcs<Val, InnerDft, GpuValMmcs, GpuChallengeMmcs> as Pcs<
+        Challenge,
+        Challenger,
+    >>::ProverData;
     type EvaluationsOnDomain<'a> = BitReversedMatrixView<RowMajorMatrixView<'a, Val>>;
-    type Proof = <TwoAdicFriPcs<Val, InnerDft, GpuValMmcs, GpuChallengeMmcs> as Pcs<Challenge, Challenger>>::Proof;
-    type Error = <TwoAdicFriPcs<Val, InnerDft, GpuValMmcs, GpuChallengeMmcs> as Pcs<Challenge, Challenger>>::Error;
+    type Proof = <TwoAdicFriPcs<Val, InnerDft, GpuValMmcs, GpuChallengeMmcs> as Pcs<
+        Challenge,
+        Challenger,
+    >>::Proof;
+    type Error = <TwoAdicFriPcs<Val, InnerDft, GpuValMmcs, GpuChallengeMmcs> as Pcs<
+        Challenge,
+        Challenger,
+    >>::Error;
     const ZK: bool = false;
 
     fn natural_domain_for_degree(&self, degree: usize) -> Self::Domain {
@@ -144,11 +140,12 @@ impl Pcs<Challenge, Challenger> for GpuPcs {
         &self,
         rounds: Vec<(&Self::ProverData, Vec<Vec<Challenge>>)>,
         challenger: &mut Challenger,
-    ) -> (OpenedValues<Challenge>, Self::Proof) {        
+    ) -> (OpenedValues<Challenge>, Self::Proof) {
         let mats_and_points = rounds
             .iter()
             .map(|(data, points)| {
-                let mats = self.inner_pcs
+                let mats = self
+                    .inner_pcs
                     .mmcs
                     .get_matrices::<RowMajorMatrix<Val>>(*data)
                     .into_iter()
@@ -179,7 +176,7 @@ impl Pcs<Challenge, Challenger> for GpuPcs {
         )
         .collect_vec();
         reverse_slice_index_bits(&mut coset);
-        
+
         let inv_denoms = compute_inverse_denominators(&mats_and_points, &coset);
 
         // Evaluate coset representations and write openings to the challenger
@@ -196,19 +193,17 @@ impl Pcs<Challenge, Challenger> for GpuPcs {
                         points_for_mat
                             .iter()
                             .map(|&point| {
-                                let ys =
-                                    {
-                                        let inv_denoms = &inv_denoms.get(&point).unwrap()[..h];
-                                        interpolate_coset_with_precomputation(
-                                                &low_coset,
-                                                Val::GENERATOR,
-                                                point,
-                                                coset_h,
-                                                inv_denoms,
-                                            )
-                                    };
-                                ys.iter()
-                                    .for_each(|&y| challenger.observe_algebra_element(y));
+                                let ys = {
+                                    let inv_denoms = &inv_denoms.get(&point).unwrap()[..h];
+                                    interpolate_coset_with_precomputation(
+                                        &low_coset,
+                                        Val::GENERATOR,
+                                        point,
+                                        coset_h,
+                                        inv_denoms,
+                                    )
+                                };
+                                ys.iter().for_each(|&y| challenger.observe_algebra_element(y));
                                 ys
                             })
                             .collect_vec()
@@ -232,7 +227,8 @@ impl Pcs<Challenge, Challenger> for GpuPcs {
 
         // --- GPU-accelerated Quotient Polynomial Computation ---
         // --- Group matrices by log_height ---
-        let mut matrices_by_log_height: BTreeMap<usize, Vec<FfiMatrixData<Val, Challenge>>> = BTreeMap::new();
+        let mut matrices_by_log_height: BTreeMap<usize, Vec<FfiMatrixData<Val, Challenge>>> =
+            BTreeMap::new();
         for ((mats, points), openings_for_round) in
             mats_and_points.iter().zip(all_opened_values.iter())
         {
@@ -240,38 +236,41 @@ impl Pcs<Challenge, Challenger> for GpuPcs {
                 izip!(mats.iter(), points.iter(), openings_for_round.iter())
             {
                 let log_height = log2_strict_usize(mat.height());
-                matrices_by_log_height
-                    .entry(log_height)
-                    .or_default()
-                    .push(FfiMatrixData {
-                        mat: *mat,
-                        points_for_mat,
-                        openings_for_mat,
-                    });
+                matrices_by_log_height.entry(log_height).or_default().push(FfiMatrixData {
+                    mat: *mat,
+                    points_for_mat,
+                    openings_for_mat,
+                });
             }
         }
 
-
         // --- Main Loop: Iterate over each height group and call GPU ONCE ---
         let mut reduced_openings: [_; 32] = core::array::from_fn(|_| None);
-        
+
         for (log_height, data_for_height) in matrices_by_log_height {
             let height = 1 << log_height;
             let mut quotient_evals = vec![Challenge::ZERO; height];
 
             // --- Prepare BATCHED data for the FFI call ---
-            let h_lde_data_ptrs: Vec<*const Val> = data_for_height.iter().map(|d| d.mat.values.as_ptr()).collect();
-            let h_lde_widths: Vec<i32> = data_for_height.iter().map(|d| d.mat.width() as i32).collect();
-            let h_num_points_per_mat: Vec<i32> = data_for_height.iter().map(|d| d.points_for_mat.len() as i32).collect();
+            let h_lde_data_ptrs: Vec<*const Val> =
+                data_for_height.iter().map(|d| d.mat.values.as_ptr()).collect();
+            let h_lde_widths: Vec<i32> =
+                data_for_height.iter().map(|d| d.mat.width() as i32).collect();
+            let h_num_points_per_mat: Vec<i32> =
+                data_for_height.iter().map(|d| d.points_for_mat.len() as i32).collect();
 
-            let h_points_z_flat: Vec<Challenge> = data_for_height.iter().flat_map(|d| d.points_for_mat.iter().copied()).collect();
-            let h_opened_values_y_flat: Vec<Challenge> = data_for_height.iter().flat_map(|d| d.openings_for_mat.iter().flatten().copied()).collect();
-            
+            let h_points_z_flat: Vec<Challenge> =
+                data_for_height.iter().flat_map(|d| d.points_for_mat.iter().copied()).collect();
+            let h_opened_values_y_flat: Vec<Challenge> = data_for_height
+                .iter()
+                .flat_map(|d| d.openings_for_mat.iter().flatten().copied())
+                .collect();
+
             // --- Call the new batched FFI function ---
             unsafe {
-                fri_pcs_compute_quotient_for_height_gpu(
+                let _ = fri_pcs_compute_quotient_for_height_gpu(
                     height as i32,
-                    h_lde_data_ptrs.as_ptr() as *const  *const BabyBear,
+                    h_lde_data_ptrs.as_ptr() as *const *const BabyBear,
                     h_lde_widths.as_ptr(),
                     data_for_height.len() as i32,
                     coset.as_ptr() as *const BabyBear,
@@ -282,9 +281,10 @@ impl Pcs<Challenge, Challenger> for GpuPcs {
                     h_opened_values_y_flat.as_ptr() as *const InnerChallenge,
                     h_num_points_per_mat.as_ptr(),
                     quotient_evals.as_mut_ptr() as *mut InnerChallenge,
-                ).check("fri_pcs_compute_quotient_for_height_gpu failed.");
+                )
+                .check("fri_pcs_compute_quotient_for_height_gpu failed.");
             }
-            
+
             reduced_openings[log_height] = Some(quotient_evals);
         }
         //end GPU
@@ -295,24 +295,21 @@ impl Pcs<Challenge, Challenger> for GpuPcs {
         //let g: TwoAdicFriGenericConfigForMmcs<Val, GpuValMmcs> =
         //    TwoAdicFriGenericConfig(PhantomData);
 
-        let (fri_proof, query_indices) = prove_gpu(
-            &self.inner_pcs.fri,
-            &reduced_openings,
-            challenger,
-        );
-        
+        let (fri_proof, query_indices) =
+            prove_gpu(&self.inner_pcs.fri, &reduced_openings, challenger);
 
-         //debug
+        //debug
         //let duration = start.elapsed();
         //println!("-- GPU-open-stage-3 , duration:{:?}", duration);
-            
 
-       // Step 1: Collect all queries into a map.
+        // Step 1: Collect all queries into a map.
         let mut queries_by_data: BatchedQueries = BTreeMap::new(); //save <Self::ProverData>
         for index in &query_indices {
             //println!("----index:{}", index);
             for (data, _) in &rounds {
-                let log_max_height = log2_strict_usize(self.inner_pcs.mmcs.get_max_height::<RowMajorMatrix<Val>>(data));
+                let log_max_height = log2_strict_usize(
+                    self.inner_pcs.mmcs.get_max_height::<RowMajorMatrix<Val>>(data),
+                );
                 let bits_reduced = log_global_max_height - log_max_height;
                 let reduced_index = *index >> bits_reduced;
                 //println!("====reduced_index:{}", reduced_index);
@@ -331,7 +328,6 @@ impl Pcs<Challenge, Challenger> for GpuPcs {
                                             &queries_by_data,
                                         );
 
-
         // Step 3: Reconstruct the final `query_openings` Vec from the results map.
         // This is now a fast, in-memory operation with no GPU interaction.
         let query_openings = query_indices //this step is for SP1. Plonky3 does not have this!
@@ -341,12 +337,14 @@ impl Pcs<Challenge, Challenger> for GpuPcs {
                     .iter()
                     .map(|(data, _)| {
                         // Re-calculate the index to find the correct proof
-                        let log_max_height = log2_strict_usize(self.inner_pcs.mmcs.get_max_height::<RowMajorMatrix<Val>>(data));
+                        let log_max_height = log2_strict_usize(
+                            self.inner_pcs.mmcs.get_max_height::<RowMajorMatrix<Val>>(data),
+                        );
                         let bits_reduced = log_global_max_height - log_max_height;
                         let reduced_index = index >> bits_reduced;
 
                         let data_ptr_usize = *data as *const _ as usize;
-                        
+
                         // Direct, unambiguous lookup!
                         batched_results
                             .get(&data_ptr_usize)
@@ -358,18 +356,12 @@ impl Pcs<Challenge, Challenger> for GpuPcs {
                     .collect()
             })
             .collect();
-        
+
         //debug
         //let duration = start.elapsed();
         //println!("-- GPU-open-stage-4 , duration:{:?}", duration);
 
-        (
-            all_opened_values,
-            TwoAdicFriPcsProof {
-                fri_proof,
-                query_openings,
-            },
-        )
+        (all_opened_values, TwoAdicFriPcsProof { fri_proof, query_openings })
     }
 
     fn verify(
@@ -381,11 +373,9 @@ impl Pcs<Challenge, Challenger> for GpuPcs {
         <TwoAdicFriPcs<Val, InnerDft, GpuValMmcs, GpuChallengeMmcs> as Pcs<Challenge, Challenger>>::verify(
             &self.inner_pcs, rounds, proof, challenger)
     }
-
-
 }
 
-impl  GpuPcs {
+impl GpuPcs {
     /// Commits to a batch of matrices that are already resident on the GPU.
     pub fn commit_gpu(
         &self,
@@ -394,7 +384,7 @@ impl  GpuPcs {
     ) -> (
         // The return types are also concrete.
         <Self as Pcs<Challenge, Challenger>>::Commitment,
-        GpuMerkleProverData<GpuMatrix<Val>>
+        GpuMerkleProverData<GpuMatrix<Val>>,
     ) {
         let log_blowup = self.inner_pcs.fri.log_blowup;
 
@@ -407,18 +397,17 @@ impl  GpuPcs {
                 assert_eq!(domain.size(), gpu_trace.height);
                 let shift = Val::GENERATOR / domain.shift();
                 let added_bits = log_blowup;
-                self.gpu_dft.coset_lde_batch_gpu(gpu_trace, added_bits, shift, gpu_mem_blk)            
+                self.gpu_dft.coset_lde_batch_gpu(gpu_trace, added_bits, shift, gpu_mem_blk)
             })
             .collect();
-        
+
         // At this point, `ldes` is a Vec of `GpuMatrix`, containing the LDEs on the device.
         // 2. Commit to the LDEs using the GPU-accelerated MMCS.
-        let (commit, prover_data) =  GpuValMmcs ::commit_gpu(ldes);
+        let (commit, prover_data) = GpuValMmcs::commit_gpu(ldes);
 
         (commit, prover_data)
     }
 
-     
     pub fn get_lde_on_domain_gpu(
         &self,
         gpu_prover_data: &GpuMerkleProverData<GpuMatrix<Val>>,
@@ -432,13 +421,10 @@ impl  GpuPcs {
         }
 
         let sorted_idx = gpu_prover_data.original_to_sorted_indices[idx];
-        let height = gpu_prover_data.sorted_inputs[sorted_idx].height;
 
-        //no bit-reverse()
-        gpu_prover_data.sorted_inputs[sorted_idx].clone() 
-
+        //not bit-reverse()
+        gpu_prover_data.sorted_inputs[sorted_idx].clone()
     }
-
 
     pub fn get_evaluations_on_domain_gpu(
         &self,
@@ -457,9 +443,13 @@ impl  GpuPcs {
         let sorted_idx = gpu_prover_data.original_to_sorted_indices[idx];
         let height = gpu_prover_data.sorted_inputs[sorted_idx].height;
 
-        assert!(height as usize >= domain_size );
-        
-        let  mut row_major_mat = self.gpu_dft.bit_reverse_rows(&gpu_prover_data.sorted_inputs[sorted_idx],domain_size, gpu_mem_blk);
+        assert!(height as usize >= domain_size);
+
+        let mut row_major_mat = self.gpu_dft.bit_reverse_rows(
+            &gpu_prover_data.sorted_inputs[sorted_idx],
+            domain_size,
+            gpu_mem_blk,
+        );
         //println!("get_evaluations_on_domain_gpu, return new lde.ptr={:p}, height={},width={}", row_major_mat.buffer.ptr, row_major_mat.height,row_major_mat.width);
         row_major_mat.height = domain_size;
         row_major_mat
@@ -486,13 +476,12 @@ impl  GpuPcs {
         result
     }
 
-    pub fn get_matrix_heights(&self,gpu_prover_data: &GpuMerkleProverData<GpuMatrix<Val>>) -> Vec<usize> {
-        self.get_all_ldes_gpu(gpu_prover_data)
-            .iter()
-            .map(|matrix| matrix.height)
-            .collect()
+    pub fn get_matrix_heights(
+        &self,
+        gpu_prover_data: &GpuMerkleProverData<GpuMatrix<Val>>,
+    ) -> Vec<usize> {
+        self.get_all_ldes_gpu(gpu_prover_data).iter().map(|matrix| matrix.height).collect()
     }
-
 
     /// Get the largest height of any committed matrix.
     ///
@@ -510,7 +499,7 @@ impl  GpuPcs {
         rounds: Vec<(&GpuMerkleProverData<GpuMatrix<Val>>, Vec<Vec<Challenge>>)>,
         challenger: &mut Challenger,
         gpu_mem_blk: &GpuMemBlk,
-    ) -> (OpenedValues<Challenge>, <Self as Pcs<Challenge, Challenger>>::Proof) {    
+    ) -> (OpenedValues<Challenge>, <Self as Pcs<Challenge, Challenger>>::Proof) {
         let mats_and_points = rounds
             .iter()
             .map(|(data, points)| {
@@ -539,10 +528,10 @@ impl  GpuPcs {
         )
         .collect_vec();
         reverse_slice_index_bits(&mut coset);
-        
+
         let coset_gpu = GpuMatrix::from_vec(&coset, global_max_height, 1, gpu_mem_blk);
         let inv_denoms = compute_inverse_denominators_gpu(&mats_and_points, &coset_gpu);
-        
+
         // Evaluate coset representations and write openings to the challenger
         let all_opened_values = mats_and_points
             .iter()
@@ -551,31 +540,27 @@ impl  GpuPcs {
                     .map(|(mat, points_for_mat)| {
                         let h = mat.height >> self.inner_pcs.fri.log_blowup;
                         // `subgroup` and `mat` are both in bit-reversed order, so we can truncate.
-                        //let  low_coset_gpu = mat.cut_rows(h, gpu_mem_blk);
-                        let  low_coset_gpu = mat.clone();
+                        let low_coset_gpu = &**mat; //Mat's data are in gpu
 
                         //let  coset_h_gpu = coset_gpu.cut_rows(h);
                         let mut coset_h_gpu = coset_gpu.clone();
                         coset_h_gpu.height = h;
-                        
+
                         points_for_mat
                             .iter()
                             .map(|&point| {
-                                let ys =
-                                    {
-                                        //let inv_denoms = &inv_denoms.get(&point).unwrap()[..h];
-                                        let inv_denoms = inv_denoms.get(&point).unwrap();
-                                        //inv_denoms.height = h;
-                                        interpolate_coset_with_precomputation_gpu(
-                                                &low_coset_gpu,
-                                                Val::GENERATOR,
-                                                point,
-                                                &coset_h_gpu,
-                                                &inv_denoms,
-                                            )
-                                    };
-                                ys.iter()
-                                    .for_each(|&y| challenger.observe_algebra_element(y));
+                                let ys = {
+                                    let inv_denoms = inv_denoms.get(&point).unwrap();
+
+                                    interpolate_coset_with_precomputation_gpu(
+                                        &low_coset_gpu,
+                                        Val::GENERATOR,
+                                        point,
+                                        &coset_h_gpu,
+                                        &inv_denoms,
+                                    )
+                                };
+                                ys.iter().for_each(|&y| challenger.observe_algebra_element(y));
                                 ys
                             })
                             .collect_vec()
@@ -583,7 +568,7 @@ impl  GpuPcs {
                     .collect_vec()
             })
             .collect_vec();
-       
+
         // Batch combination challenge
         // TODO: Should we be computing a different alpha for each height?
         let alpha: Challenge = challenger.sample_algebra_element();
@@ -598,7 +583,8 @@ impl  GpuPcs {
 
         // --- GPU-accelerated Quotient Polynomial Computation ---
         // --- Group matrices by log_height ---
-        let mut matrices_by_log_height: BTreeMap<usize, Vec<FfiGpuMatrixData<Val, Challenge>>> = BTreeMap::new();
+        let mut matrices_by_log_height: BTreeMap<usize, Vec<FfiGpuMatrixData<Val, Challenge>>> =
+            BTreeMap::new();
         for ((mats, points), openings_for_round) in
             mats_and_points.iter().zip(all_opened_values.iter())
         {
@@ -606,57 +592,60 @@ impl  GpuPcs {
                 izip!(mats.iter(), points.iter(), openings_for_round.iter())
             {
                 let log_height = log2_strict_usize(mat.height);
-                matrices_by_log_height
-                    .entry(log_height)
-                    .or_default()
-                    .push(FfiGpuMatrixData {
-                        mat,
-                        points_for_mat,
-                        openings_for_mat,
-                    });
+                matrices_by_log_height.entry(log_height).or_default().push(FfiGpuMatrixData {
+                    mat,
+                    points_for_mat,
+                    openings_for_mat,
+                });
             }
         }
 
         // --- Main Loop: Iterate over each height group and call GPU ONCE ---
         let mut reduced_openings: [_; 32] = core::array::from_fn(|_| None);
-        
+
         //let alpha_powers_gpu = GpuMatrix::<Challenge>::from_vec(alpha_powers, alpha_powers.len(),1));
 
         for (log_height, data_for_height) in matrices_by_log_height {
-            let height = 1 << log_height;//=mat.height
+            let height = 1 << log_height; //=mat.height
             let mut quotient_evals = vec![Challenge::ZERO; height];
-           
+
             // --- Prepare BATCHED data for the FFI call ---
             //let h_lde_data_ptrs: Vec<*const Val> = data_for_height.iter().map(|d| d.mat.values.as_ptr()).collect();
             //let h_lde_widths: Vec<i32> = data_for_height.iter().map(|d| d.mat.width() as i32).collect();
             //let h_num_points_per_mat: Vec<i32> = data_for_height.iter().map(|d| d.points_for_mat.len() as i32).collect();
-            
-            let h_num_points_per_mat: Vec<i32> = data_for_height.iter().map(|d| d.points_for_mat.len() as i32).collect();
-            let h_points_z_flat: Vec<Challenge> = data_for_height.iter().flat_map(|d| d.points_for_mat.iter().copied()).collect();
-            let h_opened_values_y_flat: Vec<Challenge> = data_for_height.iter().flat_map(|d| d.openings_for_mat.iter().flatten().copied()).collect();
-            
-           
+
+            let h_num_points_per_mat: Vec<i32> =
+                data_for_height.iter().map(|d| d.points_for_mat.len() as i32).collect();
+            let h_points_z_flat: Vec<Challenge> =
+                data_for_height.iter().flat_map(|d| d.points_for_mat.iter().copied()).collect();
+            let h_opened_values_y_flat: Vec<Challenge> = data_for_height
+                .iter()
+                .flat_map(|d| d.openings_for_mat.iter().flatten().copied())
+                .collect();
+
             //let h_lde_ptrs: Vec<GpuMatrix<Val>> =  data_for_height.iter().map(|d| d.mat.clone()).collect();
-            let h_lde_ptrs: Vec<GpuMatrixC> =  data_for_height.iter().map(|d| d.mat.into()).collect();
+            let h_lde_ptrs: Vec<GpuMatrixC> =
+                data_for_height.iter().map(|d| d.mat.into()).collect();
 
             // --- Call the new batched FFI function ---
             unsafe {
                 let coset_gpu_c: GpuMatrixC = (&coset_gpu).into();
-                fri_pcs_compute_quotient_for_height_data_in_gpu(
+                let _ = fri_pcs_compute_quotient_for_height_data_in_gpu(
                     h_lde_ptrs.as_ptr(),
                     h_lde_ptrs.len() as i32,
-                    &coset_gpu_c ,
-                    &alpha as *const Challenge ,
+                    &coset_gpu_c,
+                    &alpha as *const Challenge,
                     //alpha_powers_gpu.as_ptr() as *const GpuMatrix<Challenge>,
                     alpha_powers.as_ptr() as *const InnerChallenge,
                     alpha_powers.len() as i32,
                     h_points_z_flat.as_ptr() as *const InnerChallenge,
                     h_opened_values_y_flat.as_ptr() as *const InnerChallenge,
                     h_num_points_per_mat.as_ptr(),
-                    quotient_evals.as_mut_ptr() as *mut Challenge
-                ).check("fri_pcs_compute_quotient_for_height_data_in_gpu failed.");
+                    quotient_evals.as_mut_ptr() as *mut Challenge,
+                )
+                .check("fri_pcs_compute_quotient_for_height_data_in_gpu failed.");
             }
-            
+
             reduced_openings[log_height] = Some(quotient_evals);
         }
         //end GPU
@@ -664,24 +653,14 @@ impl  GpuPcs {
         //let duration = start.elapsed();
         //println!("-- GPU-open-stage-2 , duration:{:?}", duration);
 
-        //serialize
-       /* let serialized = serde_json::to_vec(&reduced_openings.clone()).expect("Serialization failed");
-        File::create("gpu_reduced_openings.json")
-        .and_then(|mut f| f.write_all(&serialized))
-        .expect("Failed to write reduced_openings to file");*/
-    
-        let (fri_proof, query_indices) = prove_gpu(
-            &self.inner_pcs.fri,
-            &reduced_openings,
-            challenger,
-        );
-        
-         //debug
+        let (fri_proof, query_indices) =
+            prove_gpu(&self.inner_pcs.fri, &reduced_openings, challenger);
+
+        //debug
         //let duration = start.elapsed();
         //println!("-- GPU-open-stage-3 , duration:{:?}", duration);
-            
 
-       // Step 1: Collect all queries into a map.
+        // Step 1: Collect all queries into a map.
         let mut queries_by_data: BatchedQueries = BTreeMap::new(); //save <Self::ProverData>
         for index in &query_indices {
             //println!("----index:{}", index);
@@ -695,16 +674,15 @@ impl  GpuPcs {
                 queries_by_data.entry(data_ptr_usize).or_default().push(reduced_index);
             }
         }
-       
+
         // Step 2: Call the custom batched method on the concrete `GpuMerkleTreeMmcs` instance.
         // Note that `self.inner_pcs.mmcs` is our `GpuMerkleTreeMmcs` instance.
-        let batched_results: BatchedOpenings<Val, GpuValMmcs> = 
-                                    GpuValMmcs::open_batches_batched_gpu(
-                                           // &self.inner_pcs.mmcs,
-                                            log_global_max_height,
-                                            &queries_by_data,
-                                        );
-
+        let batched_results: BatchedOpenings<Val, GpuValMmcs> =
+            GpuValMmcs::open_batches_batched_gpu(
+                // &self.inner_pcs.mmcs,
+                log_global_max_height,
+                &queries_by_data,
+            );
 
         // Step 3: Reconstruct the final `query_openings` Vec from the results map.
         // This is now a fast, in-memory operation with no GPU interaction.
@@ -720,7 +698,7 @@ impl  GpuPcs {
                         let reduced_index = index >> bits_reduced;
 
                         let data_ptr_usize = *data as *const _ as usize;
-                        
+
                         // Direct, unambiguous lookup!
                         batched_results
                             .get(&data_ptr_usize)
@@ -732,19 +710,13 @@ impl  GpuPcs {
                     .collect()
             })
             .collect();
-      
+
         //debug
         //let duration = start.elapsed();
         //println!("-- GPU-open-stage-4 , duration:{:?}", duration);
 
-        (
-            all_opened_values,
-            TwoAdicFriPcsProof {
-                fri_proof,
-                query_openings,
-            },
-        )
-    } 
+        (all_opened_values, TwoAdicFriPcsProof { fri_proof, query_openings })
+    }
 }
 
 pub fn interpolate_coset_with_precomputation_gpu(
@@ -773,20 +745,20 @@ pub fn interpolate_coset_with_precomputation_gpu(
         let mut coset_evals_c: GpuMatrixC = coset_evals.into();
         let coset_c: GpuMatrixC = (coset).into();
         let diff_invs_c: GpuMatrixC = (diff_invs).into();
-        interpolate_coset_gpu(
+        let _ = interpolate_coset_gpu(
             &mut coset_evals_c,
             shift,
             point,
             &coset_c,
-            &diff_invs_c,// as  *const GpuMatrix<Challenge>, 
+            &diff_invs_c, // as  *const GpuMatrix<Challenge>,
             interpolated_values.as_mut_ptr(),
-        ).check("interpolate_coset_gpu FFI call failed");
+        )
+        .check("interpolate_coset_gpu FFI call failed");
     }
 
     // 3. Return the results.
     interpolated_values
 }
-
 
 fn compute_inverse_denominators<F: TwoAdicField, EF: ExtensionField<F>, M: Matrix<F>>(
     mats_and_points: &[(Vec<M>, &Vec<Vec<EF>>)],
@@ -812,22 +784,19 @@ fn compute_inverse_denominators<F: TwoAdicField, EF: ExtensionField<F>, M: Matri
             (
                 z,
                 batch_multiplicative_inverse(
-                    &coset[..(1 << log_height)]
-                        .iter()
-                        .map(|&x| z - x)
-                        .collect_vec(),
+                    &coset[..(1 << log_height)].iter().map(|&x| z - x).collect_vec(),
                 ),
             )
         })
         .collect()
 }
 
-
 //V1 is ok but it seems too compolicated.
 pub fn compute_inverse_denominators_gpu(
     mats_and_points: &[(Vec<&GpuMatrix<Val>>, &Vec<Vec<Challenge>>)],
     coset: &GpuMatrix<Val>, // Coset is now on the GPU
-) -> LinearMap<Challenge, GpuMatrix<Challenge>> { // Returns a map to GPU matrices
+) -> LinearMap<Challenge, GpuMatrix<Challenge>> {
+    // Returns a map to GPU matrices
     // Step 1: Find max_log_height_for_point (remains on CPU)
     let mut max_log_height_for_point: LinearMap<Challenge, usize> = LinearMap::new();
     for (mats, points) in mats_and_points {
@@ -859,21 +828,24 @@ pub fn compute_inverse_denominators_gpu(
     }
 
     // Allocate host memory to receive the array of device pointers for the results.
-    let mut d_inv_denoms_ptrs: Vec<*mut Challenge> = vec![std::ptr::null_mut(); unique_points.len()];
+    let mut d_inv_denoms_ptrs: Vec<*mut Challenge> =
+        vec![std::ptr::null_mut(); unique_points.len()];
 
     // Step 3: Call the FFI orchestrator
     unsafe {
-        compute_inverse_denominators_for_points_gpu(
+        let _ = compute_inverse_denominators_for_points_gpu(
             unique_points.as_ptr(),
             unique_points.len() as i32,
             max_log_heights.as_ptr(),
             coset.as_ptr(),
             d_inv_denoms_ptrs.as_mut_ptr(),
-        ).check("compute_inverse_denominators_for_points_gpu failed");
+        )
+        .check("compute_inverse_denominators_for_points_gpu failed");
     }
 
     // Step 4: Wrap the returned device pointers in GpuMatrix handles
-    unique_points.into_iter()
+    unique_points
+        .into_iter()
         .zip(d_inv_denoms_ptrs.into_iter())
         .zip(max_log_heights.into_iter())
         .map(|((point, ptr), log_height)| {
@@ -889,27 +861,27 @@ pub fn compute_inverse_denominators_gpu(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::baby_bear_poseidon2::{Challenge, MyCompress, MyHash, Val, my_perm};
+    use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
+    use p3_field::dot_product;
     use p3_field::{Field, PackedValue, PrimeCharacteristicRing};
     use p3_matrix::dense::RowMajorMatrix;
-    use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
-    use crate::baby_bear_poseidon2::{Val, Challenge, MyHash, MyCompress, my_perm};
+    use p3_maybe_rayon::prelude::ParallelIterator;
     use rand::{Rng, SeedableRng};
     use rand_xoshiro::Xoroshiro128Plus;
-    use p3_maybe_rayon::prelude::ParallelIterator;
-    use p3_field::dot_product;
 
     use p3_air::Air;
     use p3_challenger::CanObserve;
-    use p3_commit::{Pcs, Mmcs, ExtensionMmcs};
+    use p3_commit::{ExtensionMmcs, Mmcs, Pcs};
     use p3_field::extension::BinomialExtensionField;
 
-    use p3_symmetric::TruncatedPermutation;
     use p3_matrix::Matrix;
+    use p3_symmetric::TruncatedPermutation;
 
     use p3_challenger::DuplexChallenger;
     use p3_dft::Radix2DitParallel;
 
-    use p3_fri::{FriConfig,   TwoAdicFriPcs};
+    use p3_fri::{FriConfig, TwoAdicFriPcs};
     use p3_merkle_tree::MerkleTreeMmcs;
 
     //use p3_baby_bear::BabyBear;
@@ -917,21 +889,20 @@ mod tests {
 
     use p3_challenger::FieldChallenger;
 
-    use p3_symmetric::PaddingFreeSponge;
-    use crate::config::StarkGenericConfig;
-    use crate::{BabyBearPoseidon2Inner, StarkConfigGpu};
     use crate::baby_bear_poseidon2::StarkConfigCpu;
+    use crate::config::StarkGenericConfig;
     use crate::gpu::matrix::GpuMatrix;
-    use p3_field::{batch_multiplicative_inverse, TwoAdicField};
-    use p3_util::{log2_strict_usize, linear_map::LinearMap};
+    use crate::{BabyBearPoseidon2Inner, StarkConfigGpu};
+    use p3_field::{TwoAdicField, batch_multiplicative_inverse};
+    use p3_symmetric::PaddingFreeSponge;
+    use p3_util::{linear_map::LinearMap, log2_strict_usize};
 
     //use rand::{thread_rng, };
     use itertools::Itertools;
 
-      // Redefine types for testing
- 
+    // Redefine types for testing
+
     type Perm = Poseidon2BabyBear<16>;
-    
 
     type ValMmcs =
         MerkleTreeMmcs<<Val as Field>::Packing, <Val as Field>::Packing, MyHash, MyCompress, 8>;
@@ -943,7 +914,7 @@ mod tests {
     type F = BabyBear;
 
     use rand::distributions::{Distribution, Standard};
-    use rand::{thread_rng, };
+    use rand::thread_rng;
 
     // Helper function to generate a random matrix.
     fn generate_random_matrix(h: usize, w: usize) -> RowMajorMatrix<BabyBear> {
@@ -960,7 +931,7 @@ mod tests {
         let cpu_config = StarkConfigCpu::compressed(); //
         let gpu_config = StarkConfigGpu::compressed();
 
-        const H: usize = 8192*2*2*2*2*2*2*2;
+        const H: usize = 8192 * 2 * 2 * 2 * 2 * 2 * 2 * 2;
         const W: usize = 4;
         let log_h = log2_strict_usize(H);
 
@@ -971,59 +942,93 @@ mod tests {
 
         let log_trace_rows = log2_strict_usize(main_trace.height());
         let trace_rows = main_trace.height();
-     
-        let log_quotient_degree = 1;  //fix it according the inputs
+
+        let log_quotient_degree = 1; //fix it according the inputs
         let quotient_degree = 1 << log_quotient_degree;
 
         let trace_domain = <MyPcs as Pcs<Challenge, Challenger>>::natural_domain_for_degree(
-                        cpu_config.pcs(),
-                        main_trace.height(),
-                    );
-        let quotient_domain = trace_domain.create_disjoint_domain(1 << (log_trace_rows + log_quotient_degree));
+            cpu_config.pcs(),
+            main_trace.height(),
+        );
+        let quotient_domain =
+            trace_domain.create_disjoint_domain(1 << (log_trace_rows + log_quotient_degree));
 
-        println!("--trace.height={}, width={}, trace_domain.size={}, qd_size={}", main_trace.height(),
-            main_trace.width(), trace_domain.size(), quotient_domain.size()) ;
+        println!(
+            "--trace.height={}, width={}, trace_domain.size={}, qd_size={}",
+            main_trace.height(),
+            main_trace.width(),
+            trace_domain.size(),
+            quotient_domain.size()
+        );
 
-        let (cpu_commit, cpu_commit_data)  = <MyPcs as Pcs<Challenge, Challenger>>::commit(cpu_config.pcs(), [(trace_domain.clone(), main_trace.clone())]);
+        let (cpu_commit, cpu_commit_data) = <MyPcs as Pcs<Challenge, Challenger>>::commit(
+            cpu_config.pcs(),
+            [(trace_domain.clone(), main_trace.clone())],
+        );
 
-        let gpu_mem_blk = GpuMemBlk::new(1000 * 1024 *1024)   //100M ?
-                .expect("Failed to create GPU memory block");
+        let gpu_mem_blk = GpuMemBlk::new(1000 * 1024 * 1024) //100M ?
+            .expect("Failed to create GPU memory block");
 
-        let gpu_trace = GpuMatrix::from_vec(&main_trace.values, main_trace.height(), main_trace.width(), &gpu_mem_blk);
+        let gpu_trace = GpuMatrix::from_vec(
+            &main_trace.values,
+            main_trace.height(),
+            main_trace.width(),
+            &gpu_mem_blk,
+        );
         //let log_blowup = &self.inner_pcs.fri.log_blowup;
-        let (gpu_commit, gpu_commit_data) = GpuPcs::commit_gpu(gpu_config.pcs(),  vec![(trace_domain, gpu_trace)], &gpu_mem_blk);
+        let (gpu_commit, gpu_commit_data) =
+            GpuPcs::commit_gpu(gpu_config.pcs(), vec![(trace_domain, gpu_trace)], &gpu_mem_blk);
 
         assert_eq!(cpu_commit, gpu_commit, "commit is not equal!");
         println!("---commit is equal.");
 
-        let main_trace_on_quotient_domains = 
-                    <MyPcs as Pcs<Challenge, Challenger>>::get_evaluations_on_domain(cpu_config.pcs(),&cpu_commit_data, 0, quotient_domain)
-                    .to_row_major_matrix();
-        let gpu_main_lde = GpuPcs::get_evaluations_on_domain_gpu(gpu_config.pcs(),&gpu_commit_data, 0, quotient_domain.size(), &gpu_mem_blk);
+        let main_trace_on_quotient_domains =
+            <MyPcs as Pcs<Challenge, Challenger>>::get_evaluations_on_domain(
+                cpu_config.pcs(),
+                &cpu_commit_data,
+                0,
+                quotient_domain,
+            )
+            .to_row_major_matrix();
+        let gpu_main_lde = GpuPcs::get_evaluations_on_domain_gpu(
+            gpu_config.pcs(),
+            &gpu_commit_data,
+            0,
+            quotient_domain.size(),
+            &gpu_mem_blk,
+        );
         let gpu_main_lde_values = GpuMatrix::to_host(&gpu_main_lde);
 
-        assert_eq!(main_trace_on_quotient_domains.values, gpu_main_lde_values, "commit lde is not equal!");
-       
+        assert_eq!(
+            main_trace_on_quotient_domains.values, gpu_main_lde_values,
+            "commit lde is not equal!"
+        );
+
         //println!("RowMajorMatrix， main_trace_on_quotient_domains,val={:?}", main_trace_on_quotient_domains.values);
         //println!("RowMajorMatrix， gpu_main_lde_values,val={:?}", gpu_main_lde_values);
-       
+
         //
-        let cpu_mats = ValMmcs::get_matrices::<RowMajorMatrix<Val>>(&cpu_config.pcs().mmcs, &cpu_commit_data)
-                    .into_iter()
-                    .map(|m| m.as_view())
-                    .collect_vec();
+        let cpu_mats =
+            ValMmcs::get_matrices::<RowMajorMatrix<Val>>(&cpu_config.pcs().mmcs, &cpu_commit_data)
+                .into_iter()
+                .map(|m| m.as_view())
+                .collect_vec();
 
         let gpu_mats = GpuPcs::get_all_ldes_gpu(gpu_config.pcs(), &gpu_commit_data);
         assert_eq!(cpu_mats.len(), gpu_mats.len(), "mats len is not equal!");
-       
-       let _: Vec<_> = cpu_mats.iter().zip(gpu_mats).enumerate().map(|(i,(cpu, gpu))| 
-            {
+
+        let _: Vec<_> = cpu_mats
+            .iter()
+            .zip(gpu_mats)
+            .enumerate()
+            .map(|(i, (cpu, gpu))| {
                 let gpu_mat_valuse = GpuMatrix::to_host(&gpu);
                 assert_eq!(cpu.values, gpu_mat_valuse, "mat[{i}] values is not equal!");
                 //println!("--i={}, cpu.values:{:?}",i, cpu.values);
                 //println!("--i={}, gpu.values:{:?}",i, gpu_mat_valuse);
                 0
-            }).collect();
+            })
+            .collect();
 
         println!("---test is ok.");
     }
@@ -1039,15 +1044,23 @@ mod tests {
         let alpha_powers: Vec<Challenge> = alpha.powers().take(W).collect();
 
         // 1. CPU Reference
-        let cpu_result: Vec<Challenge> = lde_matrix.par_rows()
-            .map(|row| dot_product(alpha_powers.iter().copied(), row.map(|x| Challenge::from_prime_subfield(x))))
+        let cpu_result: Vec<Challenge> = lde_matrix
+            .par_rows()
+            .map(|row| {
+                dot_product(
+                    alpha_powers.iter().copied(),
+                    row.map(|x| Challenge::from_prime_subfield(x)),
+                )
+            })
             .collect();
 
         // 2. GPU Call
         let mut gpu_result = vec![Challenge::ZERO; H];
         let res = unsafe {
             stark_test_mat_compress_gpu(
-                lde_matrix.values.as_ptr(), H as i32, W as i32,
+                lde_matrix.values.as_ptr(),
+                H as i32,
+                W as i32,
                 alpha_powers.as_ptr(),
                 gpu_result.as_mut_ptr(),
             )
@@ -1073,18 +1086,15 @@ mod tests {
         println!("---input,H:{}", H);
         println!("---input,z:{:?}", z);
         println!("---input,coset:{:?}", coset);
-        
+
         // 1. CPU Reference
-        let cpu_result: Vec<Challenge> = coset.iter()
-            .map(|&x| (z - Challenge::from_prime_subfield(x)).inverse())
-            .collect();
+        let cpu_result: Vec<Challenge> =
+            coset.iter().map(|&x| (z - Challenge::from_prime_subfield(x)).inverse()).collect();
 
         // 2. GPU Call
         let mut gpu_result = vec![Challenge::ZERO; H];
         let res = unsafe {
-            stark_test_inv_denoms_gpu(
-                z, coset.as_ptr(), H as i32, gpu_result.as_mut_ptr()
-            )
+            stark_test_inv_denoms_gpu(z, coset.as_ptr(), H as i32, gpu_result.as_mut_ptr())
         };
         assert_eq!(res, 0);
 
@@ -1116,21 +1126,24 @@ mod tests {
         let mut gpu_result = quotient_evals.clone();
         let res = unsafe {
             stark_test_quotient_loop_gpu(
-                mat_compressed.as_ptr(), inv_denoms.as_ptr(),
-                y_mat, alpha_pow_offset, H as i32,
-                gpu_result.as_mut_ptr()
+                mat_compressed.as_ptr(),
+                inv_denoms.as_ptr(),
+                y_mat,
+                alpha_pow_offset,
+                H as i32,
+                gpu_result.as_mut_ptr(),
             )
         };
         assert_eq!(res, 0);
-        
+
         // 4. Compare
         assert_eq!(cpu_result, gpu_result);
         println!("SUCCESS: compute_quotient_main_loop_kernel is correct.");
     }
 
     fn compute_inverse_denominators_cpu(
-    max_log_height_for_point: LinearMap<Challenge, usize>,
-    coset: &[Val],
+        max_log_height_for_point: LinearMap<Challenge, usize>,
+        coset: &[Val],
     ) -> LinearMap<Challenge, Vec<Challenge>> {
         max_log_height_for_point
             .into_iter()
@@ -1145,7 +1158,7 @@ mod tests {
     }
 
     /*
-    //TBD 
+    //TBD
     #[test]
     fn test_compute_inverse_denominators_gpu() {
         // 1. SETUP
@@ -1166,7 +1179,7 @@ mod tests {
         let mut max_log_height_for_point: LinearMap<Challenge, usize> = LinearMap::new();
         //let log_height = 4;
         let mut mats_vecs = Vec::new();
-        
+
         for _ in 0..num_unique_points {
             let point: Challenge = rng.r#gen();
             // Use varying log_heights to test that part of the logic
@@ -1184,7 +1197,7 @@ mod tests {
         // In this test, we don't actually need the matrices, just the points.
         // We pass an empty Vec of GpuMatrix.
         let mats_and_points: Vec<(Vec<GpuMatrix<Val>>, &Vec<Vec<Challenge>>)> = vec![];
-        
+
         println!("Testing with {} unique points and max coset size of {}", num_unique_points, coset_size);
 
         // 2. CPU REFERENCE COMPUTATION
@@ -1209,11 +1222,11 @@ mod tests {
             points_vecs.push(vec![point]);
         }
 
-        
+
 
         // We create a structure that matches what the wrapper expects, even if it's a bit artificial for this test.
         let points_refs: Vec<&Vec<Challenge>> = points_vecs.iter().collect();
-        mats_and_points_for_gpu.push((mats_vecs, points_vecs)); 
+        mats_and_points_for_gpu.push((mats_vecs, points_vecs));
 
         // c) Call the GPU wrapper function. This is the main function under test.
         let start_gpu = std::time::Instant::now();
@@ -1232,7 +1245,7 @@ mod tests {
             // Find the corresponding result from the GPU map
             let actual_inv_denoms_gpu_matrix = actual_results_map_gpu.get(&point)
                 .expect("Point missing from GPU results");
-            
+
             // Download the data from the GPU
             let actual_inv_denoms_vec = actual_inv_denoms_gpu_matrix.to_host();
 
@@ -1243,10 +1256,10 @@ mod tests {
                 "Inverse denominators do not match for point {:?}", point
             );
         }
-        
+
         println!("\nSUCCESS: compute_inverse_denominators_gpu is correct.");
     }*/
-    
+
     #[test]
     fn test_interpolate_coset_gpu() {
         // 1. SETUP
@@ -1266,8 +1279,11 @@ mod tests {
         // Generate the coset elements on the CPU
         let root = Val::two_adic_generator(log_height);
         let coset_cpu: Vec<Val> = root.powers().take(height).collect();
-        
-        println!("Testing interpolation of {} polynomials of degree < {} at a random point.", width, height);
+
+        println!(
+            "Testing interpolation of {} polynomials of degree < {} at a random point.",
+            width, height
+        );
 
         // 2. PRECOMPUTATION (done on CPU, as it would be in the prover)
         let diffs: Vec<Challenge> = coset_cpu.iter().map(|&x| point - Challenge::from(x)).collect();
@@ -1288,10 +1304,11 @@ mod tests {
         // 4. GPU EXECUTION
         println!("Computing interpolation on GPU...");
         // a) Copy all necessary data to GPU buffers
-        let gpu_mem_blk = GpuMemBlk::new(100 * 1024 *1024)   //100M ?
-                .expect("Failed to create GPU memory block");
+        let gpu_mem_blk = GpuMemBlk::new(100 * 1024 * 1024) //100M ?
+            .expect("Failed to create GPU memory block");
 
-        let coset_evals_gpu = GpuMatrix::from_vec(&coset_evals_cpu.values, height, width, &gpu_mem_blk);
+        let coset_evals_gpu =
+            GpuMatrix::from_vec(&coset_evals_cpu.values, height, width, &gpu_mem_blk);
         let coset_gpu = GpuMatrix::from_vec(&coset_cpu, height, 1, &gpu_mem_blk);
         let diff_invs_gpu = GpuMatrix::from_vec(&diff_invs_cpu, height, 1, &gpu_mem_blk);
 
@@ -1320,20 +1337,20 @@ mod tests {
         let mut mismatch_found = false;
         for i in 0..expected_values.len() {
             if expected_values[i] != actual_values_gpu[i] {
-                 println!("\n==================== MISMATCH FOUND ====================");
-                 println!("Mismatch at result index {}", i);
-                 println!("  Expected (CPU): {:?}", expected_values[i]);
-                 println!("  Actual (GPU):   {:?}", actual_values_gpu[i]);
-                 println!("========================================================");
-                 mismatch_found = true;
-                 // Don't break, let's see all mismatches if there are a few
+                println!("\n==================== MISMATCH FOUND ====================");
+                println!("Mismatch at result index {}", i);
+                println!("  Expected (CPU): {:?}", expected_values[i]);
+                println!("  Actual (GPU):   {:?}", actual_values_gpu[i]);
+                println!("========================================================");
+                mismatch_found = true;
+                // Don't break, let's see all mismatches if there are a few
             }
         }
 
         if mismatch_found {
             panic!("GPU interpolation results do not match CPU reference.");
         }
-        
+
         println!("\nSUCCESS: interpolate_coset_with_precomputation_gpu is correct.");
     }
 }

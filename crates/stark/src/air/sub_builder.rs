@@ -1,9 +1,9 @@
-use std::{
-//    iter::{Skip, Take},
-    ops::{Range, Deref},
-};
 use p3_air::{AirBuilder, BaseAir};
 use p3_matrix::Matrix;
+use std::{
+    //    iter::{Skip, Take},
+    ops::{Deref, Range},
+};
 
 /// A submatrix of a matrix.  The matrix will contain a subset of the columns of `self.inner`.
 pub struct SubMatrixRowSlices<M: Matrix<T>, T: Send + Sync + Clone> {
@@ -21,7 +21,7 @@ impl<M: Matrix<T>, T: Send + Sync + Clone> SubMatrixRowSlices<M, T> {
 }
 
 /// Implement `Matrix` for `SubMatrixRowSlices`.
-impl<M: Matrix<T>, T: Send + Sync + Clone> Matrix<T> for SubMatrixRowSlices<M, T> { 
+impl<M: Matrix<T>, T: Send + Sync + Clone> Matrix<T> for SubMatrixRowSlices<M, T> {
     #[inline]
     fn width(&self) -> usize {
         self.column_range.len()
@@ -38,9 +38,10 @@ impl<M: Matrix<T>, T: Send + Sync + Clone> Matrix<T> for SubMatrixRowSlices<M, T
         r: usize,
     ) -> impl IntoIterator<Item = T, IntoIter = impl Iterator<Item = T> + Send + Sync> {
         // Get the row from the inner matrix and skip/take the appropriate columns
-        
-        let inner_row = unsafe { self.inner.row_unchecked(r)};
-        inner_row.into_iter()
+
+        let inner_row = unsafe { self.inner.row_unchecked(r) };
+        inner_row
+            .into_iter()
             .skip(self.column_range.start)
             .take(self.column_range.len())
             .collect::<Vec<_>>()

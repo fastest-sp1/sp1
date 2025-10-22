@@ -13,6 +13,7 @@ use sp1_prover::{
 use sp1_recursion_core::shape::RecursionShapeConfig;
 use sp1_stark::{shape::OrderedShape, MachineProver};
 
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -30,6 +31,7 @@ struct Args {
     end: Option<usize>,
 }
 
+#[cfg(not(feature = "recursion_cuda"))]
 fn main() {
     // Setup the logger.
     setup_logger();

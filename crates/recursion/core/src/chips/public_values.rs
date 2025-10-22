@@ -1,13 +1,13 @@
 use crate::{
-    air::{RecursionPublicValues, RECURSIVE_PROOF_NUM_PV_ELTS},
+    CommitPublicValuesEvent, CommitPublicValuesInstr, DIGEST_SIZE, ExecutionRecord,
+    air::{RECURSIVE_PROOF_NUM_PV_ELTS, RecursionPublicValues},
     builder::SP1RecursionAirBuilder,
     runtime::Instruction,
-    CommitPublicValuesEvent, CommitPublicValuesInstr, ExecutionRecord, DIGEST_SIZE,
 };
 use p3_air::{Air, AirBuilder, BaseAir, PairBuilder};
 use p3_baby_bear::BabyBear;
 use p3_field::{PrimeCharacteristicRing, PrimeField32};
-use p3_matrix::{dense::RowMajorMatrix, Matrix};
+use p3_matrix::{Matrix, dense::RowMajorMatrix};
 
 use sp1_derive::AlignedBorrow;
 use sp1_stark::air::MachineAir;
@@ -15,7 +15,7 @@ use std::borrow::{Borrow, BorrowMut};
 //use itertools::Itertools;
 use super::mem::MemoryAccessColsChips;
 
-use sp1_stark::GpuMatrix;
+//use sp1_stark::GpuMatrix;
 
 pub const NUM_PUBLIC_VALUES_COLS: usize = core::mem::size_of::<PublicValuesCols<u8>>();
 pub const NUM_PUBLIC_VALUES_PREPROCESSED_COLS: usize =
@@ -70,7 +70,7 @@ impl<F: PrimeField32> MachineAir<F> for PublicValuesChip {
             std::any::TypeId::of::<BabyBear>(),
             "generate_preprocessed_trace only supports BabyBear field"
         );
-        
+
         let mut rows: Vec<[BabyBear; NUM_PUBLIC_VALUES_PREPROCESSED_COLS]> = Vec::new();
         let commit_pv_hash_instrs: Vec<&Box<CommitPublicValuesInstr<BabyBear>>> = program
             .inner
@@ -90,10 +90,13 @@ impl<F: PrimeField32> MachineAir<F> for PublicValuesChip {
             .collect::<Vec<_>>();
 
         if commit_pv_hash_instrs.is_empty() {
-            let mut values = vec![BabyBear::ZERO; (1 << PUB_VALUES_LOG_HEIGHT )* NUM_PUBLIC_VALUES_PREPROCESSED_COLS];
-             return Some(RowMajorMatrix::new(
-                 unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
-                 NUM_PUBLIC_VALUES_PREPROCESSED_COLS,
+            let values = vec![
+                BabyBear::ZERO;
+                (1 << PUB_VALUES_LOG_HEIGHT) * NUM_PUBLIC_VALUES_PREPROCESSED_COLS
+            ];
+            return Some(RowMajorMatrix::new(
+                unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
+                NUM_PUBLIC_VALUES_PREPROCESSED_COLS,
             ));
         }
 
@@ -105,11 +108,10 @@ impl<F: PrimeField32> MachineAir<F> for PublicValuesChip {
         // values hash.
         let instr = commit_pv_hash_instrs.first().expect("Expected at least one instruction");
         let mut values: Vec<BabyBear>;
-     
+
         for i in 0..DIGEST_SIZE {
             let mut row = [BabyBear::ZERO; NUM_PUBLIC_VALUES_PREPROCESSED_COLS];
-            let cols: &mut PublicValuesPreprocessedCols<BabyBear> =
-                    row.as_mut_slice().borrow_mut();
+            let cols: &mut PublicValuesPreprocessedCols<BabyBear> = row.as_mut_slice().borrow_mut();
             unsafe {
                 crate::sys::public_values_instr_to_row_babybear(instr, i, cols);
             }
@@ -117,7 +119,6 @@ impl<F: PrimeField32> MachineAir<F> for PublicValuesChip {
         }
 
         values = rows.into_iter().flatten().collect::<Vec<BabyBear>>();
-    
 
         // Pad the preprocessed rows to 8 rows.
         // gpu code breaks for small traces
@@ -127,12 +128,10 @@ impl<F: PrimeField32> MachineAir<F> for PublicValuesChip {
 
         // Convert the trace to a row major matrix.
         let trace = RowMajorMatrix::new(
-            unsafe {
-                std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values)
-            },
+            unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
             NUM_PUBLIC_VALUES_PREPROCESSED_COLS,
         );
-        
+
         Some(trace)
     }
 
@@ -146,21 +145,27 @@ impl<F: PrimeField32> MachineAir<F> for PublicValuesChip {
             std::any::TypeId::of::<BabyBear>(),
             "generate_trace only supports BabyBear field"
         );
-        
+
         if input.commit_pv_hash_events.len() != 1 {
             tracing::warn!("Expected exactly one CommitPVHash event.");
         }
         let mut values: Vec<BabyBear>;
-        
+
         // We only take 1 commit pv hash instruction, since our air only checks for one public
         // values hash.
-        let event = input.commit_pv_hash_events.iter().take(1).next().map(|ev| {
-            unsafe {
-                std::mem::transmute::<&CommitPublicValuesEvent<F>, &CommitPublicValuesEvent<BabyBear>>(ev)
-            }
-        }).expect("Expected at least one event in commit_pv_hash_events");
-
-        values = vec![BabyBear::ZERO; DIGEST_SIZE];
+        let event =
+            input
+                .commit_pv_hash_events
+                .iter()
+                .take(1)
+                .next()
+                .map(|ev| unsafe {
+                    std::mem::transmute::<
+                        &CommitPublicValuesEvent<F>,
+                        &CommitPublicValuesEvent<BabyBear>,
+                    >(ev)
+                })
+                .expect("Expected at least one event in commit_pv_hash_events");
 
         let mut rows: Vec<[BabyBear; NUM_PUBLIC_VALUES_COLS]> = Vec::new();
         for i in 0..DIGEST_SIZE {
@@ -172,8 +177,7 @@ impl<F: PrimeField32> MachineAir<F> for PublicValuesChip {
             rows.push(row);
         }
         values = rows.into_iter().flatten().collect::<Vec<BabyBear>>();
-        
-        
+
         // Pad the trace to 8 rows.
         let padded_num_rows = 1 << PUB_VALUES_LOG_HEIGHT;
         let target_total_elements = padded_num_rows * NUM_PUBLIC_VALUES_COLS;
@@ -181,12 +185,10 @@ impl<F: PrimeField32> MachineAir<F> for PublicValuesChip {
 
         // Convert the trace to a row major matrix.
         let trace = RowMajorMatrix::new(
-            unsafe {
-                std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values)
-            },
+            unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
             NUM_PUBLIC_VALUES_COLS,
         );
-        
+
         trace
     }
 
@@ -199,7 +201,7 @@ impl<F: PrimeField32> MachineAir<F> for PublicValuesChip {
         if input.commit_pv_hash_events.len() != 1 {
             tracing::warn!("Expected exactly one CommitPVHash event.");
         }
-        
+
         // We only take 1 commit pv hash instruction, since our air only checks for one public
         // values hash.
         let event = input.commit_pv_hash_events.iter().take(1).next().map(|ev| {
@@ -214,7 +216,7 @@ impl<F: PrimeField32> MachineAir<F> for PublicValuesChip {
 
         // 1. Allocate the matrix directly on the GPU.
         let mut gpu_matrix = GpuMatrix::<F>::new(padded_nb_rows, num_cols);
-   
+
         //if !event.is_empty() {
            unsafe {
                 crate::sys::process_public_values_events_gpu(
@@ -227,7 +229,7 @@ impl<F: PrimeField32> MachineAir<F> for PublicValuesChip {
                 );
             }
         //}
-        
+
         // 3. Return the GpuMatrix handle.
         gpu_matrix
     }
@@ -264,12 +266,12 @@ impl<F: PrimeField32> MachineAir<F> for PublicValuesChip {
         //if !instr.is_empty()  {
             let padded_nb_rows = 1 << PUB_VALUES_LOG_HEIGHT;
             let num_cols = NUM_PUBLIC_VALUES_PREPROCESSED_COLS;
-        
+
             // 1. Allocate the matrix directly on the GPU.
             let mut gpu_matrix = GpuMatrix::<F>::new(padded_nb_rows, num_cols);
             unsafe {
                 crate::sys::process_public_values_instructions_gpu(
-                     &***instr, 
+                     &***instr,
                     1,
                     gpu_matrix.as_mut_ptr() as *mut BabyBear, // Pass the device pointer
                     gpu_matrix.height * gpu_matrix.width, // Pass total elements
@@ -281,7 +283,7 @@ impl<F: PrimeField32> MachineAir<F> for PublicValuesChip {
         //} else {
          //   None
         //}
-            
+
     } */
 }
 
@@ -307,8 +309,8 @@ where
         for (i, pv_elm) in public_values.digest.iter().enumerate() {
             // Ensure that the public value element is the same for all rows within a fri fold
             // invocation.
-   // println!("--cpu--,i={}, pv_elm={:?}, pv_element={:?}, pv_idx={:?}", i, pv_elm, local.pv_element.into(),
-   //     local_prepr.pv_idx[i].into());
+            // println!("--cpu--,i={}, pv_elm={:?}, pv_element={:?}, pv_idx={:?}", i, pv_elm, local.pv_element.into(),
+            //     local_prepr.pv_idx[i].into());
             builder.when(local_prepr.pv_idx[i]).assert_eq(pv_elm.clone(), local.pv_element);
         }
     }
@@ -319,26 +321,26 @@ mod tests {
     #![allow(clippy::print_stdout)]
 
     use crate::{
-        air::{RecursionPublicValues, NUM_PV_ELMS_TO_HASH, RECURSIVE_PROOF_NUM_PV_ELTS},
+        DIGEST_SIZE, Instruction, MemAccessKind, RecursionProgram,
+        air::{NUM_PV_ELMS_TO_HASH, RECURSIVE_PROOF_NUM_PV_ELTS, RecursionPublicValues},
         chips::{
             mem::MemoryAccessCols,
             public_values::{
-                PublicValuesChip, PublicValuesCols, PublicValuesPreprocessedCols,
                 NUM_PUBLIC_VALUES_COLS, NUM_PUBLIC_VALUES_PREPROCESSED_COLS, PUB_VALUES_LOG_HEIGHT,
+                PublicValuesChip, PublicValuesCols, PublicValuesPreprocessedCols,
             },
             test_fixtures,
         },
         machine::tests::test_recursion_linear_program,
-        runtime::{instruction as instr, ExecutionRecord},
+        runtime::{ExecutionRecord, instruction as instr},
         stark::BabyBearPoseidon2Outer,
-        Instruction, MemAccessKind, RecursionProgram, DIGEST_SIZE,
     };
     use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
-    use p3_matrix::{dense::RowMajorMatrix, Matrix};
-    use rand::{rngs::StdRng, Rng, SeedableRng};
+    use p3_matrix::{Matrix, dense::RowMajorMatrix};
+    use rand::{Rng, SeedableRng, rngs::StdRng};
     use sp1_core_machine::utils::{pad_rows_fixed, setup_logger};
-    use sp1_stark::{air::MachineAir, StarkGenericConfig};
+    use sp1_stark::{StarkGenericConfig, air::MachineAir};
     use std::{
         array,
         borrow::{Borrow, BorrowMut},
@@ -429,18 +431,17 @@ mod tests {
     }
 
     #[test]
-    fn generate_trace_gpu() {     
+    fn generate_trace_gpu() {
         let shard = test_fixtures::shard();
         let mut execution_record = test_fixtures::default_execution_record();
         //let chip = FriFoldChip::<DEGREE>::default();
         let trace_gpu_ptr = PublicValuesChip.generate_trace_gpu(&shard, &mut execution_record);
-        
+
         let trace_values = trace_gpu_ptr.to_host();
         let trace = RowMajorMatrix::new(trace_values, NUM_PUBLIC_VALUES_COLS);
-        
+
         assert_eq!(trace, generate_trace_reference(&shard, &mut execution_record));
     }
-
 
     fn generate_preprocessed_trace_reference(
         program: &RecursionProgram<BabyBear>,

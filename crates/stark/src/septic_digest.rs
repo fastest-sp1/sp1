@@ -1,6 +1,6 @@
 //! Elliptic Curve digests with a starting point to avoid weierstrass addition exceptions.
 use crate::{septic_curve::SepticCurve, septic_extension::SepticExtension};
-use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, Field};
+use p3_field::{BasedVectorSpace, Field, PrimeCharacteristicRing};
 use serde::{Deserialize, Serialize};
 use std::iter::Sum;
 
@@ -50,8 +50,12 @@ impl<F: PrimeCharacteristicRing> SepticDigest<F> {
     /// The digest used for starting the accumulation of digests.
     pub fn starting_digest() -> Self {
         SepticDigest(SepticCurve {
-            x: SepticExtension::<F>::from_basis_coefficients_fn(|i| F::from_u32(DIGEST_SUM_START_X[i])),
-            y: SepticExtension::<F>::from_basis_coefficients_fn(|i| F::from_u32(DIGEST_SUM_START_Y[i])),
+            x: SepticExtension::<F>::from_basis_coefficients_fn(|i| {
+                F::from_u32(DIGEST_SUM_START_X[i])
+            }),
+            y: SepticExtension::<F>::from_basis_coefficients_fn(|i| {
+                F::from_u32(DIGEST_SUM_START_Y[i])
+            }),
         })
     }
 }
@@ -96,10 +100,12 @@ mod test {
         });
         let point = SepticCurve { x, y };
         assert!(point.check_on_point());
-        let x: SepticExtension<BabyBear> =
-            SepticExtension::from_basis_coefficients_fn(|i| BabyBear::from_u32(DIGEST_SUM_START_X[i]));
-        let y: SepticExtension<BabyBear> =
-            SepticExtension::from_basis_coefficients_fn(|i| BabyBear::from_u32(DIGEST_SUM_START_Y[i]));
+        let x: SepticExtension<BabyBear> = SepticExtension::from_basis_coefficients_fn(|i| {
+            BabyBear::from_u32(DIGEST_SUM_START_X[i])
+        });
+        let y: SepticExtension<BabyBear> = SepticExtension::from_basis_coefficients_fn(|i| {
+            BabyBear::from_u32(DIGEST_SUM_START_Y[i])
+        });
         let point = SepticCurve { x, y };
         assert!(point.check_on_point());
         let x: SepticExtension<BabyBear> = SepticExtension::from_basis_coefficients_fn(|i| {

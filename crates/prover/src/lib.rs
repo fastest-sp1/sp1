@@ -27,9 +27,9 @@ use std::{
     num::NonZeroUsize,
     path::Path,
     sync::{
+        Arc, Mutex, OnceLock,
         atomic::{AtomicUsize, Ordering},
         mpsc::{channel, sync_channel},
-        Arc, Mutex, OnceLock,
     },
     thread,
 };
@@ -38,22 +38,23 @@ use crate::shapes::SP1CompressProgramShape;
 use lru::LruCache;
 use p3_baby_bear::BabyBear;
 use p3_field::{PrimeCharacteristicRing, PrimeField, PrimeField32};
-use p3_matrix::dense::RowMajorMatrix;
+
 use shapes::SP1ProofShape;
 use sp1_core_executor::{
-    estimator::RecordEstimator, ExecutionError, ExecutionReport, Executor, Program, RiscvAirId,
-    SP1Context,
+    ExecutionError, ExecutionReport, Executor, Program, RiscvAirId, SP1Context,
+    estimator::RecordEstimator,
 };
 use sp1_core_machine::{
     io::SP1Stdin,
     reduce::SP1ReduceProof,
     riscv::RiscvAir,
     shape::CoreShapeConfig,
-    utils::{concurrency::TurnBasedSync, SP1CoreProverError},
+    utils::{SP1CoreProverError, concurrency::TurnBasedSync},
 };
 use sp1_primitives::hash_deferred_proof;
 pub use sp1_primitives::io::SP1PublicValues;
 use sp1_recursion_circuit::{
+    WrapConfig,
     hash::FieldHasher,
     machine::{
         PublicValuesOutputDigest, SP1CompressRootVerifierWithVKey, SP1CompressShape,
@@ -64,7 +65,6 @@ use sp1_recursion_circuit::{
     },
     merkle_tree::MerkleTree,
     witness::Witnessable,
-    WrapConfig,
 };
 use sp1_recursion_compiler::{
     circuit::AsmCompiler,
@@ -72,44 +72,49 @@ use sp1_recursion_compiler::{
     ir::{Builder, DslIrProgram, Witness},
 };
 use sp1_recursion_core::{
+    RecursionProgram, Runtime as RecursionRuntime,
     air::RecursionPublicValues,
     machine::RecursionAir,
     runtime::ExecutionRecord,
     shape::{RecursionShape, RecursionShapeConfig},
     stark::BabyBearPoseidon2Outer,
-    RecursionProgram, Runtime as RecursionRuntime,
 };
 pub use sp1_recursion_gnark_ffi::proof::{Groth16Bn254Proof, PlonkBn254Proof};
 use sp1_recursion_gnark_ffi::{groth16_bn254::Groth16Bn254Prover, plonk_bn254::PlonkBn254Prover};
 use sp1_stark::{
+    Challenge, DIGEST_SIZE, MachineProver, MachineProvingKey, SP1ProverOpts, ShardProof, SplitOpts,
+    StarkGenericConfig, StarkVerifyingKey, Val, Word,
     baby_bear_poseidon2::BabyBearPoseidon2,
     shape::{OrderedShape, Shape},
-    Challenge, MachineProver,  MachineProvingKey, SP1ProverOpts, ShardProof, SplitOpts,
-    StarkGenericConfig, StarkVerifyingKey, Val, Word, DIGEST_SIZE, GpuMatrix, AbstractMatrix,
-     GpuMachineProver, GpuMemBlkPool, GpuMemBlkLease, 
 };
+
+#[cfg(feature = "recursion_cuda")]
+use sp1_stark::{GpuMachineProver, GpuMatrix, GpuMemBlkLease, GpuMemBlkPool};
+
+#[cfg(not(feature = "recursion_cuda"))]
+use p3_matrix::dense::RowMajorMatrix;
+
 use tracing::instrument;
 
 pub use types::*;
 use utils::{sp1_committed_values_digest_bn254, sp1_vkey_digest_bn254, words_to_bytes};
 
-use components::{CpuProverComponents, SP1ProverComponents,};
+use components::{CpuProverComponents, SP1ProverComponents};
 
 //Gpu
+#[cfg(feature = "recursion_cuda")]
 pub struct GpuTraceBundle {
     pub traces: Vec<(String, GpuMatrix<BabyBear>)>,
     // The lease for the arena where `traces` were allocated.
     _lease: GpuMemBlkLease,
 }
 
-
-
 /// The global version for all components of SP1.
 ///
 /// This string should be updated whenever any step in verifying an SP1 proof changes, including
 /// core, recursion, and plonk-bn254. This string is used to download SP1 artifacts and the gnark
 /// docker image.
-pub const SP1_CIRCUIT_VERSION: &str = include_str!("../SP1_VERSION");
+pub const SP1_CIRCUIT_VERSION: &str = include_str!("../SP1_VER");
 
 /// The configuration for the core prover.
 pub type CoreSC = BabyBearPoseidon2;
@@ -230,7 +235,7 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
         } else {
             bincode::deserialize(include_bytes!("vk_map_dummy.bin")).unwrap()
         };
-       
+
         let (root, merkle_tree) = MerkleTree::commit(allowed_vk_map.keys().copied().collect());
         let mut compress_programs = BTreeMap::new();
         let program_cache_disabled = env::var("SP1_DISABLE_PROGRAM_CACHE")
@@ -265,28 +270,25 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
         #[cfg(feature = "recursion_cuda")]
         let (trace_pool, proof_pool) = {
             //Notice: please assign the pool's size according your GPU total Memory!
-            //Requirements: 
-            //1. each trace_gen_thread has at least one memblk 
+            //Requirements:
+            //1. each trace_gen_thread has at least one memblk
             //2. each proof_gen_thread has one memblk
             // compress_prover: blowup=1--->lde_h = 2 * main_h
-            let trace_gpu_memblk_size =  232 * 1024 * 1024; //232M  
-            let proof_gpu_memblk_size = 1750 * 1024 * 1024; //1750M 
+            /*let trace_gpu_memblk_size =  232 * 1024 * 1024; //232M
+            let proof_gpu_memblk_size = 1750 * 1024 * 1024; //1750M
             let trace_gen_thread = 2; // opts.recursion_opts.trace_gen_workers
-            let proof_gen_thread = 1; //opts.recursion_opts.shard_batch_size
+            let proof_gen_thread = 2; //opts.recursion_opts.shard_batch_size
             let trace_pool = GpuMemBlkPool::new(trace_gen_thread*2, trace_gpu_memblk_size);
             let proof_pool = GpuMemBlkPool::new(proof_gen_thread*1, proof_gpu_memblk_size);
-            
-            
-            //shrink_prover:blowup=2---> lde_h= 2^2 *main_h, so it needs more GPU mem.
-            /*let trace_gpu_memblk_size =  432 * 1024 * 1024;
-            let proof_gpu_memblk_size = (1750 ) * 1024 * 1024; 
-            let trace_pool = GpuMemBlkPool::new(4, trace_gpu_memblk_size);
-            let proof_pool = GpuMemBlkPool::new(2, proof_gpu_memblk_size);*/
+            */
 
-            ( 
-                Arc::new(trace_pool),
-                Arc::new(proof_pool)
-            )
+            //shrink_prover:blowup=2---> lde_h= 2^2 *main_h, so it needs more GPU mem.
+            let trace_gpu_memblk_size = 432 * 1024 * 1024;
+            let proof_gpu_memblk_size = (1750) * 1024 * 1024;
+            let trace_pool = GpuMemBlkPool::new(3, trace_gpu_memblk_size);
+            let proof_pool = GpuMemBlkPool::new(1, proof_gpu_memblk_size);
+
+            (Arc::new(trace_pool), Arc::new(proof_pool))
         };
 
         Self {
@@ -735,12 +737,13 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
                                     .in_scope(|| self.compress_prover.setup(&program));
 
                                 // Observe the proving key.
-                                let mut challenger = self.compress_prover.config().initialise_challenger();
+                                let mut challenger =
+                                    self.compress_prover.config().initialise_challenger();
                                 tracing::debug_span!("observe proving key").in_scope(|| {
                                     pk.observe_into(&mut challenger);
                                 });
                                 //debug
-                                 let duration = start.elapsed();
+                                let duration = start.elapsed();
                                 println!("-- compress_prover.setup , duration:{:?}", duration);
 
                                 #[cfg(feature = "debug")]
@@ -755,7 +758,7 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
                                     .in_scope(|| self.compress_prover.commit(&record, traces));
 
                                 //debug
-                                 let duration = start.elapsed();
+                                let duration = start.elapsed();
                                 println!("-- compress_prover.commit , duration:{:?}", duration);
 
                                 // Generate the proof.
@@ -763,7 +766,7 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
                                     self.compress_prover.open(&pk, data, &mut challenger).unwrap()
                                 });
                                 //debug
-                                 let duration = start.elapsed();
+                                let duration = start.elapsed();
                                 println!("-- compress_prover.open , duration:{:?}", duration);
 
                                 // Verify the proof.
@@ -931,11 +934,7 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
         #[allow(clippy::type_complexity)]
         enum TracesOrInput {
             ProgramRecordTraces(
-                Box<(
-                    Arc<RecursionProgram<BabyBear>>,
-                    ExecutionRecord<BabyBear>,
-                    GpuTraceBundle,
-                )>
+                Box<(Arc<RecursionProgram<BabyBear>>, ExecutionRecord<BabyBear>, GpuTraceBundle)>,
             ),
             CircuitWitness(Box<SP1CircuitWitness>),
         }
@@ -1064,8 +1063,9 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
 
                             // Generate the traces.
                             let record = records.into_iter().next().unwrap();
-                            let traces = tracing::debug_span!("generate traces")
-                                .in_scope(|| self.compress_prover.generate_traces(&record, &gpu_mem_blk));
+                            let traces = tracing::debug_span!("generate traces").in_scope(|| {
+                                self.compress_prover.generate_traces(&record, &gpu_mem_blk)
+                            });
 
                             // Wait for our turn to update the state.
                             record_and_trace_sync.wait_for_turn(index);
@@ -1118,8 +1118,9 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
             let proofs_tx = Arc::new(Mutex::new(proofs_tx));
             let proofs_rx = Arc::new(Mutex::new(proofs_rx));
             let mut prover_handles = Vec::new();
-            for _ in 0..opts.recursion_opts.shard_batch_size {
-            //for _ in 0..1 {//debug
+            //for _ in 0..opts.recursion_opts.shard_batch_size {
+            for _ in 0..1 {
+                //debug
                 let prover_sync = Arc::clone(&proofs_sync);
                 let record_and_trace_rx = Arc::clone(&record_and_trace_rx);
                 let proofs_tx = Arc::clone(&proofs_tx);
@@ -1141,15 +1142,18 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
                             tracing::debug_span!("batch").in_scope(|| {
                                 // Get the keys.
                                 let (pk, vk) = tracing::debug_span!("Setup compress program")
-                                    .in_scope(|| self.compress_prover.setup(&program, &prove_gpu_mem_blk));
+                                    .in_scope(|| {
+                                        self.compress_prover.setup(&program, &prove_gpu_mem_blk)
+                                    });
 
                                 // Observe the proving key.
-                                let mut challenger = self.compress_prover.config().initialise_challenger();
+                                let mut challenger =
+                                    self.compress_prover.config().initialise_challenger();
                                 tracing::debug_span!("observe proving key").in_scope(|| {
                                     pk.observe_into(&mut challenger);
                                 });
                                 //debug
-                                 let duration = start.elapsed();
+                                let duration = start.elapsed();
                                 println!("-- compress_prover.setup , duration:{:?}", duration);
 
                                 #[cfg(feature = "debug")]
@@ -1160,19 +1164,26 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
                                 );
 
                                 // Commit to the record and traces.
-                                let data = tracing::debug_span!("commit")
-                                    .in_scope(|| self.compress_prover.commit(&record, bundle.traces, &prove_gpu_mem_blk));
+                                let data = tracing::debug_span!("commit").in_scope(|| {
+                                    self.compress_prover.commit(
+                                        &record,
+                                        bundle.traces,
+                                        &prove_gpu_mem_blk,
+                                    )
+                                });
 
                                 //debug
-                                 let duration = start.elapsed();
+                                let duration = start.elapsed();
                                 println!("-- compress_prover.commit , duration:{:?}", duration);
 
                                 // Generate the proof.
                                 let proof = tracing::debug_span!("open").in_scope(|| {
-                                    self.compress_prover.open(&pk, data, &mut challenger, &prove_gpu_mem_blk).unwrap()
+                                    self.compress_prover
+                                        .open(&pk, data, &mut challenger, &prove_gpu_mem_blk)
+                                        .unwrap()
                                 });
                                 //debug
-                                 let duration = start.elapsed();
+                                let duration = start.elapsed();
                                 println!("-- compress_prover.open , duration:{:?}", duration);
 
                                 // Verify the proof.
@@ -1385,17 +1396,17 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
     ) -> Result<SP1ReduceProof<InnerSC>, SP1RecursionProverError> {
         // Make the compress proof.
         let SP1ReduceProof { vk: compressed_vk, proof: compressed_proof } = reduced_proof;
-        
+
         let input = SP1CompressWitnessValues {
             vks_and_proofs: vec![(compressed_vk.clone(), compressed_proof)],
             is_complete: true,
         };
 
         let input_with_merkle = self.make_merkle_proofs(input);
-        
+
         let program =
             self.shrink_program(ShrinkAir::<BabyBear>::shrink_shape(), &input_with_merkle);
-                
+
         // Run the compress program.
         let mut runtime = RecursionRuntime::<Val<InnerSC>, Challenge<InnerSC>>::new(
             program.clone(),
@@ -1415,18 +1426,24 @@ impl<C: SP1ProverComponents> SP1Prover<C> {
         let mut trace_gpu_mem_blk = self.trace_pool.lease();
         trace_gpu_mem_blk.reset();
 
-        let (shrink_pk, shrink_vk) =
-            tracing::debug_span!("setup shrink").in_scope(|| self.shrink_prover.setup(&program, &trace_gpu_mem_blk));
-   
+        let (shrink_pk, shrink_vk) = tracing::debug_span!("setup shrink")
+            .in_scope(|| self.shrink_prover.setup(&program, &trace_gpu_mem_blk));
+
         // Prove the compress program.
         let mut prove_gpu_mem_blk = self.proof_pool.lease();
         prove_gpu_mem_blk.reset();
         let mut compress_challenger = self.shrink_prover.config().initialise_challenger();
         let mut compress_proof = self
             .shrink_prover
-            .prove(&shrink_pk, vec![runtime.record], &mut compress_challenger, opts.recursion_opts, &prove_gpu_mem_blk)
+            .prove(
+                &shrink_pk,
+                vec![runtime.record],
+                &mut compress_challenger,
+                opts.recursion_opts,
+                &prove_gpu_mem_blk,
+            )
             .unwrap();
-        
+
         Ok(SP1ReduceProof { vk: shrink_vk, proof: compress_proof.shard_proofs.pop().unwrap() })
     }
 

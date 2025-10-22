@@ -10,20 +10,19 @@ use tracing::instrument;
 
 use p3_air::{Air, AirBuilder, BaseAir, PairBuilder};
 use p3_field::{PrimeCharacteristicRing, PrimeField32};
-use p3_matrix::{dense::RowMajorMatrix, Matrix};
+use p3_matrix::{Matrix, dense::RowMajorMatrix};
 use sp1_stark::air::{BaseAirBuilder, ExtensionAirBuilder};
 
 use sp1_derive::AlignedBorrow;
 
 use crate::{
-    air::Block, builder::SP1RecursionAirBuilder, runtime::Instruction, ExecutionRecord,
-    FriFoldEvent, FriFoldInstr, InstrsFlatIdex, 
-    Address,
+    ExecutionRecord, FriFoldEvent, FriFoldInstr, air::Block, builder::SP1RecursionAirBuilder,
+    runtime::Instruction,
 };
 
 use super::mem::MemoryAccessColsChips;
 
-use sp1_stark::GpuMatrix;
+//use sp1_stark::GpuMatrix;
 
 pub const NUM_FRI_FOLD_COLS: usize = core::mem::size_of::<FriFoldCols<u8>>();
 pub const NUM_FRI_FOLD_PREPROCESSED_COLS: usize =
@@ -109,19 +108,17 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for FriFoldChip<DEGREE>
             std::any::TypeId::of::<BabyBear>(),
             "generate_trace only supports BabyBear field"
         );
-    
+
         let fri_fold_instrs: Vec<&FriFoldInstr<BabyBear>> = program
-        .inner
-        .iter()
-        .filter_map(|instruction| match instruction {
-            Instruction::FriFold(instr) => Some(unsafe {
-                std::mem::transmute::<&FriFoldInstr<F>, &FriFoldInstr<BabyBear>>(
-                    instr.as_ref(),
-                )
-            }),
-            _ => None,
-        })
-        .collect_vec(); 
+            .inner
+            .iter()
+            .filter_map(|instruction| match instruction {
+                Instruction::FriFold(instr) => Some(unsafe {
+                    std::mem::transmute::<&FriFoldInstr<F>, &FriFoldInstr<BabyBear>>(instr.as_ref())
+                }),
+                _ => None,
+            })
+            .collect_vec();
 
         let mut values: Vec<BabyBear>;
 
@@ -129,26 +126,22 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for FriFoldChip<DEGREE>
 
         for instruction in fri_fold_instrs {
             let num_rows_for_instr = instruction.ext_vec_addrs.ps_at_z.len();
-            let mut current_instr_rows = vec![
-                [BabyBear::ZERO; NUM_FRI_FOLD_PREPROCESSED_COLS];
-                num_rows_for_instr
-            ];
+            let mut current_instr_rows =
+                vec![[BabyBear::ZERO; NUM_FRI_FOLD_PREPROCESSED_COLS]; num_rows_for_instr];
 
             current_instr_rows.iter_mut().enumerate().for_each(|(row_idx, row)| {
-                let cols: &mut FriFoldPreprocessedCols<BabyBear> =
-                    row.as_mut_slice().borrow_mut();
+                let cols: &mut FriFoldPreprocessedCols<BabyBear> = row.as_mut_slice().borrow_mut();
                 unsafe {
-                        crate::sys::fri_fold_instr_to_row_babybear(
-                            &(&(*instruction)).into(), 
-                            row_idx,
-                            cols,
-                        );
+                    crate::sys::fri_fold_instr_to_row_babybear(
+                        &(&(*instruction)).into(),
+                        row_idx,
+                        cols,
+                    );
                 }
             });
             cpu_rows.extend(current_instr_rows);
         }
         values = cpu_rows.into_iter().flatten().collect::<Vec<BabyBear>>();
-        
 
         // Pad the trace to a power of two.
         if self.pad {
@@ -164,7 +157,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for FriFoldChip<DEGREE>
             unsafe { std::mem::transmute::<Vec<BabyBear>, Vec<F>>(values) },
             NUM_FRI_FOLD_PREPROCESSED_COLS,
         );
-        
+
         Some(trace)
     }
 
@@ -184,7 +177,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for FriFoldChip<DEGREE>
             std::any::TypeId::of::<BabyBear>(),
             "generate_trace only supports BabyBear field"
         );
-        
+
         let events = unsafe {
             std::mem::transmute::<&Vec<FriFoldEvent<F>>, &Vec<FriFoldEvent<BabyBear>>>(
                 &input.fri_fold_events,
@@ -199,17 +192,12 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for FriFoldChip<DEGREE>
             );
         }
 
-         
-        values
-            .chunks_mut(NUM_FRI_FOLD_COLS)
-            .zip_eq(events)
-            .for_each(|(row, event)| {
-                let cols: &mut FriFoldCols<BabyBear> = row.borrow_mut();
-                unsafe {
-                        crate::sys::fri_fold_event_to_row_babybear(event, cols);
-                }
-            });
-        
+        values.chunks_mut(NUM_FRI_FOLD_COLS).zip_eq(events).for_each(|(row, event)| {
+            let cols: &mut FriFoldCols<BabyBear> = row.borrow_mut();
+            unsafe {
+                crate::sys::fri_fold_event_to_row_babybear(event, cols);
+            }
+        });
 
         // Pad the trace to a power of two.
         if self.pad {
@@ -231,7 +219,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for FriFoldChip<DEGREE>
             trace.width(),
             trace.height()
         );
-        
+
         trace
     }
 
@@ -253,7 +241,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for FriFoldChip<DEGREE>
 
         // 1. Allocate the matrix directly on the GPU.
         let mut gpu_matrix = GpuMatrix::<F>::new(padded_nb_rows, num_cols);
-        
+
         if !events.is_empty() {
             unsafe {
                 crate::sys::process_fri_fold_events_gpu(
@@ -265,7 +253,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for FriFoldChip<DEGREE>
                 );
             }
         }
-        
+
         // 3. Return the GpuMatrix handle.
         gpu_matrix
     }
@@ -285,7 +273,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for FriFoldChip<DEGREE>
             }),
             _ => None,
         })
-        .collect_vec(); 
+        .collect_vec();
 
         if !fri_fold_instrs.is_empty()  {
             let mut all_ext_mat_opening: Vec<Address<BabyBear>> = Vec::new();
@@ -313,17 +301,17 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for FriFoldChip<DEGREE>
 
             let mut num_total_output_rows = 0;
             for (instr_idx, &instr_ref) in fri_fold_instrs.iter().enumerate() {
-                let instr_data = instr_ref; 
+                let instr_data = instr_ref;
                 let ps_at_z_len = instr_data.ext_vec_addrs.ps_at_z.len();
                 num_total_output_rows += ps_at_z_len;
-                for j in 0..ps_at_z_len { 
+                for j in 0..ps_at_z_len {
                      instrs_index_info.push(InstrsFlatIdex {
                             instr_idx: instr_idx,
                             arr_idx: j ,
-                           // last_row: ps_at_z_len, 
+                           // last_row: ps_at_z_len,
                         });
                 }
- 
+
                 all_ext_mat_opening.extend_from_slice(&instr_data.ext_vec_addrs.mat_opening);
                 all_ext_ps_at_z.extend_from_slice(&instr_data.ext_vec_addrs.ps_at_z);
                 all_alpha_pow_input.extend_from_slice(&instr_data.ext_vec_addrs.alpha_pow_input);
@@ -336,7 +324,7 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for FriFoldChip<DEGREE>
                 instrs_values.push(crate::FriFoldInstrFlat {
                     base_single_addrs: instr_data.base_single_addrs,
                     ext_single_addrs:  instr_data.ext_single_addrs,
-                    
+
                     ext_vec_addrs_mat_opening_offset: current_ext_mat_opening_offset,
                     ext_vec_addrs_mat_opening_len: instr_data.ext_vec_addrs.mat_opening.len(),
                     ext_vec_addrs_ps_at_z_offset: current_ext_ps_at_z_offset,
@@ -371,43 +359,43 @@ impl<F: PrimeField32, const DEGREE: usize> MachineAir<F> for FriFoldChip<DEGREE>
             //values = vec![BabyBear::ZERO; initial_len];
             let padded_num_rows = next_power_of_two(num_total_output_rows, program.fixed_log2_rows(self));
             let num_cols = NUM_FRI_FOLD_PREPROCESSED_COLS;
-        
+
             // 1. Allocate the matrix directly on the GPU.
             let mut gpu_matrix = GpuMatrix::<F>::new(padded_num_rows, num_cols);
-            
+
             unsafe {
                 crate::sys::process_fri_fold_instructions_gpu(
-                    instrs_values.as_ptr(),        
+                    instrs_values.as_ptr(),
                     instrs_values.len(),
-                    instrs_index_info.as_ptr(),         
+                    instrs_index_info.as_ptr(),
                     instrs_index_info.len(),
-                    all_ext_mat_opening.as_ptr(),       
+                    all_ext_mat_opening.as_ptr(),
                     all_ext_mat_opening.len(),
-                    all_ext_ps_at_z.as_ptr(),           
+                    all_ext_ps_at_z.as_ptr(),
                     all_ext_ps_at_z.len(),
-                    all_alpha_pow_input.as_ptr(),       
+                    all_alpha_pow_input.as_ptr(),
                     all_alpha_pow_input.len(),
-                    all_ro_input.as_ptr(),             
+                    all_ro_input.as_ptr(),
                     all_ro_input.len(),
-                    all_alpha_pow_output.as_ptr(),      
+                    all_alpha_pow_output.as_ptr(),
                     all_alpha_pow_output.len(),
-                    all_ro_output.as_ptr(),             
+                    all_ro_output.as_ptr(),
                     all_ro_output.len(),
-                    all_alpha_pow_mults.as_ptr(),       
+                    all_alpha_pow_mults.as_ptr(),
                     all_alpha_pow_mults.len(),
-                    all_ro_mults.as_ptr(),              
+                    all_ro_mults.as_ptr(),
                     all_ro_mults.len(),
-                    gpu_matrix.as_mut_ptr() as *mut BabyBear, 
-                    gpu_matrix.height * gpu_matrix.width, 
+                    gpu_matrix.as_mut_ptr() as *mut BabyBear,
+                    gpu_matrix.height * gpu_matrix.width,
                     num_total_output_rows,
                     NUM_FRI_FOLD_PREPROCESSED_COLS,
                 );
-            } 
+            }
             Some(gpu_matrix)
         } else {
             None
         }
-            
+
     } */
 }
 
@@ -470,8 +458,6 @@ impl<const DEGREE: usize> FriFoldChip<DEGREE> {
             .when_not(next_prepr.is_first)
             .assert_eq(local.x, next.x);
 
-        
-
         // Ensure that the z value is the same for all rows within a fri fold invocation.
         builder
             .when_transition()
@@ -479,16 +465,12 @@ impl<const DEGREE: usize> FriFoldChip<DEGREE> {
             .when_not(next_prepr.is_first)
             .assert_ext_eq(local.z.as_extension::<AB>(), next.z.as_extension::<AB>());
 
-        
-
         // Ensure that the alpha value is the same for all rows within a fri fold invocation.
         builder
             .when_transition()
             .when(next_prepr.is_real)
             .when_not(next_prepr.is_first)
             .assert_ext_eq(local.alpha.as_extension::<AB>(), next.alpha.as_extension::<AB>());
-
-        
 
         // 1. Constrain new_value = old_value * alpha.
         let alpha = local.alpha.as_extension::<AB>();
@@ -509,7 +491,6 @@ impl<const DEGREE: usize> FriFoldChip<DEGREE> {
             (new_ro.clone() - old_ro) * (BinomialExtension::from_base(x) - z),
             (p_at_x - p_at_z) * old_alpha_pow,
         );
-    
     }
 
     pub const fn do_memory_access<T: Copy>(local: &FriFoldPreprocessedCols<T>) -> T {
@@ -545,22 +526,22 @@ mod tests {
     #![allow(clippy::print_stdout)]
 
     use crate::{
+        FriFoldBaseIo, FriFoldEvent, FriFoldExtSingleIo, FriFoldExtVecIo, Instruction,
+        MemAccessKind, RecursionProgram,
         air::Block,
         chips::{fri_fold::FriFoldChip, mem::MemoryAccessCols, test_fixtures},
         machine::tests::test_recursion_linear_program,
-        runtime::{instruction as instr, ExecutionRecord},
+        runtime::{ExecutionRecord, instruction as instr},
         stark::BabyBearPoseidon2Outer,
-        FriFoldBaseIo, FriFoldEvent, FriFoldExtSingleIo, FriFoldExtVecIo, Instruction,
-        MemAccessKind, RecursionProgram,
     };
     use p3_baby_bear::BabyBear;
     use p3_field::{BasedVectorSpace, PrimeCharacteristicRing};
     use p3_matrix::dense::RowMajorMatrix;
-    use rand::{rngs::StdRng, Rng, SeedableRng};
-    use sp1_core_machine::utils::setup_logger;
-    use sp1_stark::{air::MachineAir, StarkGenericConfig};
-    use std::mem::size_of;
+    use rand::{Rng, SeedableRng, rngs::StdRng};
     use sp1_core_machine::utils::pad_rows_fixed;
+    use sp1_core_machine::utils::setup_logger;
+    use sp1_stark::{StarkGenericConfig, air::MachineAir};
+    use std::mem::size_of;
 
     use super::*;
 
@@ -576,8 +557,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(0xDEADBEEF);
         let mut random_felt = move || -> F { F::from_u32(rng.gen_range(0..1 << 16)) };
         let mut rng = StdRng::seed_from_u64(0xDEADBEEF);
-        let mut random_block =
-            move || Block::from([F::from_u32(rng.gen_range(0..1 << 16)); 4]);
+        let mut random_block = move || Block::from([F::from_u32(rng.gen_range(0..1 << 16)); 4]);
         let mut addr = 0;
 
         let num_ext_vecs: u32 = size_of::<FriFoldExtVecIo<u8>>() as u32;
@@ -623,10 +603,10 @@ mod tests {
                 let ro_output = (0..i)
                     .map(|i| {
                         let i = i as usize;
-                        ro_input[i].ext::<EF>() +
-                            alpha_pow_input[i].ext::<EF>() *
-                                (-ps_at_z[i].ext::<EF>() + mat_opening[i].ext::<EF>()) /
-                                (-z.ext::<EF>() + x)
+                        ro_input[i].ext::<EF>()
+                            + alpha_pow_input[i].ext::<EF>()
+                                * (-ps_at_z[i].ext::<EF>() + mat_opening[i].ext::<EF>())
+                                / (-z.ext::<EF>() + x)
                     })
                     .collect::<Vec<EF>>();
 
@@ -717,9 +697,7 @@ mod tests {
         let shard = ExecutionRecord {
             fri_fold_events: (0..17)
                 .map(|_| FriFoldEvent {
-                    base_single: FriFoldBaseIo {
-                        x: F::from_u32(rng2.gen_range(0..1 << 16)),
-                    },
+                    base_single: FriFoldBaseIo { x: F::from_u32(rng2.gen_range(0..1 << 16)) },
                     ext_single: FriFoldExtSingleIo { z: random_block(), alpha: random_block() },
                     ext_vec: crate::FriFoldExtVecIo {
                         mat_opening: random_block(),
@@ -790,15 +768,15 @@ mod tests {
     }
 
     #[test]
-    fn generate_trace_gpu() {     
+    fn generate_trace_gpu() {
         let shard = test_fixtures::shard();
         let mut execution_record = test_fixtures::default_execution_record();
         let chip = FriFoldChip::<DEGREE>::default();
         let trace_gpu_ptr = chip.generate_trace_gpu(&shard, &mut execution_record);
-        
+
         let trace_values = trace_gpu_ptr.to_host();
         let trace = RowMajorMatrix::new(trace_values, NUM_FRI_FOLD_COLS);
-        
+
         assert_eq!(trace, generate_trace_reference::<DEGREE>(&shard, &mut execution_record));
     }
 

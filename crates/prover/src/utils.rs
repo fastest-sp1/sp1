@@ -14,10 +14,10 @@ use sp1_core_executor::{Executor, Program};
 use sp1_core_machine::{io::SP1Stdin, reduce::SP1ReduceProof};
 use sp1_recursion_circuit::machine::RootPublicValues;
 use sp1_recursion_core::{
-    air::{RecursionPublicValues, NUM_PV_ELMS_TO_HASH},
+    air::{NUM_PV_ELMS_TO_HASH, RecursionPublicValues},
     stark::BabyBearPoseidon2Outer,
 };
-use sp1_stark::{baby_bear_poseidon2::MyHash as InnerHash, SP1CoreOpts, Word};
+use sp1_stark::{SP1CoreOpts, Word, baby_bear_poseidon2::MyHash as InnerHash};
 
 use crate::{InnerSC, SP1CoreProofData};
 

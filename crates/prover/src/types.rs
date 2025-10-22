@@ -4,9 +4,12 @@ use anyhow::Result;
 use clap::ValueEnum;
 use p3_baby_bear::BabyBear;
 use p3_bn254_fr::Bn254Fr;
-use p3_commit::{Pcs};
-use p3_field::{PrimeCharacteristicRing, PrimeField, PrimeField32, TwoAdicField, coset::TwoAdicMultiplicativeCoset};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use p3_commit::Pcs;
+use p3_field::{
+    PrimeCharacteristicRing, PrimeField, PrimeField32, TwoAdicField,
+    coset::TwoAdicMultiplicativeCoset,
+};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sp1_core_machine::{io::SP1Stdin, reduce::SP1ReduceProof};
 use sp1_primitives::{io::SP1PublicValues, poseidon2_hash};
 
@@ -16,12 +19,12 @@ use sp1_recursion_circuit::machine::{
 
 use sp1_recursion_gnark_ffi::proof::{Groth16Bn254Proof, PlonkBn254Proof};
 
-use sp1_stark::{ShardProof, StarkGenericConfig, StarkProvingKey, StarkVerifyingKey, DIGEST_SIZE};
+use sp1_stark::{DIGEST_SIZE, ShardProof, StarkGenericConfig, StarkProvingKey, StarkVerifyingKey};
 use thiserror::Error;
 
 use crate::{
-    utils::{babybears_to_bn254, words_to_bytes_be},
     CoreSC, InnerSC,
+    utils::{babybears_to_bn254, words_to_bytes_be},
 };
 
 /// The information necessary to generate a proof for a given RISC-V program.
