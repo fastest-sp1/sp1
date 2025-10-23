@@ -154,14 +154,14 @@ OS: ubuntu20
 
 ## overview
 
-1.This component is for research purposes only, focusing on GPU acceleration of the STARK/FRI protocol. It implements corresponding C/C++ CUDA code largely based on key functions and structs from SP1/Plonky3. As such, the architecture is not particularly elegant, and there remains significant room for performance improvement.
+1. This component is for research purposes only, focusing on GPU acceleration of the STARK/FRI protocol. It implements corresponding C/C++ CUDA code largely based on key functions and structs from SP1/Plonky3. As such, the architecture is not particularly elegant, and there remains significant room for performance improvement.
 
-2.The main GPU-accelerated operations implemented include:
+2. The main GPU-accelerated operations implemented include:
 coset_lde_batch, commit, open_batch, commit_phase, answer_query, quotient_values, etc.
 
-3.Verified with SP1’s CoreProver, CompressProver, and ShrinkProver. GPU acceleration for WrapProver is yet to be implemented.
+3. Verified with SP1’s CoreProver, CompressProver, and ShrinkProver. GPU acceleration for WrapProver is yet to be implemented.
 
-4.Relevant code is located under:
+4. Relevant code is located under:
 sp1/stark/{gpu_ffi, include, src/gpu}
 
 
@@ -171,23 +171,34 @@ sp1/stark/{gpu_ffi, include, src/gpu}
 
 ```sh
 $ cd sp1/examples/fibonacci/script/
+```
 
 2. Build with GPU support (for RTX 2060):
 
 ```sh
 $ RUSTFLAGS="-C target-cpu=native" cargo build -r --features recursion_cuda
+```
 
 3. For other GPU models (e.g., A10), specify the CUDA architecture explicitly:
 
 ```sh
 $ CUDA_ARCH=sm_86 RUSTFLAGS="-C target-cpu=native" cargo build -r --features recursion_cuda
+```
 
 4. To test CompressProver, run:
 
 ```sh
-./../../fibonacci-script
+../../fibonacci-script
+```
 
-5. To test ShrinkProver, run the groth16_bn254 example. Note that you must first set up the Groth16 proving parameters as required[## Build the Groth16 circuit].
+5. To test ShrinkProver, run the groth16_bn254 example. 
+
+> [!NOTE]  
+> you must first set up the Groth16 circuit parameters as required— see [Build the Groth16 circuit](#build-the-groth16-circuit) .
+
+```sh
+../../groth16_bn254
+```
 
 6. For GPU acceleration of Groth16 proofs, refer to:
 https://github.com/ingonyama-zk/icicle-gnark
