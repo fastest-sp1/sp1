@@ -20,13 +20,13 @@ use crate::{
     record::MachineRecord,
 };
 
-use super::{
+use crate::{
     Com, InnerChallenge, InnerVal, StarkGenericConfig, StarkMachine, StarkProvingKey,
-    quotient_values_data_in_gpu,
+    PROOF_MAX_NUM_PVS, septic_digest::SepticDigest,
 };
 
 use crate::{
-    PROOF_MAX_NUM_PVS, count_permutation_constraints, septic_digest::SepticDigest, split_matrix_gpu,
+    quotient_values_data_in_gpu, count_permutation_constraints,  split_matrix_gpu,
 };
 use hashbrown::HashMap;
 use p3_air::Air;

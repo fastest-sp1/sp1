@@ -162,7 +162,7 @@ coset_lde_batch, commit, open_batch, commit_phase, answer_query, quotient_values
 3. Verified with SP1’s CoreProver, CompressProver, and ShrinkProver. GPU acceleration for WrapProver is yet to be implemented.
 
 4. Relevant code is located under:
-sp1/stark/{gpu_ffi, include, src/gpu}
+sp1/crates/stark/{gpu_ffi, include, src/gpu}
 
 
 ## usage 
@@ -202,5 +202,8 @@ $ CUDA_ARCH=sm_86 RUSTFLAGS="-C target-cpu=native" cargo build -r --features rec
 
 6. For GPU acceleration of Groth16 proofs, refer to:
 https://github.com/ingonyama-zk/icicle-gnark
+
+
+7. SP1 official GPU acceleration(sp1-gpu): https://github.com/succinctlabs/sp1-gpu
 
 ```

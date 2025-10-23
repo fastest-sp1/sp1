@@ -17,9 +17,6 @@ use p3_symmetric::{Hash, PaddingFreeSponge, TruncatedPermutation};
 use serde::{Deserialize, Serialize};
 use sp1_primitives::poseidon2_init;
 
-//#[cfg(feature = "recursion_cuda")]
-//use crate::gpu::dft::GpuDft;
-
 pub const DIGEST_SIZE: usize = 8;
 
 /// A configuration for inner recursion.
@@ -40,7 +37,7 @@ pub type InnerValMmcs = MerkleTreeMmcs<
     8,
 >;
 #[cfg(feature = "recursion_cuda")]
-pub type InnerValMmcs = crate::gpu::merkle::GpuMerkleTreeMmcs<
+pub type InnerValMmcs = crate::GpuMerkleTreeMmcs<
     <InnerVal as Field>::Packing,
     <InnerVal as Field>::Packing,
     InnerHash,
@@ -61,7 +58,7 @@ pub type InnerDft = Radix2DitParallel<InnerVal>; //GpuDft; // GpuDft's performac
 pub type InnerPcs = TwoAdicFriPcs<InnerVal, InnerDft, InnerValMmcs, InnerChallengeMmcs>;
 #[cfg(feature = "recursion_cuda")]
 pub type InnerPcs =
-    crate::gpu::pcs::GpuFriPcs<InnerVal, InnerDft, InnerValMmcs, InnerChallengeMmcs>;
+    crate::GpuFriPcs<InnerVal, InnerDft, InnerValMmcs, InnerChallengeMmcs>;
 
 pub type InnerQueryProof = QueryProof<InnerChallenge, InnerChallengeMmcs>;
 pub type InnerCommitPhaseStep = CommitPhaseProofStep<InnerChallenge, InnerChallengeMmcs>;
@@ -217,7 +214,7 @@ pub mod baby_bear_poseidon2 {
     pub type BabyBearPoseidon2 = StarkConfigCpu;
 
     #[cfg(feature = "recursion_cuda")]
-    pub type BabyBearPoseidon2 = crate::gpu::gpu_config::StarkConfigGpu;
+    pub type BabyBearPoseidon2 = crate::StarkConfigGpu;
 
     pub type ValMmcs =
         MerkleTreeMmcs<<Val as Field>::Packing, <Val as Field>::Packing, MyHash, MyCompress, 8>;
