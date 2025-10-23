@@ -4,9 +4,6 @@
 
 This modified version of SP1(based on SP1 v4.2.0) is the fastest SP1, which uses the latest Plonky3(commit 5c04950709d20c8d88c3e64d37c935d7d759a01c).
 
-> [!NOTE]
-> The CUDA acceleration in SP1 is only partially open, so performance comparison is currently not possible. 
-
 # Usage
 
 ## Clone the customized Plonky3 repository
@@ -150,18 +147,49 @@ OS: ubuntu20
 | wrap_plonk_bn254 |  361.0s             | 369s       |        |
 
 
-# GPU-accelerated library of sp1-recursion-core-sys 
-
-## Usage 
+# GPU Acceleration for STARK/FRI (CUDA Backend)
 
 > [!NOTE]
-> Currently, only generate_preprocessed_trace and generate_trace are accelerated by GPU. Support for other functions will be added soon.  
-> Only the test in sp1/examples/fibonacci is currently enabled for GPU acceleration.  
-> Set the following environment variable 'CUDA_ARCH=sm_86' according to your GPU architecture.
+> The GPU used for testing is an NVIDIA RTX 2060 (6GB memory).  
+
+## overview
+
+1.This component is for research purposes only, focusing on GPU acceleration of the STARK/FRI protocol. It implements corresponding C/C++ CUDA code largely based on key functions and structs from SP1/Plonky3. As such, the architecture is not particularly elegant, and there remains significant room for performance improvement.
+
+2.The main GPU-accelerated operations implemented include:
+coset_lde_batch, commit, open_batch, commit_phase, answer_query, quotient_values, etc.
+
+3.Verified with SP1’s CoreProver, CompressProver, and ShrinkProver. GPU acceleration for WrapProver is yet to be implemented.
+
+4.Relevant code is located under:
+sp1/stark/{gpu_ffi, include, src/gpu}
+
+
+## usage 
+
+1. Navigate to the example directory:
 
 ```sh
-$ cd sp1/examples/fibonacci/script
-$ CUDA_ARCH=sm_86  RUSTFLAGS="-C target-cpu=native" cargo build -r --features recursion_cuda
-$ RUST_LOG=info  RUST_LOGGER=forest    ../../target/release/fibonacci-script
+$ cd sp1/examples/fibonacci/script/
+
+2. Build with GPU support (for RTX 2060):
+
+```sh
+$ RUSTFLAGS="-C target-cpu=native" cargo build -r --features recursion_cuda
+
+3. For other GPU models (e.g., A10), specify the CUDA architecture explicitly:
+
+```sh
+$ CUDA_ARCH=sm_86 RUSTFLAGS="-C target-cpu=native" cargo build -r --features recursion_cuda
+
+4. To test CompressProver, run:
+
+```sh
+./../../fibonacci-script
+
+5. To test ShrinkProver, run the groth16_bn254 example. Note that you must first set up the Groth16 proving parameters as required[## Build the Groth16 circuit].
+
+6. For GPU acceleration of Groth16 proofs, refer to:
+https://github.com/ingonyama-zk/icicle-gnark
 
 ```
